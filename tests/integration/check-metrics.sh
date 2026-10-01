@@ -22,6 +22,8 @@ fi
 if command -v promtool >/dev/null 2>&1; then
     run() { promtool check metrics; }
 else
+    # pull first: the pull progress would otherwise end up in the captured findings
+    docker image inspect "$promtool_image" >/dev/null 2>&1 || docker pull -q "$promtool_image" >/dev/null
     run() { docker run --rm -i --entrypoint /bin/promtool "$promtool_image" check metrics; }
 fi
 

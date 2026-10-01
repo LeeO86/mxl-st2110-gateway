@@ -34,7 +34,10 @@ mkdir -p "$WORK/config" "$IT_ARTIFACTS"
 # ---- avahi on the host (the gateway's dns_sd client talks to it over D-Bus)
 if ! pgrep -x avahi-daemon >/dev/null; then
     command -v avahi-daemon >/dev/null || as_root apt-get install -y -qq avahi-daemon >/dev/null
-    if command -v systemctl >/dev/null && systemctl is-system-running >/dev/null 2>&1; then
+fi
+# the package starts the daemon itself where systemd runs (GitHub runners)
+if ! pgrep -x avahi-daemon >/dev/null; then
+    if [[ -d /run/systemd/system ]]; then
         as_root systemctl start avahi-daemon
     else
         pgrep -f "dbus-daemon --system" >/dev/null || { as_root mkdir -p /run/dbus; as_root rm -f /run/dbus/pid; as_root dbus-daemon --system --fork; }

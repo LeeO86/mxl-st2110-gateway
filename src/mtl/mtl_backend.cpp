@@ -403,6 +403,12 @@ namespace mxlgw::media
                     p.rx_queues_cnt[i] = budget.rx;
                 }
                 p.flags = MTL_FLAG_BIND_NUMA;
+                if (_ctx.kernel)
+                {
+                    // Test-only kernel backend (§17.2): the scheduler is a normal thread that sleeps when its
+                    // tasklets are idle, instead of a pinned busy-polling lcore that starves small CI hosts.
+                    p.flags |= MTL_FLAG_TASKLET_THREAD | MTL_FLAG_TASKLET_SLEEP;
+                }
                 if (!cfg.nic.lcores.empty())
                 {
                     _lcores = cfg.nic.lcores;

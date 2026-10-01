@@ -119,9 +119,11 @@ for f in "$LOOP_V" "$LOOP_A1" "$LOOP_ANC"; do
     grep -q "$f" "$IT_ARTIFACTS/mxl-info.txt" || fail "mxl-info does not list ingest flow $f"
 done
 
-# The kernel backend has no pacing guarantees (§17.2): MTL may drop an audio frame whose transmit
-# time passed (counted in mxlgw_tx_late_frames_total). Bad audio blocks are accepted only if the
-# gateway counted at least as many late audio frames during the same window; everything else must be exact.
+# The kernel backend has no pacing guarantees and reads the two legs' sockets one after the other
+# (§17.2): under CPU load MTL may drop an audio frame whose transmit time passed
+# (mxlgw_tx_late_frames_total) or miss a packet on both legs (its "unrecovered (lost on both)"
+# statistic). Bad audio blocks are accepted only if those counters explain them for the same window
+# (one lost packet can touch two verify blocks); video, ANC, offsets and A/V alignment must be exact.
 late_audio() {
     local sum=0 v
     for e in "PGM A1" "PGM A2"; do
@@ -130,31 +132,38 @@ late_audio() {
     done
     echo "$sum"
 }
-verify_accounted() { # <report.json> <late before> <late after>
-    python3 - "$@" <<'PY'
+unrecovered_audio() { # <since RFC 3339>
+    docker logs --since "$1" "$IT_PREFIX-ingest" 2>&1 |
+        grep -o 'RX_AUDIO_SESSION([0-9,]*): per-port loss[^"]*unrecovered (lost on both) [0-9]*' |
+        awk '{s += $NF} END {print s + 0}'
+}
+verify() { # <report.json> <mxl-verify arguments...>
+    local report="$1" since late0 allowed
+    shift
+    since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    late0=$(late_audio)
+    run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain /Volumes/mxl/main "$@" >"$report" && return 0
+    sleep 11 # MTL prints its per-port loss statistics every 10 s
+    allowed=$(($(late_audio) - late0 + 2 * $(unrecovered_audio "$since")))
+    python3 - "$report" "$allowed" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
-late = int(sys.argv[3]) - int(sys.argv[2])
-if r["ok"]:
-    sys.exit(0)
+allowed = int(sys.argv[2])
 other = [f for f in r["failures"] if not f.startswith("audio tone")]
 bad = r.get("audio", {}).get("bad_blocks", 0)
-if not other and 0 < bad <= late:
-    print(f"accepted: {bad} bad audio block(s), {late} late audio frame(s) counted by the egress gateway", file=sys.stderr)
+if not other and 0 < bad <= allowed:
+    print(f"accepted: {bad} bad audio block(s), explained by late or both-legs-lost audio packets (allowance {allowed})", file=sys.stderr)
     sys.exit(0)
+print(f"not explained: {bad} bad audio block(s), allowance {allowed}, other failures {other}", file=sys.stderr)
 sys.exit(1)
 PY
 }
 
 log "verifying the ingest flows for ${DURATION_MS} ms"
-late0=$(late_audio)
-run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain /Volumes/mxl/main --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
-    --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms "$DURATION_MS" --expect-offset-grains 2 \
-    >"$IT_ARTIFACTS/loopback-verify.json" || verify_accounted "$IT_ARTIFACTS/loopback-verify.json" "$late0" "$(late_audio)" ||
+verify "$IT_ARTIFACTS/loopback-verify.json" --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
+    --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms "$DURATION_MS" --expect-offset-grains 2 ||
     { cat "$IT_ARTIFACTS/loopback-verify.json" >&2; fail "mxl-verify (video, audio 1, ANC)"; }
-late0=$(late_audio)
-run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain /Volumes/mxl/main --audio-flow "$LOOP_A2" --rate 25/1 --channels 8 --tone-hz 440 --duration-ms 5000 \
-    >"$IT_ARTIFACTS/loopback-verify-a2.json" || verify_accounted "$IT_ARTIFACTS/loopback-verify-a2.json" "$late0" "$(late_audio)" ||
+verify "$IT_ARTIFACTS/loopback-verify-a2.json" --audio-flow "$LOOP_A2" --rate 25/1 --channels 8 --tone-hz 440 --duration-ms 5000 ||
     { cat "$IT_ARTIFACTS/loopback-verify-a2.json" >&2; fail "mxl-verify (audio 2)"; }
 pass "loopback media verified"
 
@@ -166,10 +175,8 @@ in_netns "$IT_PREFIX-ns" nft add table inet mxlit
 in_netns "$IT_PREFIX-ns" nft add chain inet mxlit input '{ type filter hook input priority 0 ; }'
 in_netns "$IT_PREFIX-ns" nft add rule inet mxlit input iifname mxlit3 meta l4proto udp numgen random mod 20 0 drop
 sleep 3
-late0=$(late_audio)
-run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain /Volumes/mxl/main --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
-    --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms 10000 --expect-offset-grains 2 \
-    >"$IT_ARTIFACTS/loopback-verify-leg-loss.json" || verify_accounted "$IT_ARTIFACTS/loopback-verify-leg-loss.json" "$late0" "$(late_audio)" ||
+verify "$IT_ARTIFACTS/loopback-verify-leg-loss.json" --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
+    --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms 10000 --expect-offset-grains 2 ||
     { cat "$IT_ARTIFACTS/loopback-verify-leg-loss.json" >&2; fail "output not intact with leg R loss"; }
 lost_after=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
 python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) + 100 else 1)" "${lost_before:-0}" "${lost_after:-0}" ||

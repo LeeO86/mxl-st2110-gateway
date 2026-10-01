@@ -1,6 +1,6 @@
 # Upstream proposal: PTP status, domain filter and dual-port BMCA for MTL
 
-Prepared from `patches/mtl/0001`–`0003` (against `v26.09`) for three separate pull requests to `OpenVisualCloud/Media-Transport-Library`.
+Prepared from `patches/mtl/0001`–`0003` (against `v26.09`) for three separate pull requests (0004, the scheduler lost-wakeup fix, is a fourth, independent one) to `OpenVisualCloud/Media-Transport-Library`.
 
 ## Motivation
 
