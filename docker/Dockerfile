@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libboost-system-dev libboost-thread-dev libboost-chrono-dev libboost-date-time-dev \
         libboost-regex-dev libboost-random-dev libboost-filesystem-dev \
         libcpprest-dev libwebsocketpp-dev nlohmann-json3-dev libavahi-compat-libdnssd-dev \
-        clang llvm lld clang-format gcovr \
+        clang llvm lld clang-format libclang-rt-18-dev gcovr \
     && rm -rf /var/lib/apt/lists/*
 
 # vcpkg for the MXL dependency manifest (MXL pins its own builtin-baseline).

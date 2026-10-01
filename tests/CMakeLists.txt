@@ -40,6 +40,17 @@ if(MXLGW_HAVE_MXL)
     add_test(NAME mxl-tests COMMAND mxl-tests)
 endif()
 
+if(MXLGW_HAVE_NMOS)
+    add_executable(nmos-tests
+        unit/test_main.cpp
+        unit/test_sdp_parse.cpp
+    )
+    target_include_directories(nmos-tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/tests)
+    target_link_libraries(nmos-tests PRIVATE mxlgw-nmos)
+    target_compile_definitions(nmos-tests PRIVATE MXLGW_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    add_test(NAME nmos-tests COMMAND nmos-tests)
+endif()
+
 if(MXLGW_HAVE_MXL AND MXLGW_HAVE_NMOS)
     add_executable(app-tests
         unit/test_main.cpp

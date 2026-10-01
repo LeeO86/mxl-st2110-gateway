@@ -49,6 +49,14 @@ if(MXLGW_COVERAGE)
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
 endif()
+if(MXLGW_BUILD_FUZZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "MXLGW_BUILD_FUZZERS needs clang (libFuzzer)")
+    endif()
+    # Coverage instrumentation + sanitizers for every library; the fuzz executables add the libFuzzer main.
+    add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -g -O1)
+    add_link_options(-fsanitize=address,undefined)
+endif()
 
 configure_file(src/version.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp @ONLY)
 
@@ -156,6 +164,7 @@ endif()
 if(MXLGW_HAVE_NMOS)
     add_library(mxlgw-nmos STATIC
         src/nmos/node.cpp
+        src/nmos/sdp_parse.cpp
         src/nmos/http_adapter.cpp
         src/nmos/http_server.cpp
     )

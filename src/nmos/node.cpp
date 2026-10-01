@@ -46,6 +46,7 @@
 #include "nmos/http_adapter.hpp"
 #include "nmos/ids.hpp"
 #include "nmos/node_api.hpp"
+#include "nmos/sdp_parse.hpp"
 #include "util/logging.hpp"
 
 namespace mxlgw::nmosnode
@@ -935,44 +936,6 @@ namespace mxlgw::nmosnode
             return nmos::details::parse_rtp_transport_file([](value const&, nmos::sdp_parameters const&) {}, receiver, connection, type, data, gate);
         }
 
-        static std::optional<sdpmap::SdpMedia> sdpMediaOf(utility::string_t const& sdpText)
-        {
-            auto const session = sdp::parse_session_description(sdpText);
-            auto const params = nmos::get_session_description_sdp_parameters(session);
-            sdpmap::SdpMedia m;
-            m.mediaType = params.media_type.name + "/" + params.rtpmap.encoding_name;
-            m.payloadType = static_cast<int>(params.rtpmap.payload_type);
-            if (params.rtpmap.encoding_name == U("raw"))
-            {
-                auto const v = nmos::get_video_raw_parameters(params);
-                m.width = static_cast<int>(v.width);
-                m.height = static_cast<int>(v.height);
-                m.rate = {static_cast<std::int64_t>(v.exactframerate.numerator()), static_cast<std::int64_t>(v.exactframerate.denominator())};
-                m.interlace = v.interlace;
-                m.sampling = v.sampling.name;
-                m.depth = static_cast<int>(v.depth);
-                m.colorimetry = v.colorimetry.name;
-                m.tcs = v.tcs.name;
-            }
-            else if (params.rtpmap.encoding_name == U("L24") || params.rtpmap.encoding_name == U("L16"))
-            {
-                auto const a = nmos::get_audio_L_parameters(params);
-                m.channels = static_cast<int>(a.channel_count);
-                m.sampleRate = static_cast<int>(a.sample_rate);
-                m.ptimeMs = a.packet_time;
-            }
-            else if (params.rtpmap.encoding_name == U("smpte291"))
-            {
-                auto const d = nmos::get_video_smpte291_parameters(params);
-                if (d.exactframerate.numerator() != 0)
-                {
-                    m.exactFrameRate =
-                        util::Rational{static_cast<std::int64_t>(d.exactframerate.numerator()), static_cast<std::int64_t>(d.exactframerate.denominator())};
-                }
-            }
-            return m;
-        }
-
         void validateStaged(nmos::resource const& resource, nmos::resource const& connection, value const& staged)
         {
             auto const* ref = refOf(connection.id);
@@ -1042,7 +1005,7 @@ namespace mxlgw::nmosnode
                 std::optional<sdpmap::SdpMedia> media;
                 try
                 {
-                    media = sdpMediaOf(sdpText);
+                    media = parseSdpMedia(utility::us2s(sdpText));
                 }
                 catch (std::exception const& ex)
                 {
