@@ -12,6 +12,9 @@ log() {
 if [[ $# -gt 0 && "$1" != -* ]]; then
     exec "$@"
 fi
+case "${1:-}" in
+    --version | --help | -h) exec /usr/local/bin/mxl-st2110-gateway "$@" ;;
+esac
 
 memlock="$(ulimit -l)"
 if [[ "$memlock" != "unlimited" ]]; then

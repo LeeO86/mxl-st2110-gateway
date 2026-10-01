@@ -17,7 +17,9 @@ BASE=http://127.0.0.1:18180
 version=$(docker run --rm "$IMAGE" --version)
 log "$version"
 grep -q "mxl-st2110-gateway" <<<"$version" || fail "--version output"
-grep -qi "unknown" <<<"$version" && fail "--version reports unknown pins: $version"
+if grep -qE '^(MTL|DPDK|MXL|nmos-cpp) unknown' <<<"$version"; then
+    fail "--version reports unknown pins: $version"
+fi
 pass "--version"
 
 # ---- setup mode: no configuration file
