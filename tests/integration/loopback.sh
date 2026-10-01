@@ -15,7 +15,7 @@ source "$(dirname "$0")/lib.sh"
 
 IMAGE="${1:?usage: loopback.sh <image>}"
 DURATION_MS="${LOOPBACK_DURATION_MS:-60000}"
-need docker curl python3 ip nsenter iptables
+need docker curl python3 ip nsenter nft
 
 WORK="$(mktemp -d /tmp/mxlgw-loopback.XXXXXX)"
 on_exit "as_root rm -rf '$WORK'"
@@ -68,15 +68,16 @@ EOF
 gateway_config IT-EGRESS 18181 mxlit0 192.168.79.1 mxlit2 192.168.80.1 1 PGM egress >"$WORK/egress/gateway.json"
 gateway_config IT-INGEST 18182 mxlit1 192.168.79.2 mxlit3 192.168.80.2 2 LOOP ingest >"$WORK/ingest/gateway.json"
 
-log "starting pattern writers and gateways"
+log "starting the gateways (they bootstrap the domain) and the pattern writers"
+start_gateway "$IT_PREFIX-egress" "$IMAGE" "$WORK/egress" "$WORK/mxl" host
+start_gateway "$IT_PREFIX-ingest" "$IMAGE" "$WORK/ingest" "$WORK/mxl" "container:$IT_PREFIX-ns"
+IT_METRICS+=("egress $GWE" "ingest $GWI")
+wait_until 90 "egress /livez" http_ok "$GWE/livez"
+wait_until 90 "ingest /livez" http_ok "$GWI/livez"
 start_tool "$IT_PREFIX-pattern" "$IMAGE" "$WORK/mxl" mxl-pattern-writer --domain /Volumes/mxl/main \
     --video-flow "$SRC_V" --audio-flow "$SRC_A1" --anc-flow "$SRC_ANC" --width 1920 --height 1080 --rate 25/1 --channels 8 --label PATTERN
 start_tool "$IT_PREFIX-pattern2" "$IMAGE" "$WORK/mxl" mxl-pattern-writer --domain /Volumes/mxl/main \
     --audio-flow "$SRC_A2" --rate 25/1 --channels 8 --tone-hz 440 --label PATTERN2
-start_gateway "$IT_PREFIX-egress" "$IMAGE" "$WORK/egress" "$WORK/mxl" host
-start_gateway "$IT_PREFIX-ingest" "$IMAGE" "$WORK/ingest" "$WORK/mxl" "container:$IT_PREFIX-ns"
-wait_until 90 "egress /livez" http_ok "$GWE/livez"
-wait_until 90 "ingest /livez" http_ok "$GWI/livez"
 
 log "connecting the egress MXL Receivers and enabling the RTP Senders"
 declare -A SRC=(["V"]=$SRC_V ["A1"]=$SRC_A1 ["A2"]=$SRC_A2 ["ANC"]=$SRC_ANC)
@@ -128,8 +129,11 @@ pass "loopback media verified"
 
 log "dropping 5 % of leg R"
 lost_before=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
-in_netns "$IT_PREFIX-ns" iptables -I INPUT -i mxlit3 -p udp -m statistic --mode random --probability 0.05 -j DROP
-on_exit "in_netns '$IT_PREFIX-ns' iptables -D INPUT -i mxlit3 -p udp -m statistic --mode random --probability 0.05 -j DROP"
+# MTL's kernel backend receives with UDP sockets, so a netfilter rule in the ingest namespace drops
+# packets before they reach it (nft numgen: xt_statistic is not available on every kernel).
+in_netns "$IT_PREFIX-ns" nft add table inet mxlit
+in_netns "$IT_PREFIX-ns" nft add chain inet mxlit input '{ type filter hook input priority 0 ; }'
+in_netns "$IT_PREFIX-ns" nft add rule inet mxlit input iifname mxlit3 meta l4proto udp numgen random mod 20 0 drop
 sleep 3
 run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain /Volumes/mxl/main --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
     --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms 10000 --expect-offset-grains 2 \
@@ -137,6 +141,7 @@ run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain /Volumes/mxl/main --video-flow
 lost_after=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
 python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) + 100 else 1)" "${lost_before:-0}" "${lost_after:-0}" ||
     fail "mxlgw_rx_leg_seq_lost_total{leg=\"r\"} did not grow ($lost_before -> $lost_after)"
+in_netns "$IT_PREFIX-ns" nft delete table inet mxlit
 pass "leg R loss: output intact, leg r lost $lost_before -> $lost_after"
 
 "$(dirname "$0")/check-metrics.sh" "$GWE/metrics"

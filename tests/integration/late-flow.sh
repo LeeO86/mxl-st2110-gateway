@@ -62,6 +62,7 @@ config IT-LF-INGEST 18184 mxlit5 192.168.81.2 2 LOOP ingest 239.81.0 >"$WORK/ing
 
 start_gateway "$IT_PREFIX-lf-egress" "$IMAGE" "$WORK/egress" "$WORK/mxl" host
 start_gateway "$IT_PREFIX-lf-ingest" "$IMAGE" "$WORK/ingest" "$WORK/mxl" "container:$IT_PREFIX-lf-ns"
+IT_METRICS+=("egress $GWE" "ingest $GWI")
 wait_until 90 "egress /livez" http_ok "$GWE/livez"
 wait_until 90 "ingest /livez" http_ok "$GWI/livez"
 

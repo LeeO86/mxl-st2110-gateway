@@ -9,6 +9,7 @@ set -euo pipefail
 IT_PREFIX="${IT_PREFIX:-mxlgw-it}"
 IT_CONTAINERS=()
 IT_CLEANUP=()
+IT_METRICS=() # "<name> <base-url>" pairs; their /metrics and /api/status are saved on failure
 IT_FAILED=0
 IT_ARTIFACTS="${IT_ARTIFACTS:-${PWD}/it-artifacts}"
 
@@ -34,6 +35,13 @@ as_root() {
 it_cleanup() {
     local rc=$?
     mkdir -p "$IT_ARTIFACTS"
+    if [[ $rc -ne 0 || $IT_FAILED -ne 0 ]]; then
+        local entry
+        for entry in "${IT_METRICS[@]}"; do
+            curl -fsS --max-time 3 "${entry#* }/metrics" >"$IT_ARTIFACTS/${entry%% *}.metrics.txt" 2>/dev/null || true
+            curl -fsS --max-time 3 "${entry#* }/api/status" >"$IT_ARTIFACTS/${entry%% *}.status.json" 2>/dev/null || true
+        done
+    fi
     for c in "${IT_CONTAINERS[@]}"; do
         docker logs "$c" >"$IT_ARTIFACTS/$c.log" 2>&1 || true
         docker rm -f "$c" >/dev/null 2>&1 || true
