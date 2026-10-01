@@ -20,6 +20,8 @@ add_executable(unit-tests
     unit/test_group.cpp
     unit/test_bootstrap.cpp
     unit/test_testpattern.cpp
+    unit/test_app_core.cpp
+    unit/test_webapi.cpp
 )
 target_include_directories(unit-tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/tests)
 target_link_libraries(unit-tests PRIVATE mxlgw-core)
