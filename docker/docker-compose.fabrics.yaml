@@ -21,6 +21,7 @@ x-gateway: &gateway
   ulimits:
     memlock: { soft: -1, hard: -1 }
   cap_add: [IPC_LOCK, SYS_NICE]
+  security_opt: ["apparmor=unconfined"] # DNS-SD via the host's D-Bus on AppArmor hosts
   devices:
     - /dev/vfio:/dev/vfio
   volumes:

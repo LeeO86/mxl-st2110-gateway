@@ -94,7 +94,13 @@ cat >"$WORK/config/gateway.json" <<EOF
   ]
 }
 EOF
-start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon
+# dbus-daemon refuses AppArmor-confined clients whose profile has no D-Bus rules (docker-default),
+# which nmos-cpp reports as DNSServiceBrowse error -65553 (kDNSServiceErr_Refused).
+aa_opts=()
+if [[ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" == "Y" ]]; then
+    aa_opts=(--security-opt apparmor=unconfined)
+fi
+start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon "${aa_opts[@]}"
 wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
 
 run_suite() { # <tag> <suite> <args...>
