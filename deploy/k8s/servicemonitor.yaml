@@ -1,0 +1,17 @@
+# Optional (Prometheus Operator CRD). Not part of kustomization.yaml; apply separately:
+#   kubectl apply -f deploy/k8s/servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mxl-st2110-gateway
+  namespace: mxl
+  labels:
+    app.kubernetes.io/name: mxl-st2110-gateway
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mxl-st2110-gateway
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s

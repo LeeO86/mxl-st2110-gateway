@@ -1,0 +1,852 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LeeO86/mxl-st2110-gateway/schema/gateway-config.schema.json",
+  "title": "mxl-st2110-gateway configuration",
+  "description": "Configuration file of mxl-st2110-gateway (SPECIFICATION.md §9.5). Semantic rules beyond this schema are listed in §9.5 and enforced by the gateway.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Configuration schema version."
+    },
+    "node": {
+      "$ref": "#/$defs/node",
+      "description": "NMOS node identity, HTTP port, registry, TLS and logging."
+    },
+    "nic": {
+      "$ref": "#/$defs/nic",
+      "description": "Media NIC: backend, CPU placement and the ST 2022-7 port pair."
+    },
+    "ptp": {
+      "$ref": "#/$defs/ptp",
+      "description": "PTP mode and clock supervision thresholds (§5)."
+    },
+    "mxl": {
+      "$ref": "#/$defs/mxl",
+      "description": "MXL root, configured domains and default read offsets (§8)."
+    },
+    "groups": {
+      "type": "array",
+      "description": "Groups (user-facing units, one BCP-002-01 group hint each).",
+      "items": {
+        "$ref": "#/$defs/group"
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "uuidOrNull": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ipv4": {
+      "type": "string",
+      "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "absolutePath": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "rate": {
+      "type": "string",
+      "description": "Frame rate as a rational number.",
+      "enum": [
+        "24000/1001",
+        "24/1",
+        "25/1",
+        "30000/1001",
+        "30/1",
+        "50/1",
+        "60000/1001",
+        "60/1"
+      ]
+    },
+    "readOffsetGrains": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "readOffsetNs": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 10000000000
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuidOrNull",
+          "description": "Node seed id; generated on first start and written back."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Node and Device label (IS-04).",
+          "default": "mxl-st2110-gateway"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Node and Device description (IS-04).",
+          "default": "ST 2110 <-> MXL gateway"
+        },
+        "http_port": {
+          "$ref": "#/$defs/port",
+          "description": "The single HTTP port (NMOS, UI, API, metrics, health).",
+          "default": 8080
+        },
+        "public_address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Address advertised in NMOS hrefs (reverse proxy).",
+          "default": null
+        },
+        "public_port": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/port"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Port advertised in NMOS hrefs (reverse proxy / port mapping).",
+          "default": null
+        },
+        "management_addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ipv4"
+          },
+          "description": "Management IPs; empty = all non-DPDK interfaces.",
+          "default": []
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": [
+                "dns-sd",
+                "static"
+              ],
+              "description": "dns-sd: discover the registry via DNS-SD; static: use address and port.",
+              "default": "dns-sd"
+            },
+            "address": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Registry host for mode static.",
+              "default": null
+            },
+            "port": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/port"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Registry port for mode static.",
+              "default": null
+            }
+          },
+          "description": "NMOS registry discovery."
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Serve HTTPS instead of HTTP on node.http_port."
+            },
+            "certificate": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "PEM certificate chain file.",
+              "default": null
+            },
+            "private_key": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "PEM private key file.",
+              "default": null
+            }
+          },
+          "description": "HTTPS on node.http_port (BCP-003-01)."
+        },
+        "resume_connections": {
+          "type": "boolean",
+          "description": "Restore the last IS-05 /active of every Sender and Receiver after a restart (state/connections.json, §7.6).",
+          "default": true
+        },
+        "log_level": {
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "description": "Gateway log level (MTL/DPDK messages are mapped onto it).",
+          "default": "info"
+        }
+      }
+    },
+    "nicPort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "Port name, also the NMOS interface name."
+        },
+        "pci": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "PCI address (dddd:bb:dd.f) or env:VARIABLE (Kubernetes device plugin)."
+        },
+        "ifname": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Kernel interface (nic.backend = kernel only)."
+        },
+        "ip": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Port IPv4 address: ST 2110 source address and IS-05 interface_ip."
+        },
+        "netmask": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Subnet mask of the port."
+        },
+        "gateway": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Default gateway for unicast destinations outside the subnet (optional).",
+          "default": null
+        }
+      }
+    },
+    "nic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "dpdk",
+            "kernel",
+            "mock"
+          ],
+          "description": "dpdk (production), kernel and mock are test-only.",
+          "default": "dpdk"
+        },
+        "lcores": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "MTL lcores as a CPU list (e.g. \"4-9\"); disjoint from app_cpus.",
+          "default": null
+        },
+        "app_cpus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "CPU list for the gateway worker threads (optional).",
+          "default": null
+        },
+        "hugepage_socket": {
+          "anyOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ],
+          "description": "NUMA socket for hugepage memory; auto = the NIC's socket.",
+          "default": "auto"
+        },
+        "port_pairs": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "primary"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Port pair name.",
+                "default": "media"
+              },
+              "primary": {
+                "$ref": "#/$defs/nicPort",
+                "description": "Primary port (2022-7 leg p)."
+              },
+              "redundant": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/nicPort"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Redundant port (2022-7 leg r); required when any group has redundancy.",
+                "default": null
+              }
+            }
+          },
+          "description": "The media port pair (exactly one in v1).",
+          "default": []
+        }
+      }
+    },
+    "ptp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "builtin",
+            "builtin_phc2sys",
+            "external"
+          ],
+          "description": "builtin: MTL PTP on the media ports (host CLOCK_TAI disciplined separately); builtin_phc2sys: MTL also steers the host clock (needs CAP_SYS_TIME); external: no MTL PTP, host CLOCK_TAI is used (§5.2).",
+          "default": "builtin"
+        },
+        "domain": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "PTP domain number (MTL patch 0002 filters on it).",
+          "default": 127
+        },
+        "require_lock": {
+          "type": "boolean",
+          "description": "Not ready (/readyz) until PTP is locked.",
+          "default": true
+        },
+        "warn_offset_ns": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Warning threshold for |MTL PTP time − host CLOCK_TAI|.",
+          "default": 10000
+        },
+        "max_offset_ns": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Not ready beyond this |MTL PTP time − host CLOCK_TAI|.",
+          "default": 1000000
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+          "description": "Name referenced by groups[].domain."
+        },
+        "path": {
+          "$ref": "#/$defs/absolutePath",
+          "description": "Domain directory on a tmpfs (never mirror-*); created if missing."
+        },
+        "id": {
+          "$ref": "#/$defs/uuidOrNull",
+          "description": "Domain id; null = taken from domain_def.json or generated, then written back (§8.3).",
+          "default": null
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Label written into a new domain_def.json.",
+          "default": null
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Description written into a new domain_def.json.",
+          "default": null
+        },
+        "history_duration_ns": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1000000,
+          "maximum": 60000000000,
+          "description": "Ring history written into options.json if the file is missing; null = MXL default.",
+          "default": null
+        },
+        "gc_on_start": {
+          "type": "boolean",
+          "description": "Garbage-collect every stale flow of the domain at start (default: only the gateway's own).",
+          "default": false
+        }
+      }
+    },
+    "mxl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scan_path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/absolutePath"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "MXL root scanned for discovered and mirror domains (§8.5); null = off.",
+          "default": "/Volumes/mxl"
+        },
+        "default_read_offset_grains": {
+          "$ref": "#/$defs/readOffsetGrains",
+          "description": "Default read offset in grains for MXL Receivers without their own (§5.7); exclusive with default_read_offset_ns.",
+          "default": null
+        },
+        "default_read_offset_ns": {
+          "$ref": "#/$defs/readOffsetNs",
+          "description": "Default read offset in ns for MXL Receivers without their own (§5.7).",
+          "default": null
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/domain"
+          },
+          "description": "Configured domains: the only domains the gateway writes to.",
+          "default": []
+        }
+      }
+    },
+    "leg": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "multicast": {
+          "$ref": "#/$defs/ipv4",
+          "description": "Ingest: group to join; egress: destination address."
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Ingest: SSM source filter; egress: unused (port IP)."
+        },
+        "port": {
+          "$ref": "#/$defs/port",
+          "description": "UDP destination port."
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "legs": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/leg"
+          },
+          "description": "One leg, or two (p, r) with group redundancy.",
+          "default": []
+        }
+      },
+      "description": "Transport parameters staged on first start and for new groups (§7.6)."
+    },
+    "payloadType": {
+      "type": "integer",
+      "minimum": 96,
+      "maximum": 127
+    },
+    "essenceCommon": {
+      "type": "object",
+      "required": [
+        "uid",
+        "label"
+      ],
+      "properties": {
+        "uid": {
+          "$ref": "#/$defs/uuid",
+          "description": "Stable essence id; generated if missing. NMOS ids derive from it (§7.3)."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Essence label (NMOS Source, Flow, Sender, Receiver)."
+        },
+        "payload_type": {
+          "$ref": "#/$defs/payloadType",
+          "description": "RTP payload type."
+        },
+        "read_offset_grains": {
+          "$ref": "#/$defs/readOffsetGrains",
+          "description": "Egress only: read this many grains behind the writer (§5.7); null = mxl.default_read_offset_*.",
+          "default": null
+        },
+        "read_offset_ns": {
+          "$ref": "#/$defs/readOffsetNs",
+          "description": "Egress only: read offset in ns; exclusive with read_offset_grains.",
+          "default": null
+        },
+        "defaults": {
+          "$ref": "#/$defs/defaults"
+        }
+      }
+    },
+    "video": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/essenceCommon"
+        }
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uid": true,
+        "label": true,
+        "payload_type": {
+          "description": "RTP payload type.",
+          "default": 96
+        },
+        "read_offset_grains": true,
+        "read_offset_ns": true,
+        "defaults": true,
+        "width": {
+          "enum": [
+            1920,
+            3840
+          ],
+          "description": "Frame width: 1920×1080 or 3840×2160.",
+          "default": 1920
+        },
+        "height": {
+          "enum": [
+            1080,
+            2160
+          ],
+          "description": "Frame height.",
+          "default": 1080
+        },
+        "rate": {
+          "$ref": "#/$defs/rate",
+          "description": "Frame rate.",
+          "default": "50/1"
+        },
+        "interlace": {
+          "enum": [
+            "progressive",
+            "interlaced_tff",
+            "interlaced_bff"
+          ],
+          "description": "Scan; interlaced only for 1080 lines at 25/1 or 30000/1001.",
+          "default": "progressive"
+        },
+        "colorimetry": {
+          "enum": [
+            "BT709",
+            "BT2020",
+            "BT2100"
+          ],
+          "description": "Colorimetry (SDP and Flow).",
+          "default": "BT709"
+        },
+        "tcs": {
+          "enum": [
+            "SDR",
+            "PQ",
+            "HLG"
+          ],
+          "description": "Transfer characteristic system.",
+          "default": "SDR"
+        },
+        "packing": {
+          "enum": [
+            "BPM",
+            "GPM",
+            "GPM_SL"
+          ],
+          "description": "ST 2110-20 packing mode (SDP PM).",
+          "default": "BPM"
+        },
+        "pacing": {
+          "enum": [
+            "narrow",
+            "linear",
+            "wide"
+          ],
+          "description": "Egress sender type (SDP TP): narrow = 2110TPN, linear = 2110TPNL, wide = 2110TPW.",
+          "default": "narrow"
+        }
+      }
+    },
+    "audio": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/essenceCommon"
+        }
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uid": true,
+        "label": true,
+        "payload_type": {
+          "description": "RTP payload type.",
+          "default": 97
+        },
+        "read_offset_grains": true,
+        "read_offset_ns": true,
+        "defaults": true,
+        "channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Channel count (ST 2110-30 limits per packet time).",
+          "default": 2
+        },
+        "bit_depth": {
+          "enum": [
+            16,
+            24
+          ],
+          "description": "L16 or L24.",
+          "default": 24
+        },
+        "sample_rate": {
+          "const": 48000,
+          "description": "Sample rate.",
+          "default": 48000
+        },
+        "ptime_us": {
+          "enum": [
+            1000,
+            125
+          ],
+          "description": "Packet time in µs: 1000 (levels A/B) or 125 (level C).",
+          "default": 1000
+        },
+        "block_us": {
+          "type": "integer",
+          "minimum": 125,
+          "maximum": 100000,
+          "description": "MXL write/read block in µs; a multiple of ptime_us.",
+          "default": 1000
+        }
+      }
+    },
+    "anc": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/essenceCommon"
+        }
+      ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uid": true,
+        "label": true,
+        "payload_type": {
+          "description": "RTP payload type.",
+          "default": 100
+        },
+        "read_offset_grains": true,
+        "read_offset_ns": true,
+        "defaults": true,
+        "rate": {
+          "$ref": "#/$defs/rate",
+          "description": "Defaults to the group's first video rate."
+        },
+        "interlace": {
+          "enum": [
+            "progressive",
+            "interlaced_tff",
+            "interlaced_bff"
+          ],
+          "description": "Scan of the ANC stream; interlaced = one grain per field. Defaults to the group's first video."
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uid",
+        "label",
+        "direction",
+        "domain"
+      ],
+      "properties": {
+        "uid": {
+          "$ref": "#/$defs/uuid",
+          "description": "Stable group id; generated if missing."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Group label (BCP-002-01 group hint)."
+        },
+        "direction": {
+          "enum": [
+            "ingest",
+            "egress"
+          ],
+          "description": "ingest: ST 2110 → MXL (Receivers in, MXL Senders out); egress: MXL → ST 2110."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Configured domain name. Ingest writes here; egress resolves mxl_domain_id = auto against it."
+        },
+        "redundancy": {
+          "type": "boolean",
+          "description": "ST 2022-7: two legs per essence.",
+          "default": false
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "false: no NMOS resources and no media sessions.",
+          "default": true
+        },
+        "output_delay_ns": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000000,
+          "description": "Egress: transmit time after the grain time; null = two grains (§5.7).",
+          "default": null
+        },
+        "missing_data": {
+          "enum": [
+            "black",
+            "repeat"
+          ],
+          "description": "Egress: black video / silence / empty ANC, or repeat the last good video grain.",
+          "default": "black"
+        },
+        "video": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/video"
+          },
+          "description": "Video essences (ST 2110-20 ⇄ video/v210).",
+          "default": []
+        },
+        "audio": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/audio"
+          },
+          "description": "Audio essences (ST 2110-30 ⇄ audio/float32).",
+          "default": []
+        },
+        "anc": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/anc"
+          },
+          "description": "Ancillary data essences (ST 2110-40 ⇄ video/smpte291).",
+          "default": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+# mxl-st2110-gateway on one host (SPECIFICATION.md §15.1, README "Quick start").
+#
+# Prerequisites (README "Host preparation"): hugepages, media PFs bound to vfio-pci, the host MXL
+# root as tmpfs (/etc/fstab: `tmpfs /Volumes/mxl tmpfs size=8g,mode=1777 0 0`) and CLOCK_TAI
+# disciplined by the host (ptp4l + phc2sys, or chrony with `leapsectz right/UTC`).
+#
+#   mkdir -p config && docker compose up -d
+#   open http://<host>:8080/admin/   (setup mode until the NIC is configured)
+services:
+  mxl-st2110-gateway:
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev}
+    container_name: mxl-st2110-gateway
+    restart: unless-stopped
+    init: true
+    # Management NIC for NMOS and the UI; DNS-SD needs the host network. Media ports are DPDK-owned.
+    network_mode: host
+    stop_grace_period: 15s
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    cap_add: [IPC_LOCK, SYS_NICE] # + SYS_TIME only for ptp.mode=builtin_phc2sys
+    devices:
+      - /dev/vfio:/dev/vfio
+    volumes:
+      - ./config:/config # gateway.json + state/
+      - /dev/hugepages:/dev/hugepages
+      # Host MXL root, shared with other media functions and mxl-fabrics-agent on this host. The
+      # gateway writes only to its configured domains (e.g. /Volumes/mxl/main) and discovers sibling
+      # and mirror-<id> domains (§8.5). The container path may differ per container; the identity of a
+      # domain comes from its domain_def.json.
+      - type: bind
+        source: /Volumes/mxl
+        target: /Volumes/mxl
+      # DNS-SD through the host's avahi-daemon (D-Bus for browsing, the avahi socket for .local names).
+      # Not needed with node.registry.mode = "static".
+      - /run/dbus:/run/dbus
+      - /run/avahi-daemon:/run/avahi-daemon
+    environment:
+      MXLGW_CONFIG: /config/gateway.json
+      # MXLGW_HTTP_PORT: "8090"   # e.g. when mxl-decklink already uses 8080 on this host (§15.4)
+      # MXLGW_LOG_FORMAT: text
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${MXLGW_HTTP_PORT:-8080}/livez"]
+      interval: 10s
+      timeout: 3s
+      start_period: 60s

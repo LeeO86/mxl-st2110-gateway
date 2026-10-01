@@ -1,0 +1,291 @@
+{
+    "changed_on_disk": false,
+    "effective": {
+        "groups": [
+            {
+                "audio": [
+                    {
+                        "channels": 8,
+                        "defaults": {
+                            "legs": [
+                                {
+                                    "multicast": "239.1.1.2",
+                                    "port": 20000
+                                },
+                                {
+                                    "multicast": "239.2.1.2",
+                                    "port": 20000
+                                }
+                            ]
+                        },
+                        "label": "CAM 1 A1-8",
+                        "uid": "d6c5cb6b-11a9-4964-ba05-db73a7612e6c"
+                    }
+                ],
+                "direction": "ingest",
+                "domain": "main",
+                "label": "CAM 1",
+                "redundancy": true,
+                "uid": "49825638-8f5f-4733-877f-c9406debbe1e",
+                "video": [
+                    {
+                        "defaults": {
+                            "legs": [
+                                {
+                                    "multicast": "239.1.1.1",
+                                    "port": 20000
+                                },
+                                {
+                                    "multicast": "239.2.1.1",
+                                    "port": 20000
+                                }
+                            ]
+                        },
+                        "height": 1080,
+                        "label": "CAM 1 V",
+                        "rate": "50/1",
+                        "uid": "8eec1ccc-d86d-4559-95e1-e311998e725b",
+                        "width": 1920
+                    }
+                ]
+            },
+            {
+                "direction": "egress",
+                "domain": "main",
+                "label": "PGM",
+                "uid": "6ccb1878-842e-4ca3-a88b-6453ac1d0fa7",
+                "video": [
+                    {
+                        "defaults": {
+                            "legs": [
+                                {
+                                    "multicast": "239.10.0.1",
+                                    "port": 20000
+                                }
+                            ]
+                        },
+                        "height": 1080,
+                        "label": "PGM V",
+                        "rate": "50/1",
+                        "uid": "5f628fb1-f876-46c1-a183-e69526978260",
+                        "width": 1920
+                    }
+                ]
+            }
+        ],
+        "mxl": {
+            "domains": [
+                {
+                    "history_duration_ns": 100000000,
+                    "id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                    "name": "main",
+                    "path": "/Volumes/mxl/main"
+                }
+            ],
+            "scan_path": "/Volumes/mxl"
+        },
+        "nic": {
+            "backend": "mock",
+            "port_pairs": [
+                {
+                    "name": "media",
+                    "primary": {
+                        "ip": "10.1.1.21",
+                        "name": "media-p",
+                        "netmask": "255.255.255.0"
+                    },
+                    "redundant": {
+                        "ip": "10.2.1.21",
+                        "name": "media-r",
+                        "netmask": "255.255.255.0"
+                    }
+                }
+            ]
+        },
+        "node": {
+            "http_port": 18190,
+            "id": "010d680c-b02f-4e98-8fb2-2b916d035114",
+            "label": "GW-UI-TEST",
+            "registry": {
+                "address": "127.0.0.1",
+                "mode": "static",
+                "port": 9
+            }
+        },
+        "ptp": {
+            "mode": "external",
+            "require_lock": false
+        },
+        "schema_version": 1
+    },
+    "environment": [],
+    "etag": "\"bbb37f5305fbe2e49ff10b8d\"",
+    "file": {
+        "groups": [
+            {
+                "audio": [
+                    {
+                        "channels": 8,
+                        "defaults": {
+                            "legs": [
+                                {
+                                    "multicast": "239.1.1.2",
+                                    "port": 20000
+                                },
+                                {
+                                    "multicast": "239.2.1.2",
+                                    "port": 20000
+                                }
+                            ]
+                        },
+                        "label": "CAM 1 A1-8",
+                        "uid": "d6c5cb6b-11a9-4964-ba05-db73a7612e6c"
+                    }
+                ],
+                "direction": "ingest",
+                "domain": "main",
+                "label": "CAM 1",
+                "redundancy": true,
+                "uid": "49825638-8f5f-4733-877f-c9406debbe1e",
+                "video": [
+                    {
+                        "defaults": {
+                            "legs": [
+                                {
+                                    "multicast": "239.1.1.1",
+                                    "port": 20000
+                                },
+                                {
+                                    "multicast": "239.2.1.1",
+                                    "port": 20000
+                                }
+                            ]
+                        },
+                        "height": 1080,
+                        "label": "CAM 1 V",
+                        "rate": "50/1",
+                        "uid": "8eec1ccc-d86d-4559-95e1-e311998e725b",
+                        "width": 1920
+                    }
+                ]
+            },
+            {
+                "direction": "egress",
+                "domain": "main",
+                "label": "PGM",
+                "uid": "6ccb1878-842e-4ca3-a88b-6453ac1d0fa7",
+                "video": [
+                    {
+                        "defaults": {
+                            "legs": [
+                                {
+                                    "multicast": "239.10.0.1",
+                                    "port": 20000
+                                }
+                            ]
+                        },
+                        "height": 1080,
+                        "label": "PGM V",
+                        "rate": "50/1",
+                        "uid": "5f628fb1-f876-46c1-a183-e69526978260",
+                        "width": 1920
+                    }
+                ]
+            }
+        ],
+        "mxl": {
+            "domains": [
+                {
+                    "history_duration_ns": 100000000,
+                    "id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                    "name": "main",
+                    "path": "/Volumes/mxl/main"
+                }
+            ],
+            "scan_path": "/Volumes/mxl"
+        },
+        "nic": {
+            "backend": "mock",
+            "port_pairs": [
+                {
+                    "name": "media",
+                    "primary": {
+                        "ip": "10.1.1.21",
+                        "name": "media-p",
+                        "netmask": "255.255.255.0"
+                    },
+                    "redundant": {
+                        "ip": "10.2.1.21",
+                        "name": "media-r",
+                        "netmask": "255.255.255.0"
+                    }
+                }
+            ]
+        },
+        "node": {
+            "http_port": 18190,
+            "id": "010d680c-b02f-4e98-8fb2-2b916d035114",
+            "label": "GW-UI-TEST",
+            "registry": {
+                "address": "127.0.0.1",
+                "mode": "static",
+                "port": 9
+            }
+        },
+        "ptp": {
+            "mode": "external",
+            "require_lock": false
+        },
+        "schema_version": 1
+    },
+    "path": "/config/gateway.json",
+    "provenance": {
+        "/mxl/default_read_offset_grains": "default",
+        "/mxl/default_read_offset_ns": "default",
+        "/mxl/domains/0/description": "default",
+        "/mxl/domains/0/gc_on_start": "default",
+        "/mxl/domains/0/history_duration_ns": "file",
+        "/mxl/domains/0/id": "file",
+        "/mxl/domains/0/label": "default",
+        "/mxl/domains/0/path": "file",
+        "/mxl/scan_path": "file",
+        "/nic/app_cpus": "default",
+        "/nic/backend": "file",
+        "/nic/hugepage_socket": "default",
+        "/nic/lcores": "default",
+        "/nic/port_pairs/0/primary/gateway": "default",
+        "/nic/port_pairs/0/primary/ifname": "default",
+        "/nic/port_pairs/0/primary/ip": "file",
+        "/nic/port_pairs/0/primary/name": "file",
+        "/nic/port_pairs/0/primary/netmask": "file",
+        "/nic/port_pairs/0/primary/pci": "default",
+        "/nic/port_pairs/0/redundant/gateway": "default",
+        "/nic/port_pairs/0/redundant/ifname": "default",
+        "/nic/port_pairs/0/redundant/ip": "file",
+        "/nic/port_pairs/0/redundant/name": "file",
+        "/nic/port_pairs/0/redundant/netmask": "file",
+        "/nic/port_pairs/0/redundant/pci": "default",
+        "/node/description": "default",
+        "/node/http_port": "file",
+        "/node/id": "file",
+        "/node/label": "file",
+        "/node/log_level": "default",
+        "/node/management_addresses": "default",
+        "/node/public_address": "default",
+        "/node/public_port": "default",
+        "/node/registry/address": "file",
+        "/node/registry/mode": "file",
+        "/node/registry/port": "file",
+        "/node/resume_connections": "default",
+        "/node/tls/certificate": "default",
+        "/node/tls/enabled": "default",
+        "/node/tls/private_key": "default",
+        "/ptp/domain": "default",
+        "/ptp/max_offset_ns": "default",
+        "/ptp/mode": "file",
+        "/ptp/require_lock": "file",
+        "/ptp/warn_offset_ns": "default"
+    },
+    "restart_reasons": [],
+    "restart_required": false
+}

@@ -1,0 +1,12 @@
+build/
+build-*/
+install/
+*.o
+*.a
+web/node_modules/
+web/dist/
+.cache/
+compile_commands.json
+__pycache__/
+*.pyc
+/state/

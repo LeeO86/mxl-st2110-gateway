@@ -1,0 +1,241 @@
+# Host B: the gateway with an egress group reading host A's flows from the mirror domain that
+# mxl-fabrics-agent creates on node B (§8.6). Own Deployment, PVC, seed and NIC resources.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mxl-st2110-gateway-b-config
+  namespace: mxl
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 64Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mxl-st2110-gateway-b-seed
+  namespace: mxl
+data:
+  gateway.json: |
+    {
+      "schema_version": 1,
+      "node": {
+        "id": null,
+        "label": "GW-HOST-B",
+        "description": "Host B: MXL (mirror domain of host A) -> ST 2110",
+        "http_port": 8090,
+        "registry": {
+          "mode": "dns-sd"
+        },
+        "resume_connections": true
+      },
+      "nic": {
+        "backend": "dpdk",
+        "lcores": "4-7",
+        "port_pairs": [
+          {
+            "name": "media",
+            "primary": {
+              "name": "media-p",
+              "pci": "env:PCIDEVICE_INTEL_COM_E810_MEDIA_P",
+              "ip": "10.1.1.22",
+              "netmask": "255.255.255.0"
+            },
+            "redundant": {
+              "name": "media-r",
+              "pci": "env:PCIDEVICE_INTEL_COM_E810_MEDIA_R",
+              "ip": "10.2.1.22",
+              "netmask": "255.255.255.0"
+            }
+          }
+        ]
+      },
+      "ptp": {
+        "mode": "builtin",
+        "domain": 127
+      },
+      "mxl": {
+        "scan_path": "/Volumes/mxl",
+        "default_read_offset_grains": 2,
+        "domains": [
+          {
+            "name": "main",
+            "path": "/Volumes/mxl/main-b",
+            "id": null,
+            "label": "Host B main"
+          }
+        ]
+      },
+      "groups": [
+        {
+          "uid": "b2b2b2b2-0000-4000-8000-00000000b100",
+          "label": "CAM 1 FROM A",
+          "direction": "egress",
+          "domain": "main",
+          "redundancy": true,
+          "output_delay_ns": 80000000,
+          "missing_data": "black",
+          "video": [
+            {
+              "uid": "b2b2b2b2-0000-4000-8000-00000000b101",
+              "label": "CAM 1 V",
+              "width": 1920,
+              "height": 1080,
+              "rate": "50/1",
+              "interlace": "progressive",
+              "pacing": "narrow",
+              "defaults": {
+                "legs": [
+                  {
+                    "multicast": "239.50.0.1",
+                    "port": 20000
+                  },
+                  {
+                    "multicast": "239.60.0.1",
+                    "port": 20000
+                  }
+                ]
+              }
+            }
+          ],
+          "audio": [
+            {
+              "uid": "b2b2b2b2-0000-4000-8000-00000000b102",
+              "label": "CAM 1 A1-8",
+              "channels": 8,
+              "bit_depth": 24,
+              "ptime_us": 1000,
+              "block_us": 1000,
+              "defaults": {
+                "legs": [
+                  {
+                    "multicast": "239.50.0.2",
+                    "port": 20000
+                  },
+                  {
+                    "multicast": "239.60.0.2",
+                    "port": 20000
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mxl-st2110-gateway-b
+  namespace: mxl
+  labels:
+    app.kubernetes.io/name: mxl-st2110-gateway-b
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mxl-st2110-gateway-b
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mxl-st2110-gateway-b
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: node-b
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 15
+      initContainers:
+        - name: seed-config
+          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
+          command: ["/bin/sh", "-c", "[ -e /config/gateway.json ] || cp /seed/gateway.json /config/gateway.json"]
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      containers:
+        - name: gateway
+          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
+          imagePullPolicy: Always
+          env:
+            - { name: MXLGW_CONFIG, value: /config/gateway.json }
+          ports:
+            - { name: http, containerPort: 8090, protocol: TCP }
+          resources:
+            requests:
+              cpu: "12"
+              memory: 8Gi
+              hugepages-1Gi: 4Gi
+              intel.com/e810_media_p: "1"
+              intel.com/e810_media_r: "1"
+            limits:
+              cpu: "12"
+              memory: 8Gi
+              hugepages-1Gi: 4Gi
+              intel.com/e810_media_p: "1"
+              intel.com/e810_media_r: "1"
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: [IPC_LOCK, SYS_NICE]
+          startupProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: hugepages, mountPath: /dev/hugepages }
+            - { name: mxl, mountPath: /Volumes/mxl }
+            - { name: dbus, mountPath: /run/dbus }
+            - { name: avahi, mountPath: /run/avahi-daemon }
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: mxl-st2110-gateway-b-config
+        - name: seed
+          configMap:
+            name: mxl-st2110-gateway-b-seed
+        - name: hugepages
+          emptyDir:
+            medium: HugePages-1Gi
+        # Same node MXL root as the mxl-fabrics-agent DaemonSet: the mirror domain appears here.
+        - name: mxl
+          hostPath:
+            path: /Volumes/mxl
+            type: Directory
+        # DNS-SD through the node's avahi-daemon (not needed with node.registry.mode = "static").
+        - name: dbus
+          hostPath:
+            path: /run/dbus
+            type: DirectoryOrCreate
+        - name: avahi
+          hostPath:
+            path: /run/avahi-daemon
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mxl-st2110-gateway-b
+  namespace: mxl
+  labels:
+    app.kubernetes.io/name: mxl-st2110-gateway-b
+spec:
+  selector:
+    app.kubernetes.io/name: mxl-st2110-gateway-b
+  ports:
+    - { name: http, port: 8090, targetPort: http, protocol: TCP }

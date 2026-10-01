@@ -1,0 +1,293 @@
+diff --git a/include/mtl_api.h b/include/mtl_api.h
+index b97055b..568b060 100644
+--- a/include/mtl_api.h
++++ b/include/mtl_api.h
+@@ -1204,6 +1204,75 @@ uint64_t mtl_ptp_read_time(mtl_handle mt);
+  */
+ uint64_t mtl_ptp_read_time_raw(mtl_handle mt);
+ 
++/** The PTP status API below is available (mtl_ptp_get_status). */
++#define MTL_HAS_PTP_STATUS 1
++
++/**
++ * PTP status of one port, a consistent snapshot published by the PTP stack.
++ * Window statistics (min/max/avg) cover the last statistics period (dump_period_s).
++ */
++struct mtl_ptp_status {
++  /** A PTP instance runs on this port. */
++  bool active;
++  /** Offset converged (|delta| < 100ns for more than 100 consecutive results). */
++  bool locked;
++  /** A parent was selected from an Announce message. */
++  bool master_initialized;
++  /** This port's PTP instance steers the PHC and answers mtl_ptp_read_time. */
++  bool selected;
++  /** Parent port identity (clock identity + port number). */
++  uint8_t parent_clock_identity[8];
++  uint16_t parent_port_number;
++  /** Grandmaster data from the latest Announce of the parent. */
++  uint8_t gm_identity[8];
++  uint8_t gm_priority1;
++  uint8_t gm_priority2;
++  uint8_t gm_clock_class;
++  uint8_t gm_clock_accuracy;
++  uint16_t gm_offset_scaled_log_variance;
++  uint16_t steps_removed;
++  uint8_t time_source;
++  uint8_t domain_number;
++  /** UTC offset announced by the parent (display only, the time scale is TAI). */
++  int16_t utc_offset;
++  /** Offset from master (ns): last result and window min/max/avg. */
++  int64_t delta_last;
++  int64_t delta_min;
++  int64_t delta_max;
++  int64_t delta_avg;
++  /** Mean path delay (ns): last result and window min/max/avg. */
++  int64_t path_delay_last;
++  int64_t path_delay_min;
++  int64_t path_delay_max;
++  int64_t path_delay_avg;
++  /** Cumulative counters since start. */
++  uint64_t sync_count;
++  uint64_t gm_change_count;
++  uint64_t selection_changes;
++  uint64_t err_rx_sync;
++  uint64_t err_tx_sync;
++  uint64_t err_result;
++  uint64_t err_timeout;
++  /** The phc2sys service (MTL_FLAG_PHC2SYS_ENABLE) reports the system clock locked. */
++  bool phc2sys_locked;
++};
++
++/**
++ * Read the PTP status of a port. A port without a PTP instance reports active = false.
++ * Lock-free for the caller; safe from any thread.
++ *
++ * @param mt
++ *   The handle to MTL instance.
++ * @param port
++ *   The port.
++ * @param status
++ *   Filled with a consistent snapshot.
++ * @return
++ *   - 0: Success.
++ *   - <0: Error code.
++ */
++int mtl_ptp_get_status(mtl_handle mt, enum mtl_port port, struct mtl_ptp_status* status);
++
+ /**
+  * Allocate memory from the huge-page area of memory. The memory is not cleared.
+  * In NUMA systems, the memory allocated from the same NUMA socket of the port.
+diff --git a/lib/src/mt_main.h b/lib/src/mt_main.h
+index 88fd1ef..4ed420c 100644
+--- a/lib/src/mt_main.h
++++ b/lib/src/mt_main.h
+@@ -303,6 +303,35 @@ struct mt_ptp_impl {
+   int32_t stat_t4_t3_delta_calibrate;
+   int32_t stat_t3_timeout;
+   uint16_t stat_sync_keep;
++
++  /* status API (mtl_ptp_get_status): writers (rx tasklet, alarm thread, stat thread)
++   * serialise on status_lock, readers use the status_seq seqlock */
++  rte_spinlock_t status_lock;
++  volatile uint32_t status_seq;
++  struct mtl_ptp_status status;
++  int64_t delta_last;
++  int64_t path_delay_last;
++  uint64_t sync_total;
++  uint64_t err_rx_sync_total;
++  uint64_t err_tx_sync_total;
++  uint64_t err_result_total;
++  uint64_t err_timeout_total;
++  uint64_t gm_change_count;
++  bool gm_known;
++  uint8_t gm_identity[8];
++  uint8_t gm_priority1;
++  uint8_t gm_priority2;
++  uint8_t gm_clock_class;
++  uint8_t gm_clock_accuracy;
++  uint16_t gm_offset_scaled_log_variance;
++  uint16_t steps_removed;
++  uint8_t time_source;
++  int64_t win_delta_min;
++  int64_t win_delta_max;
++  int64_t win_delta_avg;
++  int64_t win_path_delay_min;
++  int64_t win_path_delay_max;
++  int64_t win_path_delay_avg;
+ };
+ 
+ /* used for cni sys queue */
+diff --git a/lib/src/mt_ptp.c b/lib/src/mt_ptp.c
+index 3ebcf43..bf68829 100644
+--- a/lib/src/mt_ptp.c
++++ b/lib/src/mt_ptp.c
+@@ -410,6 +410,48 @@ static void ptp_print_port_id(enum mtl_port port, struct mt_ptp_port_id* pid) {
+       port, pid->port_number, id[0], id[1], id[2], id[3], id[4], id[5], id[6], id[7]);
+ }
+ 
++/* Publish a consistent status snapshot for mtl_ptp_get_status (seqlock writer side). */
++static void ptp_status_publish(struct mt_ptp_impl* ptp) {
++  struct mtl_ptp_status* s = &ptp->status;
++
++  rte_spinlock_lock(&ptp->status_lock);
++  ptp->status_seq++; /* odd: update in progress */
++  rte_smp_wmb();
++  s->active = ptp->active;
++  s->locked = ptp->locked;
++  s->master_initialized = ptp->master_initialized;
++  mt_memcpy(s->parent_clock_identity, &ptp->master_port_id.clock_identity.id[0], 8);
++  s->parent_port_number = ntohs(ptp->master_port_id.port_number);
++  mt_memcpy(s->gm_identity, ptp->gm_identity, 8);
++  s->gm_priority1 = ptp->gm_priority1;
++  s->gm_priority2 = ptp->gm_priority2;
++  s->gm_clock_class = ptp->gm_clock_class;
++  s->gm_clock_accuracy = ptp->gm_clock_accuracy;
++  s->gm_offset_scaled_log_variance = ptp->gm_offset_scaled_log_variance;
++  s->steps_removed = ptp->steps_removed;
++  s->time_source = ptp->time_source;
++  s->domain_number = ptp->t1_domain_number;
++  s->utc_offset = ptp->master_utc_offset;
++  s->delta_last = ptp->delta_last;
++  s->delta_min = ptp->win_delta_min;
++  s->delta_max = ptp->win_delta_max;
++  s->delta_avg = ptp->win_delta_avg;
++  s->path_delay_last = ptp->path_delay_last;
++  s->path_delay_min = ptp->win_path_delay_min;
++  s->path_delay_max = ptp->win_path_delay_max;
++  s->path_delay_avg = ptp->win_path_delay_avg;
++  s->sync_count = ptp->sync_total + ptp->stat_sync_cnt;
++  s->gm_change_count = ptp->gm_change_count;
++  s->err_rx_sync = ptp->err_rx_sync_total + ptp->stat_rx_sync_err;
++  s->err_tx_sync = ptp->err_tx_sync_total + ptp->stat_tx_sync_err;
++  s->err_result = ptp->err_result_total + ptp->stat_result_err;
++  s->err_timeout = ptp->err_timeout_total + ptp->stat_sync_timeout_err;
++  s->phc2sys_locked = ptp->phc2sys_active && ptp->phc2sys.locked;
++  rte_smp_wmb();
++  ptp->status_seq++; /* even: consistent */
++  rte_spinlock_unlock(&ptp->status_lock);
++}
++
+ static inline bool ptp_port_id_equal(struct mt_ptp_port_id* s, struct mt_ptp_port_id* t) {
+   if (!memcmp(s, t, sizeof(struct mt_ptp_port_id)))
+     return true;
+@@ -551,6 +593,9 @@ static void ptp_adjust_delta(struct mt_ptp_impl* ptp, int64_t delta, bool error_
+       ptp->stat_sync_keep = 0;
+     }
+   }
++
++  ptp->delta_last = delta;
++  ptp_status_publish(ptp);
+ }
+ 
+ static void ptp_expect_result_clear(struct mt_ptp_impl* ptp) {
+@@ -735,6 +780,7 @@ static int ptp_parse_result(struct mt_ptp_impl* ptp) {
+   ptp->stat_path_delay_max = RTE_MAX(path_delay, ptp->stat_path_delay_max);
+   ptp->stat_path_delay_cnt++;
+   ptp->stat_path_delay_sum += labs(path_delay);
++  ptp->path_delay_last = path_delay;
+ 
+   if (ptp->use_pi && labs(correct_delta) < 1000) {
+     /* fine tune coefficient */
+@@ -1067,6 +1113,33 @@ static int ptp_parse_announce(struct mt_ptp_impl* ptp, struct mt_ptp_announce_ms
+       mt_if(ptp->impl, port)->ptp_get_time_fn = ptp_from_eth;
+   }
+ 
++  /* Parse every Announce of the parent: the grandmaster can change behind it. */
++  if (ptp_port_id_equal(&msg->hdr.source_port_identity, &ptp->master_port_id)) {
++    uint8_t* gm = &msg->grandmaster_identity.id[0];
++    if (ptp->gm_known && memcmp(ptp->gm_identity, gm, 8)) {
++      ptp->gm_change_count++;
++      info("%s(%d), grandmaster changed %02x%02x%02x.%02x%02x.%02x%02x%02x -> "
++           "%02x%02x%02x.%02x%02x.%02x%02x%02x, changes %" PRIu64 "\n",
++           __func__, port, ptp->gm_identity[0], ptp->gm_identity[1], ptp->gm_identity[2],
++           ptp->gm_identity[3], ptp->gm_identity[4], ptp->gm_identity[5],
++           ptp->gm_identity[6], ptp->gm_identity[7], gm[0], gm[1], gm[2], gm[3], gm[4],
++           gm[5], gm[6], gm[7], ptp->gm_change_count);
++    }
++    mt_memcpy(ptp->gm_identity, gm, 8);
++    ptp->gm_known = true;
++    ptp->gm_priority1 = msg->grandmaster_priority1;
++    ptp->gm_priority2 = msg->grandmaster_priority2;
++    ptp->gm_clock_class = msg->grandmaster_clock_quality.clock_class;
++    ptp->gm_clock_accuracy = msg->grandmaster_clock_quality.clock_accuracy;
++    ptp->gm_offset_scaled_log_variance =
++        ntohs(msg->grandmaster_clock_quality.offset_scaled_log_variance);
++    ptp->steps_removed = ntohs(msg->steps_removed);
++    ptp->time_source = msg->time_source;
++    ptp->master_utc_offset = ntohs(msg->current_utc_offset);
++    ptp->t1_domain_number = msg->hdr.domain_number;
++    ptp_status_publish(ptp);
++  }
++
+   return 0;
+ }
+ 
+@@ -1100,6 +1173,20 @@ static int ptp_parse_delay_resp(struct mt_ptp_impl* ptp,
+ }
+ 
+ static void ptp_stat_clear(struct mt_ptp_impl* ptp) {
++  /* keep the closing window and the cumulative counters for mtl_ptp_get_status */
++  ptp->win_delta_min = ptp->stat_delta_cnt ? ptp->stat_delta_min : 0;
++  ptp->win_delta_max = ptp->stat_delta_cnt ? ptp->stat_delta_max : 0;
++  ptp->win_delta_avg = ptp->stat_delta_cnt ? ptp->stat_delta_sum / ptp->stat_delta_cnt : 0;
++  ptp->win_path_delay_min = ptp->stat_path_delay_cnt ? ptp->stat_path_delay_min : 0;
++  ptp->win_path_delay_max = ptp->stat_path_delay_cnt ? ptp->stat_path_delay_max : 0;
++  ptp->win_path_delay_avg =
++      ptp->stat_path_delay_cnt ? ptp->stat_path_delay_sum / ptp->stat_path_delay_cnt : 0;
++  ptp->sync_total += ptp->stat_sync_cnt;
++  ptp->err_rx_sync_total += ptp->stat_rx_sync_err;
++  ptp->err_tx_sync_total += ptp->stat_tx_sync_err;
++  ptp->err_result_total += ptp->stat_result_err;
++  ptp->err_timeout_total += ptp->stat_sync_timeout_err;
++
+   ptp->stat_delta_cnt = 0;
+   ptp->stat_delta_sum = 0;
+   ptp->stat_delta_min = INT_MAX;
+@@ -1118,6 +1205,7 @@ static void ptp_stat_clear(struct mt_ptp_impl* ptp) {
+   ptp->stat_sync_timeout_err = 0;
+   ptp->stat_sync_cnt = 0;
+   if (ptp->phc2sys_active) ptp->phc2sys.stat_delta_max = 0;
++  ptp_status_publish(ptp);
+ }
+ 
+ static void ptp_sync_from_user(struct mtl_main_impl* impl, struct mt_ptp_impl* ptp) {
+@@ -1316,6 +1404,7 @@ static int ptp_init(struct mtl_main_impl* impl, struct mt_ptp_impl* ptp,
+   }
+   ptp->locked = false;
+   ptp->stat_sync_keep = 0;
++  rte_spinlock_init(&ptp->status_lock);
+ 
+   ptp_stat_clear(ptp);
+   ptp_coefficient_result_reset(ptp);
+@@ -1611,6 +1700,30 @@ int mt_ptp_uinit(struct mtl_main_impl* impl) {
+   return 0;
+ }
+ 
++int mtl_ptp_get_status(mtl_handle mt, enum mtl_port port, struct mtl_ptp_status* status) {
++  struct mtl_main_impl* impl = mt;
++
++  if (!impl || impl->type != MT_HANDLE_MAIN) return -EINVAL;
++  if (!status || port >= MTL_PORT_MAX || port >= mt_num_ports(impl)) return -EINVAL;
++
++  struct mt_ptp_impl* ptp = mt_get_ptp(impl, port);
++  memset(status, 0, sizeof(*status));
++  if (!ptp) return 0; /* no PTP instance on this port */
++
++  uint32_t seq;
++  do {
++    seq = ptp->status_seq;
++    rte_smp_rmb();
++    if (seq & 1) continue; /* writer in progress */
++    mt_memcpy(status, &ptp->status, sizeof(*status));
++    rte_smp_rmb();
++  } while ((seq & 1) || seq != ptp->status_seq);
++
++  /* without dual-port PTP only the primary port instance steers the PHC */
++  status->selected = status->active && (MTL_PORT_P == port);
++  return 0;
++}
++
+ uint64_t mt_get_raw_ptp_time(struct mtl_main_impl* impl, enum mtl_port port) {
+   return ptp_get_raw_time(mt_get_ptp(impl, port));
+ }
