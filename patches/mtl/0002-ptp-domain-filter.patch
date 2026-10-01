@@ -1,0 +1,84 @@
+diff --git a/include/mtl_api.h b/include/mtl_api.h
+index 568b060..71e9889 100644
+--- a/include/mtl_api.h
++++ b/include/mtl_api.h
+@@ -495,6 +495,11 @@ enum mtl_init_flag {
+    * correctly; a session whose every port is down will still fail to create.
+    */
+   MTL_FLAG_ALLOW_DOWN_PORTS = (MTL_BIT64(48)),
++  /**
++   * Built-in PTP only accepts messages whose domainNumber equals
++   * mtl_init_params.ptp_domain; all other domains are ignored.
++   */
++  MTL_FLAG_PTP_DOMAIN_FILTER = (MTL_BIT64(56)),
+ 
+   /** Debug option to enable dropping some percentage of packets for
+    *  testing redundant video streams only works for video, needs the
+@@ -668,6 +673,8 @@ struct mtl_init_params {
+   /** Optional for MTL_FLAG_PTP_ENABLE. The callback is notified every time the built-in
+    * PTP protocol receives a valid PTP_DELAY_RESP message from the PTP grandmaster. */
+   void (*ptp_sync_notify)(void* priv, struct mtl_ptp_sync_notify_meta* meta);
++  /** Optional for MTL_FLAG_PTP_DOMAIN_FILTER. The PTP domain (0..255) to follow. */
++  uint8_t ptp_domain;
+ 
+   /** Optional. Stats dump period in seconds, zero means determined by lib(10s default) */
+   uint16_t dump_period_s;
+@@ -1206,6 +1213,8 @@ uint64_t mtl_ptp_read_time_raw(mtl_handle mt);
+ 
+ /** The PTP status API below is available (mtl_ptp_get_status). */
+ #define MTL_HAS_PTP_STATUS 1
++/** MTL_FLAG_PTP_DOMAIN_FILTER and mtl_init_params.ptp_domain are available. */
++#define MTL_HAS_PTP_DOMAIN_FILTER 1
+ 
+ /**
+  * PTP status of one port, a consistent snapshot published by the PTP stack.
+diff --git a/lib/src/mt_main.h b/lib/src/mt_main.h
+index 4ed420c..d5fde54 100644
+--- a/lib/src/mt_main.h
++++ b/lib/src/mt_main.h
+@@ -332,6 +332,7 @@ struct mt_ptp_impl {
+   int64_t win_path_delay_min;
+   int64_t win_path_delay_max;
+   int64_t win_path_delay_avg;
++  uint64_t stat_domain_mismatch; /* messages of other domains (MTL_FLAG_PTP_DOMAIN_FILTER) */
+ };
+ 
+ /* used for cni sys queue */
+diff --git a/lib/src/mt_ptp.c b/lib/src/mt_ptp.c
+index bf68829..d9a3581 100644
+--- a/lib/src/mt_ptp.c
++++ b/lib/src/mt_ptp.c
+@@ -1402,6 +1402,8 @@ static int ptp_init(struct mtl_main_impl* impl, struct mt_ptp_impl* ptp,
+   } else {
+     ptp->master_addr_mode = MT_PTP_MULTICAST_ADDR;
+   }
++  if (p->flags & MTL_FLAG_PTP_DOMAIN_FILTER)
++    info("%s(%d), only PTP domain %u is followed\n", __func__, port, p->ptp_domain);
+   ptp->locked = false;
+   ptp->stat_sync_keep = 0;
+   rte_spinlock_init(&ptp->status_lock);
+@@ -1529,6 +1531,12 @@ int mt_ptp_parse(struct mt_ptp_impl* ptp, struct mt_ptp_header* hdr, bool vlan,
+ 
+   if (!ptp->active) return 0;
+ 
++  struct mtl_init_params* user = mt_get_user_params(ptp->impl);
++  if ((user->flags & MTL_FLAG_PTP_DOMAIN_FILTER) && hdr->domain_number != user->ptp_domain) {
++    ptp->stat_domain_mismatch++;
++    return -EINVAL;
++  }
++
+   dbg("%s(%d), message_type %d\n", __func__, port, hdr->message_type);
+   // mt_ptp_print_port_id(port, &hdr->source_port_identity);
+ 
+@@ -1626,6 +1634,11 @@ static int ptp_stat(void* priv) {
+            ptp->stat_rx_sync_err, ptp->stat_tx_sync_err, ptp->stat_result_err);
+   if (ptp->stat_sync_timeout_err)
+     warn("PTP(%d): sync timeout %d\n", port, ptp->stat_sync_timeout_err);
++  if (ptp->stat_domain_mismatch) {
++    notice("PTP(%d): %" PRIu64 " messages of other domains ignored\n", port,
++           ptp->stat_domain_mismatch);
++    ptp->stat_domain_mismatch = 0;
++  }
+ 
+   if (ptp->calibrate_t2_t3) {
+     notice("PTP(%d): t2_t1_delta_calibrate %d t4_t3_delta_calibrate %d\n", port,

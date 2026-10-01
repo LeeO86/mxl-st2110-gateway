@@ -426,6 +426,9 @@ namespace mxlgw::media
                     p.ptp_domain = static_cast<std::uint8_t>(cfg.ptp.domain);
 #endif
 #if defined(MTL_HAS_PTP_DUAL_PORT)
+                    // Patch 0003: best-master selection and announce timeout (parent re-selection), and with a
+                    // redundant port PTP on both legs with the BMCA across them (§4.3, §5.5).
+                    p.flags |= MTL_FLAG_PTP_BMCA;
                     if (_ctx.redundantPort)
                     {
                         p.flags |= MTL_FLAG_PTP_DUAL_PORT;

@@ -1,0 +1,370 @@
+diff --git a/include/mtl_api.h b/include/mtl_api.h
+index 71e9889..3503b89 100644
+--- a/include/mtl_api.h
++++ b/include/mtl_api.h
+@@ -500,6 +500,18 @@ enum mtl_init_flag {
+    * mtl_init_params.ptp_domain; all other domains are ignored.
+    */
+   MTL_FLAG_PTP_DOMAIN_FILTER = (MTL_BIT64(56)),
++  /**
++   * Built-in PTP keeps the best Announce data set of the domain (IEEE 1588 data-set
++   * comparison) instead of the first one, switches to a better parent, and drops a
++   * parent that sent no Announce for 3 announce intervals so a new parent is selected.
++   */
++  MTL_FLAG_PTP_BMCA = (MTL_BIT64(57)),
++  /**
++   * Built-in PTP runs on MTL_PORT_P and MTL_PORT_R (both ports share the PHC). A BMCA
++   * across both ports selects the instance that steers the PHC and answers
++   * mtl_ptp_read_time; the other one only listens. Implies MTL_FLAG_PTP_BMCA.
++   */
++  MTL_FLAG_PTP_DUAL_PORT = (MTL_BIT64(58)),
+ 
+   /** Debug option to enable dropping some percentage of packets for
+    *  testing redundant video streams only works for video, needs the
+@@ -1215,6 +1227,8 @@ uint64_t mtl_ptp_read_time_raw(mtl_handle mt);
+ #define MTL_HAS_PTP_STATUS 1
+ /** MTL_FLAG_PTP_DOMAIN_FILTER and mtl_init_params.ptp_domain are available. */
+ #define MTL_HAS_PTP_DOMAIN_FILTER 1
++/** MTL_FLAG_PTP_BMCA and MTL_FLAG_PTP_DUAL_PORT are available. */
++#define MTL_HAS_PTP_DUAL_PORT 1
+ 
+ /**
+  * PTP status of one port, a consistent snapshot published by the PTP stack.
+diff --git a/lib/src/mt_main.c b/lib/src/mt_main.c
+index e97d6e7..5193793 100644
+--- a/lib/src/mt_main.c
++++ b/lib/src/mt_main.c
+@@ -1105,6 +1105,9 @@ uint64_t mtl_ptp_read_time(mtl_handle mt) {
+     err("%s, invalid type %d\n", __func__, impl->type);
+     return 0;
+   }
++  struct mt_ptp_impl* primary = mt_get_ptp(impl, MTL_PORT_P);
++  if (primary && primary->dual && mt_get_ptp(impl, MTL_PORT_R))
++    port = (enum mtl_port)primary->selected_port; /* the instance that steers the PHC */
+ 
+   mt_wait_tsc_stable(impl);
+ 
+diff --git a/lib/src/mt_main.h b/lib/src/mt_main.h
+index d5fde54..fb342aa 100644
+--- a/lib/src/mt_main.h
++++ b/lib/src/mt_main.h
+@@ -118,6 +118,18 @@ struct mt_ptp_port_id {
+   uint16_t port_number;
+ } __attribute__((packed));
+ 
++/* IEEE 1588-2008 data set used by the gateway BMCA patch (§9.3.4 comparison order) */
++struct mt_ptp_bmca_ds {
++  uint8_t priority1;
++  uint8_t clock_class;
++  uint8_t clock_accuracy;
++  uint16_t offset_scaled_log_variance;
++  uint8_t priority2;
++  uint8_t gm_identity[8];
++  uint16_t steps_removed;
++  struct mt_ptp_port_id sender;
++};
++
+ struct mt_ipv4_udp {
+   struct rte_ipv4_hdr ip;
+   struct rte_udp_hdr udp;
+@@ -333,6 +345,19 @@ struct mt_ptp_impl {
+   int64_t win_path_delay_max;
+   int64_t win_path_delay_avg;
+   uint64_t stat_domain_mismatch; /* messages of other domains (MTL_FLAG_PTP_DOMAIN_FILTER) */
++
++  /* BMCA (MTL_FLAG_PTP_BMCA / MTL_FLAG_PTP_DUAL_PORT) */
++  bool bmca;                           /* best-master selection and announce timeout */
++  bool dual;                           /* takes part in the selection across P and R */
++  rte_spinlock_t master_lock;          /* parent changes: rx path vs announce timer */
++  struct mt_ptp_bmca_ds best;          /* data set of the current parent */
++  uint64_t last_announce_ns;           /* monotonic time of the parent's last Announce */
++  int8_t announce_log_interval;        /* logMessageInterval of the parent's Announce */
++  uint64_t parent_changes;
++  /* the pair's selection is kept in the MTL_PORT_P instance */
++  rte_spinlock_t select_lock;
++  volatile int selected_port;          /* port whose instance steers the PHC */
++  uint64_t selection_changes;
+ };
+ 
+ /* used for cni sys queue */
+diff --git a/lib/src/mt_ptp.c b/lib/src/mt_ptp.c
+index d9a3581..74e5f17 100644
+--- a/lib/src/mt_ptp.c
++++ b/lib/src/mt_ptp.c
+@@ -410,6 +410,13 @@ static void ptp_print_port_id(enum mtl_port port, struct mt_ptp_port_id* pid) {
+       port, pid->port_number, id[0], id[1], id[2], id[3], id[4], id[5], id[6], id[7]);
+ }
+ 
++/* Dual-port PTP: true for the instance that steers the shared PHC (always without it). */
++static inline bool ptp_is_selected(struct mt_ptp_impl* ptp) {
++  if (!ptp->dual) return true;
++  struct mt_ptp_impl* primary = mt_get_ptp(ptp->impl, MTL_PORT_P);
++  return primary && primary->selected_port == (int)ptp->port;
++}
++
+ /* Publish a consistent status snapshot for mtl_ptp_get_status (seqlock writer side). */
+ static void ptp_status_publish(struct mt_ptp_impl* ptp) {
+   struct mtl_ptp_status* s = &ptp->status;
+@@ -519,6 +526,19 @@ static void ptp_calculate_coefficient(struct mt_ptp_impl* ptp, int64_t delta) {
+ static void ptp_adjust_delta(struct mt_ptp_impl* ptp, int64_t delta, bool error_correct) {
+   MTL_MAY_UNUSED(error_correct);
+ 
++  if (!ptp_is_selected(ptp)) {
++    /* dual-port PTP: the other port steers the shared PHC, this one only measures */
++    ptp->stat_delta_min = RTE_MIN(delta, ptp->stat_delta_min);
++    ptp->stat_delta_max = RTE_MAX(delta, ptp->stat_delta_max);
++    ptp->stat_delta_cnt++;
++    ptp->stat_delta_sum += labs(delta);
++    ptp->delta_result_cnt++;
++    ptp->locked = labs(delta) < 1000 && ptp->delta_result_cnt > 10;
++    ptp->delta_last = delta;
++    ptp_status_publish(ptp);
++    return;
++  }
++
+ #ifdef MTL_HAS_DPDK_TIMESYNC_ADJUST_FREQ
+   double ppb;
+   enum servo_state state = UNLOCKED;
+@@ -798,7 +818,7 @@ static int ptp_parse_result(struct mt_ptp_impl* ptp) {
+ 
+   /* notify the sync event if ptp_sync_notify is enabled */
+   struct mtl_init_params* p = mt_get_user_params(impl);
+-  if (p->ptp_sync_notify && (MTL_PORT_P == ptp->port)) {
++  if (p->ptp_sync_notify && ptp_is_selected(ptp) && (ptp->dual || MTL_PORT_P == ptp->port)) {
+     struct mtl_ptp_sync_notify_meta meta;
+     meta.master_utc_offset = ptp->master_utc_offset;
+     meta.delta = delta;
+@@ -1075,11 +1095,170 @@ static int ptp_parse_follow_up(struct mt_ptp_impl* ptp,
+   return 0;
+ }
+ 
++/* <0: a is the better master, >0: b is better, 0: equal (IEEE 1588-2008 9.3.4). */
++static int ptp_bmca_compare(const struct mt_ptp_bmca_ds* a, const struct mt_ptp_bmca_ds* b) {
++  if (a->priority1 != b->priority1) return a->priority1 < b->priority1 ? -1 : 1;
++  if (a->clock_class != b->clock_class) return a->clock_class < b->clock_class ? -1 : 1;
++  if (a->clock_accuracy != b->clock_accuracy)
++    return a->clock_accuracy < b->clock_accuracy ? -1 : 1;
++  if (a->offset_scaled_log_variance != b->offset_scaled_log_variance)
++    return a->offset_scaled_log_variance < b->offset_scaled_log_variance ? -1 : 1;
++  if (a->priority2 != b->priority2) return a->priority2 < b->priority2 ? -1 : 1;
++  int c = memcmp(a->gm_identity, b->gm_identity, 8);
++  if (c) return c < 0 ? -1 : 1;
++  if (a->steps_removed != b->steps_removed)
++    return a->steps_removed < b->steps_removed ? -1 : 1;
++  c = memcmp(&a->sender, &b->sender, sizeof(a->sender));
++  if (c) return c < 0 ? -1 : 1;
++  return 0;
++}
++
++static void ptp_bmca_ds_from_announce(struct mt_ptp_bmca_ds* ds,
++                                      struct mt_ptp_announce_msg* msg) {
++  ds->priority1 = msg->grandmaster_priority1;
++  ds->clock_class = msg->grandmaster_clock_quality.clock_class;
++  ds->clock_accuracy = msg->grandmaster_clock_quality.clock_accuracy;
++  ds->offset_scaled_log_variance =
++      ntohs(msg->grandmaster_clock_quality.offset_scaled_log_variance);
++  ds->priority2 = msg->grandmaster_priority2;
++  mt_memcpy(ds->gm_identity, &msg->grandmaster_identity.id[0], 8);
++  ds->steps_removed = ntohs(msg->steps_removed);
++  mt_memcpy(&ds->sender, &msg->hdr.source_port_identity, sizeof(ds->sender));
++}
++
++/* The selection across both ports: only the better parent's instance steers the PHC. */
++static void ptp_dual_select(struct mtl_main_impl* impl) {
++  struct mt_ptp_impl* p = mt_get_ptp(impl, MTL_PORT_P);
++  struct mt_ptp_impl* r = mt_get_ptp(impl, MTL_PORT_R);
++  if (!p || !r || !p->dual || !r->dual) return;
++
++  rte_spinlock_lock(&p->select_lock);
++  bool pv = p->master_initialized;
++  bool rv = r->master_initialized;
++  int current = p->selected_port;
++  int want = current;
++  if (pv && !rv)
++    want = MTL_PORT_P;
++  else if (!pv && rv)
++    want = MTL_PORT_R;
++  else if (pv && rv) {
++    int c = ptp_bmca_compare(&p->best, &r->best);
++    if (c < 0)
++      want = MTL_PORT_P;
++    else if (c > 0)
++      want = MTL_PORT_R;
++    /* equal: keep the current selection */
++  }
++  if (want != current) {
++    p->selected_port = want;
++    p->selection_changes++;
++    info("%s, PTP port %d selected to steer the PHC (was %d), changes %" PRIu64 "\n",
++         __func__, want, current, p->selection_changes);
++  }
++  rte_spinlock_unlock(&p->select_lock);
++}
++
++static void ptp_set_master(struct mt_ptp_impl* ptp, struct mt_ptp_announce_msg* msg,
++                           enum mt_ptp_l_mode mode, struct mt_ipv4_udp* ipv4_hdr) {
++  enum mtl_port port = ptp->port;
++  bool had_master = ptp->master_initialized;
++
++  if (had_master) {
++    /* parent change: start the offset measurement over */
++    info("%s(%d), parent changed\n", __func__, port);
++    ptp_t_result_clear(ptp);
++    ptp_expect_result_clear(ptp);
++    ptp_result_reset(ptp);
++    ptp->locked = false;
++    ptp->stat_sync_keep = 0;
++    ptp->parent_changes++;
++  }
++  ptp->master_initialized = true;
++  ptp->master_utc_offset = ntohs(msg->current_utc_offset);
++  mt_memcpy(&ptp->master_port_id, &msg->hdr.source_port_identity,
++            sizeof(ptp->master_port_id));
++  mt_memcpy(&ptp->master_addr.addr_bytes[0], &ptp->master_port_id.clock_identity.id[0], 3);
++  mt_memcpy(&ptp->master_addr.addr_bytes[3], &ptp->master_port_id.clock_identity.id[5], 3);
++  info("%s(%d), master initialized, mode %s utc_offset %d domain_number %d\n", __func__,
++       port, ptp_mode_str(mode), ptp->master_utc_offset, msg->hdr.domain_number);
++  ptp_print_port_id(port, &ptp->master_port_id);
++  if (mode == MT_PTP_L4) {
++    struct mt_ipv4_udp* dst_udp = &ptp->dst_udp;
++
++    mt_memcpy(dst_udp, ipv4_hdr, sizeof(*dst_udp));
++    mt_memcpy(&dst_udp->ip.src_addr, &ptp->sip_addr[0], MTL_IP_ADDR_LEN);
++    mt_memcpy(&dst_udp->ip.dst_addr, &ptp->mcast_group_addr[0], MTL_IP_ADDR_LEN);
++    dst_udp->ip.total_length =
++        htons(sizeof(struct mt_ipv4_udp) + sizeof(struct mt_ptp_sync_msg));
++    dst_udp->ip.hdr_checksum = 0;
++    dst_udp->udp.dgram_len = htons(sizeof(struct rte_udp_hdr) + sizeof(struct mt_ptp_sync_msg));
++  }
++
++  if (had_master) return;
++  /* point ptp fn to eth phc; with dual-port PTP both ports read the shared PHC */
++  for (int i = 0; i < mt_num_ports(ptp->impl); i++) {
++    if (i != (int)port && !(ptp->dual && mt_get_ptp(ptp->impl, i))) continue;
++    if (mt_user_ptp_tsc_source(ptp->impl))
++      warn("%s(%d), skip as ptp force to tsc\n", __func__, i);
++    else if (mt_user_ptp_time_fn(ptp->impl))
++      warn("%s(%d), skip as user provide ptp source already\n", __func__, i);
++    else
++      mt_if(ptp->impl, i)->ptp_get_time_fn = ptp_from_eth;
++  }
++}
++
++/* Drop a parent that sent no Announce for 3 announce intervals (alarm, every second). */
++static void ptp_announce_timeout_handler(void* param) {
++  struct mt_ptp_impl* ptp = param;
++  uint64_t now = mt_get_monotonic_time();
++  bool dropped = false;
++
++  rte_spinlock_lock(&ptp->master_lock);
++  if (ptp->master_initialized) {
++    int8_t log_interval = ptp->announce_log_interval;
++    if (log_interval < -7) log_interval = -7;
++    if (log_interval > 7) log_interval = 7;
++    uint64_t interval_ns = log_interval >= 0 ? (uint64_t)NS_PER_S << log_interval
++                                             : (uint64_t)NS_PER_S >> (-log_interval);
++    if (now - ptp->last_announce_ns > 3 * interval_ns) {
++      warn("%s(%d), parent sent no Announce for 3 intervals, re-selecting\n", __func__,
++           ptp->port);
++      ptp->master_initialized = false;
++      ptp->locked = false;
++      ptp->stat_sync_keep = 0;
++      ptp_t_result_clear(ptp);
++      dropped = true;
++    }
++  }
++  rte_spinlock_unlock(&ptp->master_lock);
++  if (dropped) {
++    ptp_status_publish(ptp);
++    ptp_dual_select(ptp->impl);
++  }
++  if (ptp->active) rte_eal_alarm_set(NS_PER_S / 1000, ptp_announce_timeout_handler, ptp);
++}
++
+ static int ptp_parse_announce(struct mt_ptp_impl* ptp, struct mt_ptp_announce_msg* msg,
+                               enum mt_ptp_l_mode mode, struct mt_ipv4_udp* ipv4_hdr) {
+   enum mtl_port port = ptp->port;
+ 
+-  if (!ptp->master_initialized) {
++  if (ptp->bmca) {
++    struct mt_ptp_bmca_ds ds;
++    ptp_bmca_ds_from_announce(&ds, msg);
++    rte_spinlock_lock(&ptp->master_lock);
++    bool from_parent =
++        ptp->master_initialized &&
++        ptp_port_id_equal(&msg->hdr.source_port_identity, &ptp->master_port_id);
++    if (!from_parent && (!ptp->master_initialized || ptp_bmca_compare(&ds, &ptp->best) < 0))
++      ptp_set_master(ptp, msg, mode, ipv4_hdr);
++    if (ptp_port_id_equal(&msg->hdr.source_port_identity, &ptp->master_port_id)) {
++      ptp->best = ds;
++      ptp->last_announce_ns = mt_get_monotonic_time();
++      ptp->announce_log_interval = msg->hdr.log_message_interval;
++    }
++    rte_spinlock_unlock(&ptp->master_lock);
++    ptp_dual_select(ptp->impl);
++  } else if (!ptp->master_initialized) {
+     ptp->master_initialized = true;
+     ptp->master_utc_offset = ntohs(msg->current_utc_offset);
+     mt_memcpy(&ptp->master_port_id, &msg->hdr.source_port_identity,
+@@ -1407,6 +1586,12 @@ static int ptp_init(struct mtl_main_impl* impl, struct mt_ptp_impl* ptp,
+   ptp->locked = false;
+   ptp->stat_sync_keep = 0;
+   rte_spinlock_init(&ptp->status_lock);
++  rte_spinlock_init(&ptp->master_lock);
++  rte_spinlock_init(&ptp->select_lock);
++  ptp->dual = (p->flags & MTL_FLAG_PTP_DUAL_PORT) && mt_num_ports(impl) > 1;
++  ptp->bmca = ptp->dual || (p->flags & MTL_FLAG_PTP_BMCA);
++  ptp->selected_port = MTL_PORT_P;
++  ptp->announce_log_interval = 1; /* 2 s until the first Announce tells us */
+ 
+   ptp_stat_clear(ptp);
+   ptp_coefficient_result_reset(ptp);
+@@ -1483,6 +1668,10 @@ static int ptp_init(struct mtl_main_impl* impl, struct mt_ptp_impl* ptp,
+     ptp->calibrate_t2_t3 = true;
+     warn("%s(%d), ptp running without timesync support\n", __func__, port);
+   }
++  if (ptp->bmca) {
++    info("%s(%d), bmca enabled%s\n", __func__, port, ptp->dual ? ", dual-port" : "");
++    rte_eal_alarm_set(NS_PER_S / 1000, ptp_announce_timeout_handler, ptp);
++  }
+   info("%s(%d), sip: %d.%d.%d.%d\n", __func__, port, ip[0], ip[1], ip[2], ip[3]);
+   return 0;
+ }
+@@ -1499,6 +1688,10 @@ static int ptp_uinit(struct mtl_main_impl* impl, struct mt_ptp_impl* ptp) {
+ #if MT_PTP_USE_TX_TIME_STAMP
+   rte_eal_alarm_cancel(ptp_delay_req_read_tx_time_handler, ptp);
+ #endif
++  bool was_active = ptp->active;
++  ptp->active = false; /* stops the announce timer from re-arming */
++  rte_eal_alarm_cancel(ptp_announce_timeout_handler, ptp);
++  ptp->active = was_active;
+ 
+   if (!ptp->active) return 0;
+ 
+@@ -1666,8 +1859,9 @@ int mt_ptp_init(struct mtl_main_impl* impl) {
+   int num_port = mt_num_ports(impl);
+ 
+   for (int i = 0; i < num_port; i++) {
+-    /* only probe on the MTL_PORT_P */
+-    if ((i != MTL_PORT_P) && !mt_if_has_offload_timestamp(impl, i)) continue;
++    /* only probe on the MTL_PORT_P, or on both ports with dual-port PTP */
++    bool dual = (mt_get_user_params(impl)->flags & MTL_FLAG_PTP_DUAL_PORT) && num_port > 1;
++    if ((i != MTL_PORT_P) && !mt_if_has_offload_timestamp(impl, i) && !dual) continue;
+ 
+     struct mt_ptp_impl* ptp = mt_rte_zmalloc_socket(sizeof(*ptp), socket);
+     if (!ptp) {
+@@ -1733,7 +1927,13 @@ int mtl_ptp_get_status(mtl_handle mt, enum mtl_port port, struct mtl_ptp_status*
+   } while ((seq & 1) || seq != ptp->status_seq);
+ 
+   /* without dual-port PTP only the primary port instance steers the PHC */
+-  status->selected = status->active && (MTL_PORT_P == port);
++  struct mt_ptp_impl* primary = mt_get_ptp(impl, MTL_PORT_P);
++  if (ptp->dual && primary) {
++    status->selected = status->active && primary->selected_port == (int)port;
++    status->selection_changes = primary->selection_changes;
++  } else {
++    status->selected = status->active && (MTL_PORT_P == port);
++  }
+   return 0;
+ }
+ 
