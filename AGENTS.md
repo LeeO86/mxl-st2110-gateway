@@ -26,6 +26,11 @@ Instructions for coding agents (Claude Code) working on `mxl-st2110-gateway`.
 - Building DPDK + MTL + MXL is slow: build the `deps` Docker stage once and reuse it (`docker build --target deps -t mxlgw-deps .`), then iterate on the `build` stage.
 - Without an E810 use `nic.backend = "kernel"` with a veth pair (needs hugepages: `sudo sysctl vm.nr_hugepages=1024`). This backend has no pacing or HW PTP and is test-only.
 - MXL domains for local tests: `sudo mount -t tmpfs -o size=2g tmpfs /tmp/mxl-test` (a plain directory must fail the bootstrap — that is a feature).
+- The Dockerfile lives in `docker/`: always pass `-f docker/Dockerfile` with the repository root as context.
+- Kernel backend: put the second veth end into another network namespace (a `sleep` container, see `tests/integration/lib.sh`), otherwise the kernel drops the multicast as martian. Simulate leg loss with `nft … numgen random` (not every kernel has `xt_statistic`).
+- MXL tests in a container need a large tmpfs: `--tmpfs /mnt/mxltest:size=2g -e MXLGW_TEST_TMPFS=/mnt/mxltest` (the 64 MiB `/dev/shm` is too small for video flows).
+- DNS-SD tests need avahi-daemon on the host and the container mounts `/run/dbus` + `/run/avahi-daemon`; without systemd start `dbus-daemon --system --fork` and `avahi-daemon -D` first (`tests/integration/nmos-testing.sh` does this).
+- If `vm.nr_hugepages` does not reach the target, memory is fragmented: drop caches and `sysctl vm.compact_memory=1`, then retry.
 
 ## Commands (fill in as they come into existence)
 
