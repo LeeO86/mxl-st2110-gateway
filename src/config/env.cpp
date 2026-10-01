@@ -21,6 +21,7 @@ namespace mxlgw::config
             Boolean,
             List,
             MillisecondsToNs,
+            AutoOrInteger,
         };
 
         struct Entry
@@ -42,6 +43,7 @@ namespace mxlgw::config
                 case Kind::Boolean: return "boolean";
                 case Kind::List: return "comma list";
                 case Kind::MillisecondsToNs: return "integer (ms)";
+                case Kind::AutoOrInteger: return "auto | integer";
             }
             return "string";
         }
@@ -69,6 +71,7 @@ namespace mxlgw::config
                     {"MXLGW_NIC_BACKEND", {}, "/nic/backend", Kind::String},
                     {"MXLGW_NIC_LCORES", {}, "/nic/lcores", Kind::NullableString},
                     {"MXLGW_NIC_APP_CPUS", {}, "/nic/app_cpus", Kind::NullableString},
+                    {"MXLGW_NIC_HUGEPAGE_SOCKET", {}, "/nic/hugepage_socket", Kind::AutoOrInteger},
                     {"MXLGW_PTP_MODE", {}, "/ptp/mode", Kind::String},
                     {"MXLGW_PTP_DOMAIN", {}, "/ptp/domain", Kind::Integer},
                     {"MXLGW_PTP_REQUIRE_LOCK", {}, "/ptp/require_lock", Kind::Boolean},
@@ -129,6 +132,20 @@ namespace mxlgw::config
                     if (!v)
                     {
                         error = "invalid boolean '" + text + "' (use true/false)";
+                        return std::nullopt;
+                    }
+                    return json(*v);
+                }
+                case Kind::AutoOrInteger:
+                {
+                    if (text == "auto")
+                    {
+                        return json("auto");
+                    }
+                    auto const v = util::parseInt(text);
+                    if (!v)
+                    {
+                        error = "invalid value '" + text + "' (use auto or an integer)";
                         return std::nullopt;
                     }
                     return json(*v);

@@ -63,6 +63,18 @@ TEST_CASE("invalid environment values are configuration errors")
     CHECK(overlay.errors[0].message.find("MXLGW_NODE_HTTP_PORT") != std::string::npos);
 }
 
+TEST_CASE("hugepage socket accepts auto or an integer")
+{
+    auto overlay = config::applyEnvironment(testutil::sampleConfig(), testutil::envFrom({{"MXLGW_NIC_HUGEPAGE_SOCKET", "1"}}));
+    CHECK(overlay.effective["nic"]["hugepage_socket"] == 1);
+    CHECK(config::parseAndValidate(overlay.effective).config->nic.hugepageSocket == 1);
+    overlay = config::applyEnvironment(testutil::sampleConfig(), testutil::envFrom({{"MXLGW_NIC_HUGEPAGE_SOCKET", "auto"}}));
+    CHECK(overlay.effective["nic"]["hugepage_socket"] == "auto");
+    overlay = config::applyEnvironment(testutil::sampleConfig(), testutil::envFrom({{"MXLGW_NIC_HUGEPAGE_SOCKET", "near"}}));
+    REQUIRE(overlay.errors.size() == 1);
+    CHECK(overlay.errors[0].pointer == "/nic/hugepage_socket");
+}
+
 TEST_CASE("environment can create the port pair (Kubernetes)")
 {
     auto file = testutil::sampleConfig();
