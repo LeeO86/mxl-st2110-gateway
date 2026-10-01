@@ -16,7 +16,7 @@ namespace mxlgw::log
     namespace
     {
         constexpr std::size_t historyCapacity = 500;
-        constexpr std::size_t ringCapacity = 1024; // power of two
+        constexpr std::size_t ringCapacity = 4096; // power of two; MTL init logs a burst of several hundred lines
         constexpr std::size_t slotTextSize = 400;
 
         struct State
@@ -305,6 +305,10 @@ namespace mxlgw::log
             while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
             {
                 text.remove_suffix(1);
+            }
+            if (text.rfind("MTL: ", 0) == 0)
+            {
+                text.remove_prefix(5);
             }
             auto const lvl = static_cast<Level>(slot.level);
             if (auto const observer = realtimeObserver.load())

@@ -144,6 +144,10 @@ if(MXLGW_HAVE_MTL)
     target_link_libraries(mxlgw-mtl PUBLIC mxlgw-core PkgConfig::MTL)
     target_compile_options(mxlgw-mtl PRIVATE ${MXLGW_WARNINGS})
     target_compile_definitions(mxlgw-mtl PUBLIC MXLGW_HAVE_MTL=1)
+    # Only ethdev.cpp sees DPDK headers (its pkg-config cflags carry -march for the generic platform).
+    set_source_files_properties(src/mtl/ethdev.cpp PROPERTIES COMPILE_OPTIONS "${DPDK_CFLAGS_OTHER}")
+    target_link_directories(mxlgw-mtl PUBLIC ${DPDK_LIBRARY_DIRS})
+    target_link_libraries(mxlgw-mtl PUBLIC rte_ethdev rte_eal)
 endif()
 
 # ------------------------------------------------------------------

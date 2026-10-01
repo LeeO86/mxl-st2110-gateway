@@ -202,7 +202,8 @@ namespace mxlgw::ops
             }
             if (freeBytes < need)
             {
-                push(out, "hugepages-free", CheckLevel::Fail,
+                // The estimate is sized for E810 sessions; the test-only kernel backend needs far less.
+                push(out, "hugepages-free", c.nic.backend == config::Backend::Kernel ? CheckLevel::Warn : CheckLevel::Fail,
                      "free hugepages " + std::to_string(freeBytes >> 20) + " MiB < estimated " + std::to_string(need >> 20) +
                          " MiB for the configured sessions");
             }

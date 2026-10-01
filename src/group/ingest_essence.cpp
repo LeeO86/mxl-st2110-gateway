@@ -226,6 +226,7 @@ namespace mxlgw::group
                 }
             }
             _lastFrameSteadyNs = steadyNs();
+            _framesSeen = false;
             log::info("ingest_receiver_started", {{"group", _spec.group.label}, {"essence", _label}});
         }
         catch (std::exception const& ex)
@@ -682,7 +683,7 @@ namespace mxlgw::group
             _state.set(EssenceState::Error, "rx_session_failed");
             return;
         }
-        if (steadyNs() - _lastFrameSteadyNs > noSignalAfterNs)
+        if (!_framesSeen || steadyNs() - _lastFrameSteadyNs > noSignalAfterNs)
         {
             _state.set(EssenceState::NoSignal, "no_packets");
             return;
@@ -766,6 +767,7 @@ namespace mxlgw::group
             if (got)
             {
                 _lastFrameSteadyNs = now;
+                _framesSeen = true;
                 if (_state.get().state != EssenceState::Running)
                 {
                     updateStateLocked();

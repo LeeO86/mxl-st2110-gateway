@@ -108,6 +108,7 @@ namespace mxlgw::group
         std::uint64_t _retiredUntilTag = 0;
         std::string _writerError;
         std::int64_t _lastFrameSteadyNs = 0;
+        bool _framesSeen = false; // since the RX session was created
         std::uint64_t _consecutiveRejects = 0;
         bool _drift = false;
         bool _reopenPending = false;

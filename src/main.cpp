@@ -11,6 +11,7 @@
 
 #include "app/application.hpp"
 #include "mxlbridge/instance.hpp"
+#include "util/logging.hpp"
 #include "version.hpp"
 
 namespace
@@ -85,5 +86,6 @@ int main(int argc, char** argv)
         pthread_kill(signalThread.native_handle(), SIGTERM);
         signalThread.join();
     }
+    log::stopDrain();
     return rc;
 }
