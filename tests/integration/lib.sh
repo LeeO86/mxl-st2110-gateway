@@ -141,6 +141,11 @@ json() {
     curl -fsS --max-time 5 "$1" | python3 -c "import json,sys; j=json.load(sys.stdin); v=($2); print(v if not isinstance(v,(dict,list)) else json.dumps(v))"
 }
 
+# readiness reasons (sorted) regardless of the 200/503 status
+readyz_reasons() {
+    curl -sS --max-time 5 "$1/readyz" | python3 -c "import json,sys; print(json.dumps(sorted(json.load(sys.stdin)['reasons'])))"
+}
+
 # essence_field <base> <essence-label> <field>
 essence_field() {
     json "$1/api/status" "next(e for g in j['groups'] for e in g['essences'] if e['label']=='$2').get('$3')"

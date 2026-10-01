@@ -33,7 +33,7 @@ make_veth mxlit4 mxlit5 192.168.81.1/24 192.168.81.2/24 "$IT_PREFIX-lf-ns"
 MIRROR="$WORK/mxl/mirror-$MIRROR_ID"
 mkdir -p "$MIRROR"
 cat >"$MIRROR/domain_def.json" <<EOF
-{"id": "$MIRROR_ID", "label": "Host A main (mirror)", "description": "simulated mirror",
+{"id": "$MIRROR_ID", "label": "Host A main (mirror)", "description": "simulated mirror", "tags": {},
  "x-mxl-fabrics-agent": {"mirror": true, "source_host_id": "host-a", "owner_host_id": "host-b"}}
 EOF
 echo '{"urn:x-mxl:option:history_duration/v1.0": 200000000}' >"$MIRROR/options.json"
@@ -90,7 +90,7 @@ python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) el
     fail "mxlgw_mxl_flow_not_found_total did not grow ($nf1 -> $nf2)"
 essence_state_is "$GWE" "PGM V" waiting_for_flow || fail "PGM V left waiting_for_flow without a flow"
 pass "waiting for the flow (flow-not-found $nf1 -> $nf2)"
-ready_before=$(json "$GWE/readyz" 'sorted(j["reasons"])')
+ready_before=$(readyz_reasons "$GWE")
 
 writer() {
     start_tool "$IT_PREFIX-lf-pattern" "$IMAGE" "$WORK/mxl" mxl-pattern-writer --domain "/Volumes/mxl/mirror-$MIRROR_ID" \
@@ -124,7 +124,7 @@ for e in V A ANC; do
     st=$(essence_field "$GWE" "PGM $e" state)
     [[ "$st" == "no_signal" || "$st" == "waiting_for_flow" ]] || fail "PGM $e is $st after the writer stopped"
 done
-[[ "$(json "$GWE/readyz" 'sorted(j["reasons"])')" == "$ready_before" ]] || fail "/readyz changed when the flow went away"
+[[ "$(readyz_reasons "$GWE")" == "$ready_before" ]] || fail "/readyz changed when the flow went away ($ready_before -> $(readyz_reasons "$GWE"))"
 pass "writer stopped: no_signal, readiness unaffected"
 
 log "restarting the writer (flows re-created)"
