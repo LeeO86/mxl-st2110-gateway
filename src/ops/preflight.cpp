@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 #include "ops/preflight.hpp"
 
+#include <algorithm>
+#include <cctype>
+
 #include <filesystem>
 #include <set>
 
@@ -26,9 +29,29 @@ namespace mxlgw::ops
         constexpr int capSysNice = 23;
         constexpr int capSysTime = 25;
 
+        /// README anchor of a check: per-port/per-domain ids ("pci-MEDIA_P", "domain-MAIN") share their family's anchor.
+        std::string anchorOf(std::string const& id)
+        {
+            auto const dash = id.rfind('-');
+            if (dash != std::string::npos)
+            {
+                auto const suffix = id.substr(dash + 1);
+                bool const upperSnake =
+                    !suffix.empty() &&
+                    std::all_of(suffix.begin(), suffix.end(), [](char ch)
+                                { return std::isupper(static_cast<unsigned char>(ch)) || std::isdigit(static_cast<unsigned char>(ch)) || ch == '_'; });
+                if (upperSnake)
+                {
+                    return "#preflight-" + id.substr(0, dash);
+                }
+            }
+            return "#preflight-" + id;
+        }
+
         void push(std::vector<CheckResult>& out, std::string id, CheckLevel level, std::string message)
         {
-            out.push_back({id, level, std::move(message), "#preflight-" + id});
+            auto anchor = anchorOf(id);
+            out.push_back({std::move(id), level, std::move(message), std::move(anchor)});
         }
 
         std::string readTrim(std::string const& path)

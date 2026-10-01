@@ -5,6 +5,7 @@
 
 #include "helpers.hpp"
 #include "ops/preflight.hpp"
+#include "util/fs.hpp"
 
 using namespace mxlgw;
 
@@ -20,6 +21,22 @@ namespace
             }
         }
         return nullptr;
+    }
+
+    std::string const& readme()
+    {
+        static std::string const text = util::readFile(std::string(MXLGW_SOURCE_DIR) + "/README.md").value_or("");
+        return text;
+    }
+
+    /// Phase 6: every preflight message links to a README section.
+    void checkReadmeAnchors(std::vector<ops::CheckResult> const& results)
+    {
+        for (auto const& c : results)
+        {
+            REQUIRE(c.anchor.rfind("#preflight-", 0) == 0);
+            CHECK_MESSAGE(readme().find("id=\"" + c.anchor.substr(1) + "\"") != std::string::npos, "README.md has no anchor " << c.anchor);
+        }
     }
 
     config::Config parse(nlohmann::json const& j)
@@ -63,6 +80,7 @@ TEST_CASE("preflight: dpdk backend against a fake sysfs")
     env.firmwareRoot = root.file("fw");
     env.checkPortInUse = false;
     auto const r = ops::runPreflight(c, env);
+    checkReadmeAnchors(r);
     CHECK(find(r, "pci-MEDIA_P")->level == ops::CheckLevel::Ok);
     CHECK(find(r, "pci-MEDIA_R")->level == ops::CheckLevel::Fail);
     CHECK(find(r, "ddp")->level == ops::CheckLevel::Fail);
@@ -73,7 +91,8 @@ TEST_CASE("preflight: dpdk backend against a fake sysfs")
     CHECK(find(r, "tai-offset") != nullptr);
     CHECK(ops::hasFailures(r));
     CHECK(ops::toJson(r).is_array());
-    CHECK(find(r, "pci-MEDIA_P")->anchor == "#preflight-pci-MEDIA_P");
+    CHECK(find(r, "pci-MEDIA_P")->anchor == "#preflight-pci");
+    CHECK(find(r, "domain-MAIN")->anchor == "#preflight-domain");
 }
 
 TEST_CASE("preflight: wrong driver, no IOMMU, missing caps, phc2sys")
@@ -98,6 +117,7 @@ TEST_CASE("preflight: wrong driver, no IOMMU, missing caps, phc2sys")
     env.procRoot = root.file("proc");
     env.checkPortInUse = false;
     auto const r = ops::runPreflight(c, env);
+    checkReadmeAnchors(r);
     CHECK(find(r, "pci-MEDIA_P")->message.find("'ice'") != std::string::npos);
     CHECK(find(r, "vfio")->level == ops::CheckLevel::Fail);
     CHECK(find(r, "cap-ipc-lock")->level == ops::CheckLevel::Fail);
@@ -125,6 +145,7 @@ TEST_CASE("preflight: kernel and mock backends, ports, domains on tmpfs")
     env.devRoot = root.file("dev");
     env.checkPortInUse = false;
     auto const r = ops::runPreflight(c, env);
+    checkReadmeAnchors(r);
     CHECK(find(r, "ifname-MEDIA_P")->level == ops::CheckLevel::Ok);
     CHECK(find(r, "ifname-MEDIA_R")->level == ops::CheckLevel::Fail);
     CHECK(find(r, "rmem-max")->level == ops::CheckLevel::Warn);
@@ -145,8 +166,18 @@ TEST_CASE("preflight: kernel and mock backends, ports, domains on tmpfs")
     auto mock = parse(testutil::sampleConfig(shm.file("main")));
     mock.node.httpPort = 8080;
     auto const mrr = ops::runPreflight(mock, env);
+    checkReadmeAnchors(mrr);
     CHECK(find(mrr, "test-backend")->message.find("mock") != std::string::npos);
     CHECK(find(mrr, "http-port")->level == ops::CheckLevel::Info);
     CHECK(std::string(ops::toName(ops::CheckLevel::Info)) == "info");
     CHECK(ops::effectiveCapabilities("/nonexistent") == 0);
+}
+
+TEST_CASE("README has a section for every preflight check family")
+{
+    for (auto const* family : {"hugepages", "hugepages-free", "vfio", "pci", "ddp", "ifname", "rmem-max", "test-backend", "cap-ipc-lock", "cap-sys-nice",
+                               "cap-sys-time", "domain", "scan-path", "tai-offset", "http-port", "lcores"})
+    {
+        CHECK_MESSAGE(readme().find(std::string("id=\"preflight-") + family + "\"") != std::string::npos, family);
+    }
 }
