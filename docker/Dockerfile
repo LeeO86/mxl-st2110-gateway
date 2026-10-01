@@ -16,7 +16,7 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY web/ ./
-RUN npm run build
+RUN npm test && npm run build
 
 # ---------------------------------------------------------------------------
 # Dependencies. Changes only when a pin or patches/mtl changes.
