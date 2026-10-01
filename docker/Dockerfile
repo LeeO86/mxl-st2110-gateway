@@ -98,6 +98,7 @@ RUN curl -fsSL "https://downloadmirror.intel.com/${ICE_DMID}/ice-${ICE_VER}.tar.
     && mkdir -p /opt/ddp \
     && cp /tmp/ice-"${ICE_VER}"/ddp/ice-*.pkg /opt/ddp/ \
     && cp /tmp/ice-"${ICE_VER}"/ddp/ice-*.pkg /opt/ddp/ice.pkg \
+    && cp /tmp/ice-"${ICE_VER}"/ddp/LICENSE /opt/ddp/LICENSE \
     && rm -rf /tmp/ice-"${ICE_VER}"
 
 # MTL with the gateway patches. CI also runs `git apply --check` separately.
@@ -174,6 +175,8 @@ COPY --from=deps /opt/mxl/bin/mxl-info /opt/mxl/bin/mxl-data-probe /usr/local/bi
 # E810 DDP package where the DPDK ice PMD looks for it (DPDK 26.07 ice_ethdev.h).
 COPY --from=deps /opt/ddp/ice.pkg /lib/firmware/updates/intel/ice/ddp/ice.pkg
 COPY --from=deps /opt/ddp/ice.pkg /lib/firmware/intel/ice/ddp/ice.pkg
+COPY --from=deps /opt/ddp/LICENSE /usr/share/doc/intel-ice-ddp/LICENSE
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/mxl-st2110-gateway/
 
 COPY --from=build /src/build/mxl-st2110-gateway /usr/local/bin/mxl-st2110-gateway
 COPY --from=build /src/build/tools/mxl-pattern-writer /src/build/tools/mxl-verify /usr/local/bin/

@@ -5,8 +5,9 @@
 #
 # Runs IS-04-01, IS-05-01, IS-05-02 and BCP-007-03-01 non-interactively with the testing tool's
 # mock registry announced over multicast DNS-SD (owner decision Q13: no registry container). The
-# gateway uses node.registry.mode = "dns-sd" through the host's avahi-daemon (D-Bus socket mounted
-# into the container). Any "Fail" fails the run; JSON results go to $IT_ARTIFACTS.
+# gateway uses the MTL kernel-socket backend on a local veth pair (§7.7) and node.registry.mode =
+# "dns-sd" through the host's avahi-daemon (D-Bus socket mounted into the container). Any "Fail"
+# fails the run; JSON results go to $IT_ARTIFACTS.
 source "$(dirname "$0")/lib.sh"
 
 IMAGE="${1:?usage: nmos-testing.sh <image>}"
@@ -14,11 +15,20 @@ IMAGE="${1:?usage: nmos-testing.sh <image>}"
 NMOS_TESTING_REF="${NMOS_TESTING_REF:-$(sed -n 's/^ *NMOS_TESTING_REF: *\([0-9a-f]\{40\}\).*/\1/p' "$(dirname "$0")/../../.github/workflows/ci.yaml" | head -1)}"
 [[ -n "$NMOS_TESTING_REF" ]] || fail "NMOS_TESTING_REF not set and not found in .github/workflows/ci.yaml"
 PORT=18185
-need docker curl python3
+need docker curl python3 ip
 
 WORK="$(mktemp -d /tmp/mxlgw-nmostest.XXXXXX)"
 on_exit "as_root rm -rf '$WORK'"
+ensure_hugepages 1024
 make_mxl_root "$WORK/mxl" 1g
+# Media ports for the kernel backend: both ends of one veth pair (activations send into it).
+as_root ip link del mxlit6 2>/dev/null || true
+as_root ip link add mxlit6 type veth peer name mxlit7
+on_exit "as_root ip link del mxlit6"
+as_root ip addr add 192.168.82.1/24 dev mxlit6
+as_root ip addr add 192.168.83.1/24 dev mxlit7
+as_root ip link set mxlit6 up
+as_root ip link set mxlit7 up
 mkdir -p "$WORK/config" "$IT_ARTIFACTS"
 
 # ---- avahi on the host (the gateway's dns_sd client talks to it over D-Bus)
@@ -49,15 +59,15 @@ CONFIG.HTTP_TIMEOUT = 5
 CONFIG.MAX_TEST_ITERATIONS = 0
 EOF
 
-# ---- the gateway: mock media backend, real MXL domain, one ingest and one egress group
+# ---- the gateway: kernel backend, real MXL domain, one ingest and one egress group
 HOST_IP="${NMOS_TEST_HOST_IP:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}"
 cat >"$WORK/config/gateway.json" <<EOF
 {
   "schema_version": 1,
   "node": {"label": "IT-NMOS", "http_port": $PORT, "management_addresses": ["$HOST_IP"], "registry": {"mode": "dns-sd"}},
-  "nic": {"backend": "mock", "port_pairs": [{"name": "media",
-          "primary":   {"name": "media-p", "ip": "10.1.1.21", "netmask": "255.255.255.0"},
-          "redundant": {"name": "media-r", "ip": "10.2.1.21", "netmask": "255.255.255.0"}}]},
+  "nic": {"backend": "kernel", "lcores": "1", "port_pairs": [{"name": "media",
+          "primary":   {"name": "media-p", "ifname": "mxlit6", "ip": "192.168.82.1", "netmask": "255.255.255.0"},
+          "redundant": {"name": "media-r", "ifname": "mxlit7", "ip": "192.168.83.1", "netmask": "255.255.255.0"}}]},
   "ptp": {"mode": "external", "require_lock": false},
   "mxl": {"scan_path": "/Volumes/mxl", "domains": [{"name": "main", "path": "/Volumes/mxl/main", "history_duration_ns": 100000000}]},
   "groups": [
@@ -75,7 +85,7 @@ cat >"$WORK/config/gateway.json" <<EOF
 }
 EOF
 start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus
-wait_until 60 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
+wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
 
 run_suite() { # <tag> <suite> <args...>
     local tag="$1" suite="$2"

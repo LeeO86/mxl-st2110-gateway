@@ -60,6 +60,9 @@ jobs:
       - name: Configurations match the schema
         run: python3 tools/validate_configs.py
 
+      - name: docs/configuration.md is up to date
+        run: python3 tools/gen_config_docs.py --check
+
       - name: docker compose config
         run: |
           docker compose -f docker/docker-compose.yaml config -q

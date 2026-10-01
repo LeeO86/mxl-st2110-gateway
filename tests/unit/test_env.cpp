@@ -4,6 +4,7 @@
 #include "config/config.hpp"
 #include "config/env.hpp"
 #include "helpers.hpp"
+#include "util/fs.hpp"
 
 using namespace mxlgw;
 using nlohmann::json;
@@ -108,4 +109,20 @@ TEST_CASE("documented variables")
     CHECK(found);
     CHECK(config::processEnvironment()("PATH").has_value());
     CHECK_FALSE(config::processEnvironment()("MXLGW_SURELY_NOT_SET_12345").has_value());
+}
+
+TEST_CASE("configuration reference lists every environment variable")
+{
+    auto const doc = util::readFile(std::string(MXLGW_SOURCE_DIR) + "/docs/configuration.md");
+    REQUIRE(doc);
+    for (auto const& d : config::documentedVariables())
+    {
+        auto const pattern = d.variable.find('<');
+        auto const name = pattern == std::string::npos ? "`" + d.variable + "`" : d.variable.substr(0, pattern);
+        CHECK_MESSAGE(doc->find(name) != std::string::npos, d.variable << " is missing in docs/configuration.md (run tools/gen_config_docs.py)");
+        for (auto const& alias : d.aliases)
+        {
+            CHECK_MESSAGE(doc->find("`" + alias + "`") != std::string::npos, alias);
+        }
+    }
 }
