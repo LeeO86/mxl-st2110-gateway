@@ -75,6 +75,16 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision (conservative): parse the SDP without nmos-cpp's caps check; the gateway's `validate_staged` maps a format mismatch to 400 with the list of differences; a syntactically malformed SDP stays 500 as nmos-cpp does.
 - Consequence: recorded as open question O-1.
 
+### 2026-10-01 — Receivers' group-hint role gets an " Input" suffix
+- Context: §7.2 tags every Source, Flow, Sender and Receiver with `<group>:<Role> <n>`, so an essence's Receiver and Sender share a role. AMWA IS-04-01 test_23 requires roles to be unique within a group across Senders and Receivers, and §7.7 requires IS-04-01 to pass with zero failures.
+- Decision (conservative, open question O-5): Sources, Flows, Senders and the MXL `flow_def.json` keep `<group>:<Role> <n>`; Receivers use `<group>:<Role> <n> Input` (e.g. `CAM 1:Video 1 Input`).
+- Consequence: controllers still see one group per gateway group; the Sender and Receiver of an essence are distinguishable by role. Flow ids and resource ids are unchanged.
+
+### 2026-10-01 — DNS-SD inside the container needs nss-mdns and the host's avahi sockets
+- Context: nmos-cpp built against the Avahi compatibility library browses and resolves through the host's avahi-daemon (D-Bus), but resolves the registry's `.local` host name with the system `getaddrinfo` ("Using getaddrinfo, got no addresses for host"), which needs `libnss-mdns` and `/run/avahi-daemon/socket`.
+- Decision: the runtime image installs `libnss-mdns`; the Compose files, the Kubernetes Deployments and the nmos-testing script mount `/run/dbus` and `/run/avahi-daemon` from the host (as mxl-decklink documents).
+- Consequence: DNS-SD registry discovery works under host networking with the host's Avahi; without Avahi on the host use `node.registry.mode = "static"`. The `DNSServiceCreateConnection … -65544` error logged at start comes from nmos-cpp's address-record registration, which Avahi's compatibility layer does not support; it is harmless.
+
 ### 2026-10-01 — PTP series only when MTL runs PTP
 - Context: with `ptp.mode = external` or the kernel backend MTL has no PTP instance; exporting `mxlgw_ptp_locked 0` showed a red "UNLOCKED".
 - Decision: all `mxlgw_ptp_*` series are absent in that case; the dashboard shows "external / no MTL PTP".
@@ -137,3 +147,4 @@ All other dependencies are the pinned ones of §2 (MTL, DPDK, MXL, nmos-cpp and 
 | O-2 | §15.2: does `CAP_IPC_LOCK` alone lift `RLIMIT_MEMLOCK` enough for vfio DMA pinning on the target containerd, or does the runtime need a memlock ulimit? (**VERIFY** on the cluster) | Manifests rely on `IPC_LOCK`; the entrypoint warns when memlock is not unlimited |
 | O-3 | §12.1 names (`mxlgw_*_ns`) are a public interface, but Phase 6 asks that `/metrics` "passes `promtool check metrics`", whose lint rejects abbreviated units. Rename to base units (`_seconds`) before v1.0? | Names kept as specified; `check-metrics.sh` tolerates only that finding |
 | O-4 | `docs/acceptance.md` §19 items 3–6, 10–12 and 14 need the E810 hosts, a grandmaster and the operator's controller (Q12: manual) | Templates in `docs/acceptance.md` / `docs/performance.md` |
+| O-5 | §7.2 gives Senders and Receivers of an essence the same group-hint role, which IS-04-01 rejects. Which role naming does the owner prefer for Receivers? | `<Role> <n> Input` for Receivers; Senders/Flows/Sources unchanged |

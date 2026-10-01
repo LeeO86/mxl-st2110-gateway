@@ -30,6 +30,10 @@ services:
       - type: bind
         source: /Volumes/mxl
         target: /Volumes/mxl
+      # DNS-SD through the host's avahi-daemon (D-Bus for browsing, the avahi socket for .local names).
+      # Not needed with node.registry.mode = "static".
+      - /run/dbus:/run/dbus
+      - /run/avahi-daemon:/run/avahi-daemon
     environment:
       MXLGW_CONFIG: /config/gateway.json
       # MXLGW_HTTP_PORT: "8090"   # e.g. when mxl-decklink already uses 8080 on this host (§15.4)

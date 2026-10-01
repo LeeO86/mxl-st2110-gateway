@@ -200,6 +200,8 @@ spec:
             - { name: config, mountPath: /config }
             - { name: hugepages, mountPath: /dev/hugepages }
             - { name: mxl, mountPath: /Volumes/mxl }
+            - { name: dbus, mountPath: /run/dbus }
+            - { name: avahi, mountPath: /run/avahi-daemon }
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -215,6 +217,15 @@ spec:
           hostPath:
             path: /Volumes/mxl
             type: Directory
+        # DNS-SD through the node's avahi-daemon (not needed with node.registry.mode = "static").
+        - name: dbus
+          hostPath:
+            path: /run/dbus
+            type: DirectoryOrCreate
+        - name: avahi
+          hostPath:
+            path: /run/avahi-daemon
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

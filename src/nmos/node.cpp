@@ -112,6 +112,13 @@ namespace mxlgw::nmosnode
             r.data[U("tags")][U("urn:x-nmos:tag:grouphint/v1.0")] = value_of({value::string(us(hint))});
         }
 
+        /// BCP-002-01 roles must be unique within a group across Senders and Receivers (IS-04-01 test_23); an
+        /// essence's Receiver and Sender would otherwise share "<Role> <n>" (docs/decisions.md, open question O-5).
+        std::string receiverHint(std::string const& hint)
+        {
+            return hint + " Input";
+        }
+
         void label(nmos::resource& r, std::string const& l, std::string const& d)
         {
             r.data[U("label")] = value::string(us(l));
@@ -418,7 +425,7 @@ namespace mxlgw::nmosnode
             s[U("label")] = value::string(us(n.label));
             s[U("description")] = value::string(us(n.description));
             s[U("seed_id")] = value::string(_nodeId);
-            s[U("logging_level")] = log::enabled(log::Level::Debug) ? 0 : 10;
+            s[U("logging_level")] = log::enabled(log::Level::Trace) ? slog::severities::more_info : log::enabled(log::Level::Debug) ? 0 : 10;
             s[U("is04_versions")] = value_of({U("v1.3")});
             s[U("is05_versions")] = value_of({U("v1.1"), U("v1.2")});
             // §7.1: only node.http_port is opened; everything optional is disabled with a negative port.
@@ -728,7 +735,7 @@ namespace mxlgw::nmosnode
                             captureSet({{nmos::caps::format::grain_rate, nmos::make_caps_rational_constraint({rationalOf(g.anc.at(index).format.rate)})}}));
                 }
                 label(receiver, label_, g.label + " " + role + " ST 2110 receiver");
-                tag(receiver, hint);
+                tag(receiver, receiverHint(hint));
                 auto rconn = nmos::make_connection_rtp_receiver(receiverId, redundant);
                 for (int leg = 0; leg < (redundant ? 2 : 1); ++leg)
                 {
@@ -810,7 +817,7 @@ namespace mxlgw::nmosnode
                                                    nmos::make_caps_rational_constraint({rationalOf(g.anc.at(index).format.grainRate())})}}));
                 }
                 label(receiver, label_, g.label + " " + role + " MXL receiver");
-                tag(receiver, hint);
+                tag(receiver, receiverHint(hint));
                 // C3: mxl_domain_id unconstrained so a domain that does not exist yet can be staged.
                 auto rconn = nmos::make_connection_mxl_receiver(receiverId, {});
                 if (!restoreSaved(rconn, keep))

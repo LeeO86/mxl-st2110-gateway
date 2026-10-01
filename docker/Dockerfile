@@ -167,7 +167,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libnuma1 libjson-c5 libpcap0.8t64 libssl3t64 libatomic1 \
         libcpprest2.10 libboost-chrono1.83.0t64 libboost-thread1.83.0 libboost-date-time1.83.0 \
         libboost-regex1.83.0 libboost-random1.83.0 libboost-filesystem1.83.0 libboost-system1.83.0 \
-        libavahi-compat-libdnssd1 \
+        libavahi-compat-libdnssd1 libnss-mdns \
     && rm -rf /var/lib/apt/lists/*
 
 # DPDK + MTL (incl. DPDK PMD plugins) and MXL shared libraries.

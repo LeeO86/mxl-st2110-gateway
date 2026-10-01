@@ -47,6 +47,9 @@ wait_until 10 "avahi-daemon" pgrep -x avahi-daemon
 TOOL="$WORK/nmos-testing"
 mkdir -p "$TOOL"
 curl -fsSL "https://codeload.github.com/AMWA-TV/nmos-testing/tar.gz/$NMOS_TESTING_REF" | tar xz -C "$TOOL" --strip-components=1
+python3 -c "import ensurepip" 2>/dev/null || as_root apt-get install -y -qq python3-venv >/dev/null
+# netifaces builds from source
+[[ -e "$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["include"])')/Python.h" ]] || as_root apt-get install -y -qq python3-dev >/dev/null
 python3 -m venv "$WORK/venv"
 "$WORK/venv/bin/pip" install -q --disable-pip-version-check -r "$TOOL/requirements.txt"
 cat >"$TOOL/nmostesting/UserConfig.py" <<'EOF'
@@ -57,6 +60,10 @@ CONFIG.DNS_SD_ADVERT_TIMEOUT = 60
 CONFIG.API_PROCESSING_TIMEOUT = 2
 CONFIG.HTTP_TIMEOUT = 5
 CONFIG.MAX_TEST_ITERATIONS = 0
+# The SDPs the tool stages must match the receivers' fixed formats (§6.4): 1080p50, 8 ch L24 1 ms.
+CONFIG.SDP_PREFERENCES.update({"channels": 8, "sample_rate": 48000, "packet_time": 1, "max_packet_time": 1,
+                               "width": 1920, "height": 1080, "interlace": False, "exactframerate": "50",
+                               "depth": 10, "sampling": "YCbCr-4:2:2", "colorimetry": "BT709", "TCS": "SDR", "TP": "2110TPN"})
 EOF
 
 # ---- the gateway: kernel backend, real MXL domain, one ingest and one egress group
@@ -84,7 +91,7 @@ cat >"$WORK/config/gateway.json" <<EOF
   ]
 }
 EOF
-start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus
+start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon
 wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
 
 run_suite() { # <tag> <suite> <args...>

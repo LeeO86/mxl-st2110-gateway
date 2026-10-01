@@ -29,6 +29,8 @@ x-gateway: &gateway
     - type: bind
       source: /Volumes/mxl
       target: /Volumes/mxl
+    - /run/dbus:/run/dbus # DNS-SD through the host's avahi-daemon
+    - /run/avahi-daemon:/run/avahi-daemon
   healthcheck:
     # The fabrics-host-* examples use node.http_port 8090 so mxl-decklink can keep 8080 (§15.4).
     test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/livez"]

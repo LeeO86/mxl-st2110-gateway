@@ -68,6 +68,8 @@ services:
       - type: bind                             # host MXL root (tmpfs), shared with other media functions
         source: /Volumes/mxl
         target: /Volumes/mxl
+      - /run/dbus:/run/dbus                    # DNS-SD through the host's avahi-daemon
+      - /run/avahi-daemon:/run/avahi-daemon    # (not needed with a static registry)
     environment:
       MXLGW_CONFIG: /config/gateway.json
       # MXLGW_HTTP_PORT: "8090"       # e.g. when mxl-decklink already uses 8080 on this host
@@ -98,7 +100,7 @@ Applies to Compose and Kubernetes nodes. Ubuntu 24.04 and Debian 13 hosts work (
 4. **CPU isolation (recommended):** `isolcpus` / `nohz_full` / `rcu_nocbs` for the MTL lcores (`nic.lcores`), exclude them from irqbalance, keep `nic.app_cpus` on the NIC's NUMA node.
 5. **Time:** discipline `CLOCK_TAI` to the facility grandmaster **with the correct TAI offset** (37 s): `ptp4l -f …` + `phc2sys -a -r` on a kernel-owned port, or chrony with a PHC/PTP reference and `leapsectz right/UTC`. This is required on **every** host that writes, replicates or reads MXL flows — including hosts that only run receivers — because grain indices are TAI-based and replicated 1:1 by mxl-fabrics-agent. See [PTP modes](#ptp-modes).
 6. **MXL root:** one host tmpfs for all MXL domains of the host (`/Volumes/mxl`, see above), mounted by every MXL container of the host at its configured root path (gateway: `mxl.scan_path`, mxl-fabrics-agent: `MXL_ROOT`).
-7. **DNS-SD:** an Avahi daemon on the host (or a static registry).
+7. **DNS-SD:** an Avahi daemon on the host (`apt install avahi-daemon`); the container uses it through the mounted `/run/dbus` and `/run/avahi-daemon` sockets. Without Avahi, set `node.registry.mode = "static"` with the registry's address and port.
 
 The E810 **DDP package** is part of the image (`/lib/firmware/updates/intel/ice/ddp/ice.pkg`); a host `/lib/firmware` mount may override it.
 

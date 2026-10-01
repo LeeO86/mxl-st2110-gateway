@@ -18,7 +18,8 @@ namespace mxlgw::nmosnode
         public:
             bool pertinent(slog::severity level) const override
             {
-                return level >= slog::severities::warning || (level >= slog::severities::info && log::enabled(log::Level::Debug));
+                return level >= slog::severities::warning || (level >= slog::severities::info && log::enabled(log::Level::Debug)) ||
+                       (level >= slog::severities::more_info && log::enabled(log::Level::Trace));
             }
             void log(slog::log_message const& message) const override
             {
