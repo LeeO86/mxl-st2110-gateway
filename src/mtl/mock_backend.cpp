@@ -365,7 +365,8 @@ namespace mxlgw::media
         private:
             void deliver(Packet const& p)
             {
-                auto* dst = _handler.acquire(p.meta);
+                std::uint64_t tag = 0;
+                auto* dst = _handler.acquire(p.meta, tag);
                 if (dst == nullptr || !p.payload)
                 {
                     _sub.countFrame(false, true);
@@ -373,7 +374,9 @@ namespace mxlgw::media
                 }
                 std::memcpy(dst, p.payload->data(), std::min(p.payload->size(), _params.format.grainBytes()));
                 _sub.countFrame(p.meta.complete, false);
-                _ready.push(p.meta, 4, &_dropped);
+                auto meta = p.meta;
+                meta.tag = tag;
+                _ready.push(meta, 4, &_dropped);
             }
 
             VideoRxParams _params;

@@ -23,7 +23,12 @@ namespace testutil
         explicit TempDir(bool preferTmpfs = true)
         {
             std::string base = "/tmp";
-            if (preferTmpfs && mxlgw::util::inspectFs("/dev/shm").tmpfs)
+            auto const* custom = std::getenv("MXLGW_TEST_TMPFS"); // large tmpfs for MXL video flows (Docker build: RUN --mount=type=tmpfs)
+            if (preferTmpfs && custom != nullptr && mxlgw::util::inspectFs(custom).tmpfs)
+            {
+                base = custom;
+            }
+            else if (preferTmpfs && mxlgw::util::inspectFs("/dev/shm").tmpfs)
             {
                 base = "/dev/shm";
             }

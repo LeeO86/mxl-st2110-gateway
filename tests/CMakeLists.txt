@@ -18,6 +18,8 @@ add_executable(unit-tests
     unit/test_preflight.cpp
     unit/test_mock_backend.cpp
     unit/test_group.cpp
+    unit/test_bootstrap.cpp
+    unit/test_testpattern.cpp
 )
 target_include_directories(unit-tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/tests)
 target_link_libraries(unit-tests PRIVATE mxlgw-core)
@@ -27,7 +29,6 @@ add_test(NAME unit-tests COMMAND unit-tests)
 if(MXLGW_HAVE_MXL)
     add_executable(mxl-tests
         unit/test_main.cpp
-        unit/test_mxl_domain.cpp
         unit/test_mxl_bridge.cpp
         unit/test_pipeline.cpp
     )

@@ -18,13 +18,15 @@ namespace
         explicit Sink(std::size_t bytes)
             : buffer(bytes)
         {}
-        std::uint8_t* acquire(media::FrameMeta const& meta) noexcept override
+        std::uint8_t* acquire(media::FrameMeta const& meta, std::uint64_t& tag) noexcept override
         {
             last = meta;
+            tag = ++tags;
             return drop ? nullptr : buffer.data();
         }
         std::vector<std::uint8_t> buffer;
         media::FrameMeta last;
+        std::uint64_t tags = 0;
         bool drop = false;
     };
 

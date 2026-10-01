@@ -53,6 +53,8 @@ namespace mxlgw::media
         bool secondField = false;
         std::uint32_t pktsTotal = 0;
         std::array<std::uint32_t, 2> pktsRecv{};
+        /// Video RX: the tag set by VideoRxHandler::acquire() for this frame.
+        std::uint64_t tag = 0;
     };
 
     // ------------------------------------------------------------------ video
@@ -71,8 +73,9 @@ namespace mxlgw::media
         virtual ~VideoRxHandler() = default;
         /// REAL-TIME context (MTL lcore): must not block, allocate or log synchronously.
         /// Returns the destination of the v210 conversion (stride = format.v210Stride(),
-        /// size = format.grainBytes()) or nullptr to drop the frame.
-        virtual std::uint8_t* acquire(FrameMeta const& meta) noexcept = 0;
+        /// size = format.grainBytes()) or nullptr to drop the frame. `tag` is returned with the frame
+        /// by VideoRxSession::next() (MTL: st_ext_frame.opaque).
+        virtual std::uint8_t* acquire(FrameMeta const& meta, std::uint64_t& tag) noexcept = 0;
     };
 
     class VideoRxSession
@@ -95,6 +98,7 @@ namespace mxlgw::media
         config::Pacing pacing = config::Pacing::Narrow;
         config::Packing packing = config::Packing::Bpm;
         std::vector<LegAddress> legs;
+        int queueDepth = 0; // frames queued ahead of their transmit time (0 = backend default)
     };
 
     class VideoTxSession
@@ -116,6 +120,7 @@ namespace mxlgw::media
         config::AudioFormat format;
         int payloadType = 97;
         std::vector<LegAddress> legs;
+        int queueDepth = 0; // TX: blocks queued ahead of their transmit time (0 = backend default)
     };
 
     struct AudioBlock
@@ -154,6 +159,7 @@ namespace mxlgw::media
         config::AncFormat format;
         int payloadType = 100;
         std::vector<LegAddress> legs;
+        int queueDepth = 0;
     };
 
     struct AncReceived

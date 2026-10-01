@@ -87,12 +87,14 @@ add_library(mxlgw-core STATIC
     src/codec/audioconv.cpp
     src/codec/anc8331.cpp
     src/codec/v210.cpp
+    src/codec/testpattern.cpp
     src/mtl/sdp_map.cpp
     src/mtl/backend.cpp
     src/mtl/mock_backend.cpp
     src/mxlbridge/domainscan.cpp
     src/mxlbridge/domaindef.cpp
     src/mxlbridge/flowdef.cpp
+    src/mxlbridge/bootstrap.cpp
     src/group/essence_state.cpp
     src/group/replacement.cpp
     src/ops/http.cpp
@@ -110,16 +112,11 @@ target_compile_options(mxlgw-core PRIVATE ${MXLGW_WARNINGS})
 # ------------------------------------------------------------------
 if(MXLGW_HAVE_MXL)
     add_library(mxlgw-mxl STATIC
-        src/mxlbridge/domain.cpp
-        src/mxlbridge/registry.cpp
-        src/mxlbridge/videowriter.cpp
-        src/mxlbridge/videoreader.cpp
-        src/mxlbridge/audiowriter.cpp
-        src/mxlbridge/audioreader.cpp
-        src/mxlbridge/ancwriter.cpp
-        src/mxlbridge/ancreader.cpp
+        src/mxlbridge/instance.cpp
+        src/mxlbridge/writer.cpp
+        src/mxlbridge/reader.cpp
         src/mxlbridge/flowsync.cpp
-        src/mxlbridge/flowcleanup.cpp
+        src/mxlbridge/pattern.cpp
     )
     target_link_libraries(mxlgw-mxl PUBLIC mxlgw-core mxl::mxl)
     target_compile_options(mxlgw-mxl PRIVATE ${MXLGW_WARNINGS})
@@ -153,10 +150,8 @@ if(MXLGW_HAVE_MXL)
     add_library(mxlgw-pipeline STATIC
         src/group/ingest_essence.cpp
         src/group/egress_group.cpp
+        src/group/domain_resolver.cpp
         src/group/group_manager.cpp
-        src/ops/clock_supervisor.cpp
-        src/ops/webapi.cpp
-        src/app/application.cpp
     )
     target_link_libraries(mxlgw-pipeline PUBLIC mxlgw-mxl)
     if(MXLGW_HAVE_MTL)
