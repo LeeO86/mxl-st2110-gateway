@@ -378,6 +378,10 @@ namespace mxlgw::log
         auto const it = _last.find(key);
         if (it == _last.end() || now - it->second >= _interval)
         {
+            if (it == _last.end() && _last.size() >= 4096)
+            {
+                _last.clear(); // bounded memory for keys derived from free text
+            }
             _last[key] = now;
             return true;
         }

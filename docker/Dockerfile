@@ -72,6 +72,8 @@ RUN git -c init.defaultBranch=main init /tmp/nmos-cpp \
         -DCMAKE_INSTALL_PREFIX=/opt/nmos-cpp \
     && cmake --build /tmp/nmos-cpp/build -j"$(nproc)" \
     && cmake --install /tmp/nmos-cpp/build \
+    && mkdir -p /opt/nmos-cpp/include/third_party \
+    && cp -a /tmp/nmos-cpp/Development/third_party/jwt-cpp /tmp/nmos-cpp/Development/third_party/nlohmann /opt/nmos-cpp/include/third_party/ \
     && rm -rf /tmp/nmos-cpp
 
 # MTL source (needed for the DPDK patches as well).

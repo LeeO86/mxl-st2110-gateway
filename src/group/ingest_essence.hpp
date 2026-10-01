@@ -11,6 +11,7 @@
 
 #include "config/config.hpp"
 #include "group/essence_state.hpp"
+#include "group/flow_identity.hpp"
 #include "group/pipeline_types.hpp"
 #include "mtl/backend.hpp"
 #include "mxlbridge/instance.hpp"

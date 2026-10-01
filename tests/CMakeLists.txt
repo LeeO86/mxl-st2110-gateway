@@ -38,15 +38,13 @@ if(MXLGW_HAVE_MXL)
     add_test(NAME mxl-tests COMMAND mxl-tests)
 endif()
 
-if(MXLGW_HAVE_NMOS)
-    add_executable(nmos-tests
+if(MXLGW_HAVE_MXL AND MXLGW_HAVE_NMOS)
+    add_executable(app-tests
         unit/test_main.cpp
-        unit/test_nmos_sdp.cpp
-        unit/test_nmos_resources.cpp
+        unit/test_application.cpp
     )
-    set_target_properties(nmos-tests PROPERTIES CXX_STANDARD 17)
-    target_include_directories(nmos-tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/tests)
-    target_link_libraries(nmos-tests PRIVATE mxlgw-nmos)
-    target_compile_definitions(nmos-tests PRIVATE MXLGW_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-    add_test(NAME nmos-tests COMMAND nmos-tests)
+    target_include_directories(app-tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/tests)
+    target_link_libraries(app-tests PRIVATE mxlgw-pipeline)
+    target_compile_definitions(app-tests PRIVATE MXLGW_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    add_test(NAME app-tests COMMAND app-tests)
 endif()

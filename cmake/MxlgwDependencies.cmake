@@ -36,6 +36,8 @@ _mxlgw_resolve(MTL _mtl_found)
 
 set(_nmos_found OFF)
 if(NOT MXLGW_WITH_NMOS STREQUAL "OFF")
+    # nmos-cpp's package config links websocketpp::websocketpp without finding it.
+    find_package(websocketpp CONFIG QUIET)
     find_package(nmos-cpp CONFIG QUIET)
     if(nmos-cpp_FOUND)
         set(_nmos_found ON)

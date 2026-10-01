@@ -81,6 +81,7 @@ add_library(mxlgw-core STATIC
     src/config/config.cpp
     src/config/env.cpp
     src/config/store.cpp
+    src/config/group_factory.cpp
     src/nmos/ids.cpp
     src/timing/rtpclock.cpp
     src/timing/ptp.cpp
@@ -97,11 +98,17 @@ add_library(mxlgw-core STATIC
     src/mxlbridge/bootstrap.cpp
     src/group/essence_state.cpp
     src/group/replacement.cpp
+    src/group/flow_identity.cpp
+    src/app/connection_state.cpp
+    src/app/targets.cpp
     src/ops/http.cpp
     src/ops/metrics.cpp
     src/ops/health.cpp
     src/ops/preflight.cpp
     src/ops/statusz.cpp
+    src/ops/clock_supervisor.cpp
+    src/ops/metrics_export.cpp
+    src/ops/webapi.cpp
 )
 target_include_directories(mxlgw-core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(mxlgw-core PUBLIC nlohmann_json::nlohmann_json OpenSSL::Crypto Threads::Threads)
@@ -128,14 +135,10 @@ endif()
 # ------------------------------------------------------------------
 if(MXLGW_HAVE_MTL)
     add_library(mxlgw-mtl STATIC
-        src/mtl/instance.cpp
-        src/mtl/video_rx.cpp
-        src/mtl/video_tx.cpp
-        src/mtl/audio_rx.cpp
-        src/mtl/audio_tx.cpp
-        src/mtl/anc_rx.cpp
-        src/mtl/anc_tx.cpp
         src/mtl/mtl_backend.cpp
+        src/mtl/mtl_video.cpp
+        src/mtl/mtl_audio.cpp
+        src/mtl/mtl_anc.cpp
         src/mtl/ethdev.cpp
     )
     target_link_libraries(mxlgw-mtl PUBLIC mxlgw-core PkgConfig::MTL)
@@ -144,48 +147,52 @@ if(MXLGW_HAVE_MTL)
 endif()
 
 # ------------------------------------------------------------------
-# Groups / essences / pipeline orchestration (needs the MXL bridge)
+# nmos-cpp node + cpprest HTTP adapter (C++17: websocketpp is not C++20 clean)
+# ------------------------------------------------------------------
+if(MXLGW_HAVE_NMOS)
+    add_library(mxlgw-nmos STATIC
+        src/nmos/node.cpp
+        src/nmos/http_adapter.cpp
+        src/nmos/http_server.cpp
+    )
+    set_target_properties(mxlgw-nmos PROPERTIES CXX_STANDARD 17)
+    target_link_libraries(mxlgw-nmos PUBLIC mxlgw-core nmos-cpp::nmos-cpp)
+    target_compile_definitions(mxlgw-nmos PUBLIC MXLGW_HAVE_NMOS=1)
+    # nmos-cpp headers are noisy; our own warnings stay on, deprecations from boost/cpprest are muted.
+    target_compile_options(mxlgw-nmos PRIVATE -Wall -Wextra -Wno-deprecated-declarations -Wno-unused-parameter)
+endif()
+
+# ------------------------------------------------------------------
+# Groups / essences / application (needs the MXL bridge)
 # ------------------------------------------------------------------
 if(MXLGW_HAVE_MXL)
     add_library(mxlgw-pipeline STATIC
+        ${WEBUI_GENERATED}
         src/group/ingest_essence.cpp
         src/group/egress_group.cpp
         src/group/domain_resolver.cpp
         src/group/group_manager.cpp
+        src/app/application.cpp
+        src/mtl/backend_factory.cpp
     )
     target_link_libraries(mxlgw-pipeline PUBLIC mxlgw-mxl)
     if(MXLGW_HAVE_MTL)
         target_link_libraries(mxlgw-pipeline PUBLIC mxlgw-mtl)
     endif()
+    if(MXLGW_HAVE_NMOS)
+        target_link_libraries(mxlgw-pipeline PUBLIC mxlgw-nmos)
+    else()
+        target_sources(mxlgw-pipeline PRIVATE src/nmos/node_stub.cpp)
+    endif()
     target_compile_options(mxlgw-pipeline PRIVATE ${MXLGW_WARNINGS})
-endif()
-
-# ------------------------------------------------------------------
-# nmos-cpp node + cpprest HTTP adapter (C++17: websocketpp is not C++20 clean)
-# ------------------------------------------------------------------
-if(MXLGW_HAVE_NMOS)
-    add_library(mxlgw-nmos STATIC
-        ${WEBUI_GENERATED}
-        src/nmos/node.cpp
-        src/nmos/resources.cpp
-        src/nmos/sdp.cpp
-        src/nmos/connection_state.cpp
-        src/ops/http_cpprest.cpp
-    )
-    set_target_properties(mxlgw-nmos PROPERTIES CXX_STANDARD 17)
-    target_include_directories(mxlgw-nmos PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/generated)
-    target_link_libraries(mxlgw-nmos PUBLIC mxlgw-core nmos-cpp::nmos-cpp)
-    target_compile_definitions(mxlgw-nmos PUBLIC MXLGW_HAVE_NMOS=1)
-    # nmos-cpp headers are noisy; keep -Werror for our own code via separate flags.
-    target_compile_options(mxlgw-nmos PRIVATE -Wall -Wno-deprecated-declarations)
 endif()
 
 # ------------------------------------------------------------------
 # Executable
 # ------------------------------------------------------------------
-if(MXLGW_HAVE_MXL AND MXLGW_HAVE_NMOS)
+if(MXLGW_HAVE_MXL)
     add_executable(mxl-st2110-gateway src/main.cpp)
-    target_link_libraries(mxl-st2110-gateway PRIVATE mxlgw-pipeline mxlgw-nmos)
+    target_link_libraries(mxl-st2110-gateway PRIVATE mxlgw-pipeline)
     target_compile_options(mxl-st2110-gateway PRIVATE ${MXLGW_WARNINGS})
     install(TARGETS mxl-st2110-gateway RUNTIME DESTINATION bin)
 endif()
