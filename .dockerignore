@@ -1,0 +1,7 @@
+.git
+build
+build-*
+web/node_modules
+web/dist
+**/*.o
+**/__pycache__

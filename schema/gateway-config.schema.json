@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LeeO86/mxl-st2110-gateway/schema/gateway-config.schema.json",
+  "title": "mxl-st2110-gateway configuration",
+  "description": "Configuration file of mxl-st2110-gateway (SPECIFICATION.md §9.5). Semantic rules beyond this schema are listed in §9.5 and enforced by the gateway.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": 1, "description": "Configuration schema version." },
+    "node": { "$ref": "#/$defs/node" },
+    "nic": { "$ref": "#/$defs/nic" },
+    "ptp": { "$ref": "#/$defs/ptp" },
+    "mxl": { "$ref": "#/$defs/mxl" },
+    "groups": {
+      "type": "array",
+      "description": "Groups (user-facing units, one BCP-002-01 group hint each).",
+      "items": { "$ref": "#/$defs/group" }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "uuidOrNull": {
+      "anyOf": [ { "$ref": "#/$defs/uuid" }, { "type": "null" } ]
+    },
+    "ipv4": {
+      "type": "string",
+      "pattern": "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$"
+    },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "absolutePath": { "type": "string", "pattern": "^/" },
+    "rate": {
+      "type": "string",
+      "description": "Frame rate as a rational number.",
+      "enum": ["24000/1001", "24/1", "25/1", "30000/1001", "30/1", "50/1", "60000/1001", "60/1"]
+    },
+    "readOffsetGrains": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000 },
+    "readOffsetNs": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000000000 },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/uuidOrNull", "description": "Node seed id; generated on first start and written back." },
+        "label": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 512 },
+        "http_port": { "$ref": "#/$defs/port", "description": "The single HTTP port (NMOS, UI, API, metrics, health)." },
+        "public_address": { "anyOf": [ { "type": "string", "minLength": 1 }, { "type": "null" } ], "description": "Address advertised in NMOS hrefs (reverse proxy)." },
+        "public_port": { "anyOf": [ { "$ref": "#/$defs/port" }, { "type": "null" } ], "description": "Port advertised in NMOS hrefs (reverse proxy / port mapping)." },
+        "management_addresses": { "type": "array", "items": { "$ref": "#/$defs/ipv4" }, "description": "Management IPs; empty = all non-DPDK interfaces." },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "enum": ["dns-sd", "static"] },
+            "address": { "type": ["string", "null"] },
+            "port": { "anyOf": [ { "$ref": "#/$defs/port" }, { "type": "null" } ] }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "certificate": { "type": ["string", "null"] },
+            "private_key": { "type": ["string", "null"] }
+          }
+        },
+        "resume_connections": { "type": "boolean" },
+        "log_level": { "enum": ["trace", "debug", "info", "warn", "error"] }
+      }
+    },
+    "nicPort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "pci": { "type": ["string", "null"], "description": "PCI address (dddd:bb:dd.f) or env:VARIABLE (Kubernetes device plugin)." },
+        "ifname": { "type": ["string", "null"], "description": "Kernel interface (nic.backend = kernel only)." },
+        "ip": { "anyOf": [ { "$ref": "#/$defs/ipv4" }, { "type": "null" } ] },
+        "netmask": { "anyOf": [ { "$ref": "#/$defs/ipv4" }, { "type": "null" } ] },
+        "gateway": { "anyOf": [ { "$ref": "#/$defs/ipv4" }, { "type": "null" } ] }
+      }
+    },
+    "nic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": { "enum": ["dpdk", "kernel", "mock"], "description": "dpdk (production), kernel and mock are test-only." },
+        "lcores": { "type": ["string", "null"] },
+        "app_cpus": { "type": ["string", "null"] },
+        "hugepage_socket": { "anyOf": [ { "const": "auto" }, { "type": "integer", "minimum": 0 } ] },
+        "port_pairs": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["primary"],
+            "properties": {
+              "name": { "type": "string" },
+              "primary": { "$ref": "#/$defs/nicPort" },
+              "redundant": { "anyOf": [ { "$ref": "#/$defs/nicPort" }, { "type": "null" } ] }
+            }
+          }
+        }
+      }
+    },
+    "ptp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["builtin", "builtin_phc2sys", "external"] },
+        "domain": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "require_lock": { "type": "boolean" },
+        "warn_offset_ns": { "type": "integer", "minimum": 0 },
+        "max_offset_ns": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$" },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "id": { "$ref": "#/$defs/uuidOrNull" },
+        "label": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "history_duration_ns": { "type": ["integer", "null"], "minimum": 1000000, "maximum": 60000000000 },
+        "gc_on_start": { "type": "boolean" }
+      }
+    },
+    "mxl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scan_path": { "anyOf": [ { "$ref": "#/$defs/absolutePath" }, { "type": "null" } ] },
+        "default_read_offset_grains": { "$ref": "#/$defs/readOffsetGrains" },
+        "default_read_offset_ns": { "$ref": "#/$defs/readOffsetNs" },
+        "domains": { "type": "array", "items": { "$ref": "#/$defs/domain" } }
+      }
+    },
+    "leg": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "multicast": { "$ref": "#/$defs/ipv4", "description": "Ingest: group to join; egress: destination address." },
+        "source": { "anyOf": [ { "$ref": "#/$defs/ipv4" }, { "type": "null" } ], "description": "Ingest: SSM source filter; egress: unused (port IP)." },
+        "port": { "$ref": "#/$defs/port" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "legs": { "type": "array", "maxItems": 2, "items": { "$ref": "#/$defs/leg" } }
+      }
+    },
+    "payloadType": { "type": "integer", "minimum": 96, "maximum": 127 },
+    "essenceCommon": {
+      "type": "object",
+      "required": ["uid", "label"],
+      "properties": {
+        "uid": { "$ref": "#/$defs/uuid" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "payload_type": { "$ref": "#/$defs/payloadType" },
+        "read_offset_grains": { "$ref": "#/$defs/readOffsetGrains" },
+        "read_offset_ns": { "$ref": "#/$defs/readOffsetNs" },
+        "defaults": { "$ref": "#/$defs/defaults" }
+      }
+    },
+    "video": {
+      "allOf": [ { "$ref": "#/$defs/essenceCommon" } ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uid": true, "label": true, "payload_type": true, "read_offset_grains": true, "read_offset_ns": true, "defaults": true,
+        "width": { "enum": [1920, 3840] },
+        "height": { "enum": [1080, 2160] },
+        "rate": { "$ref": "#/$defs/rate" },
+        "interlace": { "enum": ["progressive", "interlaced_tff", "interlaced_bff"] },
+        "colorimetry": { "enum": ["BT709", "BT2020", "BT2100"] },
+        "tcs": { "enum": ["SDR", "PQ", "HLG"] },
+        "packing": { "enum": ["BPM", "GPM", "GPM_SL"] },
+        "pacing": { "enum": ["narrow", "linear", "wide"] }
+      }
+    },
+    "audio": {
+      "allOf": [ { "$ref": "#/$defs/essenceCommon" } ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uid": true, "label": true, "payload_type": true, "read_offset_grains": true, "read_offset_ns": true, "defaults": true,
+        "channels": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "bit_depth": { "enum": [16, 24] },
+        "sample_rate": { "const": 48000 },
+        "ptime_us": { "enum": [1000, 125] },
+        "block_us": { "type": "integer", "minimum": 125, "maximum": 100000 }
+      }
+    },
+    "anc": {
+      "allOf": [ { "$ref": "#/$defs/essenceCommon" } ],
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "uid": true, "label": true, "payload_type": true, "read_offset_grains": true, "read_offset_ns": true, "defaults": true,
+        "rate": { "$ref": "#/$defs/rate", "description": "Defaults to the group's first video rate." },
+        "interlace": { "enum": ["progressive", "interlaced_tff", "interlaced_bff"] }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uid", "label", "direction", "domain"],
+      "properties": {
+        "uid": { "$ref": "#/$defs/uuid" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "direction": { "enum": ["ingest", "egress"] },
+        "domain": { "type": "string" },
+        "redundancy": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "output_delay_ns": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000000000 },
+        "missing_data": { "enum": ["black", "repeat"] },
+        "video": { "type": "array", "items": { "$ref": "#/$defs/video" } },
+        "audio": { "type": "array", "items": { "$ref": "#/$defs/audio" } },
+        "anc": { "type": "array", "items": { "$ref": "#/$defs/anc" } }
+      }
+    }
+  }
+}
