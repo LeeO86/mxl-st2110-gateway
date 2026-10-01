@@ -35,6 +35,11 @@ namespace mxlgw::ops
 
         void exportPtp(MetricsWriter& out, media::BackendStatus const& b)
         {
+            // ptp.mode = external or the kernel backend: MTL runs no PTP, so a "0 = unlocked" series would mislead.
+            if (!b.ptpAvailable)
+            {
+                return;
+            }
             std::string bindMode = b.ports.empty() ? b.backend : b.ports.front().bindMode;
             for (std::size_t i = 0; i < b.ports.size() && i < b.ptp.size(); ++i)
             {

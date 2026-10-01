@@ -1,0 +1,24 @@
+# Prometheus scrape configuration for mxl-st2110-gateway (SPECIFICATION.md §12).
+# /metrics is served on node.http_port (default 8080, MXLGW_HTTP_PORT) next to NMOS and the UI.
+# Use the port each gateway actually listens on (e.g. 8090 when it shares a host with mxl-decklink).
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: mxl-st2110-gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - gw-studio1-a.example.net:8080
+          - gw-studio1-b.example.net:8090
+        labels:
+          site: studio1
+
+  # Optional: mxl-fabrics-agent on the same hosts (its own port, §15.4).
+  - job_name: mxl-fabrics-agent
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - gw-studio1-a.example.net:8095
+          - gw-studio1-b.example.net:8095

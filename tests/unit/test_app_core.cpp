@@ -438,6 +438,15 @@ TEST_CASE("metrics without a backend still expose the process gauges")
     CHECK(text.find("mxlgw_build_info{") != std::string::npos);
     CHECK(text.find("mxlgw_ready 0") != std::string::npos);
     CHECK(text.find("mxlgw_ptp_locked") == std::string::npos);
+
+    // External PTP / kernel backend: no PTP series at all rather than "unlocked".
+    auto external = fullMetricsInput();
+    external.backend->ptpAvailable = false;
+    ops::MetricsWriter we;
+    ops::exportMetrics(we, external);
+    auto const ext = we.render();
+    CHECK(ext.find("mxlgw_ptp_") == std::string::npos);
+    CHECK(ext.find("mxlgw_nic_link_up{") != std::string::npos);
     CHECK(std::string(ops::portLabel(0)) == "p");
     CHECK(std::string(ops::portLabel(1)) == "r");
 }
