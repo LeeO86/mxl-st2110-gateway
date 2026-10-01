@@ -2,6 +2,7 @@
 #include "config/config.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -978,6 +979,36 @@ namespace mxlgw::config
                 else if (n.format.interlace != Interlace::Progressive && !interlaceAllowed(n.format.rate))
                 {
                     add(errors, ptr + "/interlace", "interlace is only allowed at 25/1 or 30000/1001");
+                }
+            }
+
+            if (g.direction == Direction::Egress)
+            {
+                // The group's worker reads one grain of every video/ANC essence per cadence period (§5.7).
+                std::optional<util::Rational> groupRate;
+                auto sameCadence = [&](util::Rational r, std::string const& ptr)
+                {
+                    if (r.num <= 0)
+                    {
+                        return;
+                    }
+                    if (!groupRate)
+                    {
+                        groupRate = r;
+                    }
+                    else if (static_cast<__int128>(r.num) * groupRate->den != static_cast<__int128>(groupRate->num) * r.den)
+                    {
+                        add(errors, ptr + "/rate",
+                            "all video and ANC essences of an egress group must have the same grain rate (" + groupRate->toString() + ")");
+                    }
+                };
+                for (std::size_t i = 0; i < g.video.size(); ++i)
+                {
+                    sameCadence(g.video[i].format.grainRate(), gptr + "/video/" + std::to_string(i));
+                }
+                for (std::size_t i = 0; i < g.anc.size(); ++i)
+                {
+                    sameCadence(g.anc[i].format.grainRate(), gptr + "/anc/" + std::to_string(i));
                 }
             }
 

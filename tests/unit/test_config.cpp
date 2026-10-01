@@ -195,6 +195,27 @@ TEST_CASE("semantic rules")
         j["groups"][0]["anc"][0]["rate"] = "25/1";
         CHECK(parse(j).ok());
     }
+    SUBCASE("egress video and ANC share the group cadence")
+    {
+        auto j = testutil::sampleConfig();
+        j["groups"][1]["video"].push_back({{"uid", testutil::uid(950)}, {"label", "PGM V2"}, {"width", 1920}, {"height", 1080}, {"rate", "25/1"}});
+        CHECK(hasError(parse(j), "/groups/1/video/1/rate"));
+        j["groups"][1]["video"][1]["rate"] = "50/1";
+        j["groups"][1]["anc"] = {{{"uid", testutil::uid(951)}, {"label", "PGM ANC"}, {"rate", "25/1"}}};
+        CHECK(hasError(parse(j), "/groups/1/anc/0/rate"));
+        j["groups"][1]["anc"][0].erase("rate"); // inherits the video rate
+        CHECK(parse(j).ok());
+        // 1080i25 video and field-rate ANC share 50 grains/s
+        j["groups"][1]["video"].erase(1);
+        j["groups"][1]["video"][0]["rate"] = "25/1";
+        j["groups"][1]["video"][0]["interlace"] = "interlaced_tff";
+        INFO(config::formatErrors(parse(j).errors));
+        CHECK(parse(j).ok());
+        // ingest groups may mix rates
+        auto k = testutil::sampleConfig();
+        k["groups"][0]["video"].push_back({{"uid", testutil::uid(952)}, {"label", "CAM 1 V2"}, {"width", 1920}, {"height", 1080}, {"rate", "25/1"}});
+        CHECK(parse(k).ok());
+    }
     SUBCASE("empty group")
     {
         auto j = testutil::sampleConfig();
