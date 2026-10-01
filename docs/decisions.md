@@ -65,10 +65,16 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: the ingest side of `loopback.sh` / `late-flow.sh` runs in the network namespace of a helper container.
 - Consequence: tests need `sudo` for `ip`/`nsenter`; documented in `tests/integration/lib.sh`.
 
-### 2026-10-01 — Loopback test: bad audio blocks only when counted as late by the gateway
-- Context: on the kernel-socket backend one MTL lcore issues ~200 000 `sendto` calls per second for the two video legs; on a 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`), which `mxl-verify` sees as one bad audio block in 60 000. The kernel backend has no pacing guarantees (§17.2, R8).
-- Decision: `loopback.sh` accepts bad audio blocks only if `mxlgw_tx_late_frames_total` of the egress audio essences grew by at least as many during the same verify window; video, ANC, offsets and A/V alignment must always be exact.
-- Consequence: the test stays strict about the gateway's data path while tolerating the test backend's scheduling; on DPDK hardware late frames must be zero (`docs/performance.md`).
+### 2026-10-01 — Loopback test: bad audio blocks only when MTL's own counters explain them
+- Context: on the kernel-socket backend one MTL scheduler issues ~200 000 `sendto` calls per second for the two video legs and reads the legs' sockets one after the other. On a loaded 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`, counted in `mxlgw_tx_late_frames_total`), or loses a packet on both legs (its "unrecovered (lost on both)" statistic), which `mxl-verify` sees as a bad audio block. The kernel backend has no pacing guarantees (§17.2, R8).
+- Decision: `loopback.sh` accepts bad audio blocks only if late audio frames plus twice the both-legs-lost audio packets of the same window cover them (one lost 1 ms packet can touch two verify blocks); video, ANC, offsets and A/V alignment must always be exact.
+- Consequence: the test stays strict about the gateway's data path while tolerating the test backend's scheduling; on DPDK hardware late frames and unrecovered packets must be zero (`docs/performance.md`).
+- Addendum: the same rule covers video — invalid video grains (the ingest marks frames with lost packets invalid) are accepted only up to the incomplete, dropped and late video frames the gateways counted in the window; bars, frame counters and timecode must be exact. The rule lives in `tests/integration/lib.sh` (`verify_media`) and is used by `loopback.sh` and `late-flow.sh`.
+
+### 2026-10-01 — Kernel backend: MTL scheduler as a sleeping thread; patch 0004
+- Context: the first CI run on GitHub's 4-vCPU runners lost most of the loopback media: two gateways each pinned a busy-polling MTL lcore, which left two CPUs for the veth softirqs, the ingest and egress workers, the pattern writers and the verifier. Ingest audio dropped blocks because its worker drained the 16 MTL frame buffers too late, video lost ~3 % of its packets on both legs.
+- Decision: on the test-only kernel backend MTL runs its scheduler with `MTL_FLAG_TASKLET_THREAD | MTL_FLAG_TASKLET_SLEEP` (an ordinary thread that sleeps when idle). That exposed a lost-wakeup race in MTL's scheduler sleep (1 s stalls under load), fixed by `patches/mtl/0004-sch-sleep-lost-wakeup.patch`. Audio RX sessions keep 100 ms of frame buffers (at least 16) instead of a fixed 16 on every backend. The `dpdk` backend keeps pinned busy-polling lcores.
+- Consequence: the loopback passes on this 4-vCPU VM with two CPUs saturated by other processes; patch 0004 is an upstream candidate.
 
 ### 2026-10-01 — Egress groups: one grain rate for video and ANC
 - Context: one worker per group reads one grain of every discrete essence per cadence period (§3.6, §5.7). The spec does not forbid mixing rates within a group.
@@ -88,7 +94,8 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 ### 2026-10-01 — DNS-SD inside the container needs nss-mdns and the host's avahi sockets
 - Context: nmos-cpp built against the Avahi compatibility library browses and resolves through the host's avahi-daemon (D-Bus), but resolves the registry's `.local` host name with the system `getaddrinfo` ("Using getaddrinfo, got no addresses for host"), which needs `libnss-mdns` and `/run/avahi-daemon/socket`.
 - Decision: the runtime image installs `libnss-mdns`; the Compose files, the Kubernetes Deployments and the nmos-testing script mount `/run/dbus` and `/run/avahi-daemon` from the host (as mxl-decklink documents).
-- Consequence: DNS-SD registry discovery works under host networking with the host's Avahi; without Avahi on the host use `node.registry.mode = "static"`. The `DNSServiceCreateConnection … -65544` error logged at start comes from nmos-cpp's address-record registration, which Avahi's compatibility layer does not support; it is harmless.
+- Consequence: DNS-SD registry discovery works under host networking with the host's Avahi; without Avahi on the host use `node.registry.mode = "static"`.
+- Addendum (first GitHub run): on AppArmor hosts (Ubuntu runners) dbus-daemon refuses D-Bus clients confined by Docker's `docker-default` profile, which has no D-Bus rules; nmos-cpp reports `DNSServiceBrowse reported error: -65553` (`kDNSServiceErr_Refused`). The Compose files run the gateway with `security_opt: ["apparmor=unconfined"]`, the Kubernetes manifests with `appArmorProfile: {type: Unconfined}`, the nmos-testing script likewise when AppArmor is enabled. The container stays unprivileged with only `IPC_LOCK` and `SYS_NICE`; a custom AppArmor profile allowing `dbus send … peer=(name=org.freedesktop.Avahi)` is the stricter alternative. The `DNSServiceCreateConnection … -65544` error logged at start comes from nmos-cpp's address-record registration, which Avahi's compatibility layer does not support; it is harmless.
 
 ### 2026-10-01 — PTP series only when MTL runs PTP
 - Context: with `ptp.mode = external` or the kernel backend MTL has no PTP instance; exporting `mxlgw_ptp_locked 0` showed a red "UNLOCKED".

@@ -34,7 +34,10 @@ mkdir -p "$WORK/config" "$IT_ARTIFACTS"
 # ---- avahi on the host (the gateway's dns_sd client talks to it over D-Bus)
 if ! pgrep -x avahi-daemon >/dev/null; then
     command -v avahi-daemon >/dev/null || as_root apt-get install -y -qq avahi-daemon >/dev/null
-    if command -v systemctl >/dev/null && systemctl is-system-running >/dev/null 2>&1; then
+fi
+# the package starts the daemon itself where systemd runs (GitHub runners)
+if ! pgrep -x avahi-daemon >/dev/null; then
+    if [[ -d /run/systemd/system ]]; then
         as_root systemctl start avahi-daemon
     else
         pgrep -f "dbus-daemon --system" >/dev/null || { as_root mkdir -p /run/dbus; as_root rm -f /run/dbus/pid; as_root dbus-daemon --system --fork; }
@@ -91,7 +94,13 @@ cat >"$WORK/config/gateway.json" <<EOF
   ]
 }
 EOF
-start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon
+# dbus-daemon refuses AppArmor-confined clients whose profile has no D-Bus rules (docker-default),
+# which nmos-cpp reports as DNSServiceBrowse error -65553 (kDNSServiceErr_Refused).
+aa_opts=()
+if [[ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" == "Y" ]]; then
+    aa_opts=(--security-opt apparmor=unconfined)
+fi
+start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon "${aa_opts[@]}"
 wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
 
 run_suite() { # <tag> <suite> <args...>

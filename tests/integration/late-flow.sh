@@ -107,10 +107,17 @@ for e in V A ANC; do
     wait_until 30 "LOOP $e running" essence_state_is "$GWI" "LOOP $e" running
 done
 mkdir -p "$IT_ARTIFACTS"
-run_tool "$IMAGE" "$WORK/mxl" mxl-verify --domain "/Volumes/mxl/local-IT-LF-INGEST" \
+# Losses the gateways count themselves on the test-only kernel backend (lib.sh verify_media).
+ACCT_EGRESS="$GWE"
+ACCT_INGEST="$GWI"
+ACCT_INGEST_CONTAINER="$IT_PREFIX-lf-ingest"
+ACCT_AUDIO_TX=('mxlgw_tx_late_frames_total{essence="PGM A"}')
+ACCT_VIDEO_TX=('mxlgw_tx_late_frames_total{essence="PGM V"}')
+ACCT_VIDEO_RX=('mxlgw_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxlgw_rx_frames_total{essence="LOOP V",result="dropped"}')
+verify_media "$IMAGE" "$WORK/mxl" "$IT_ARTIFACTS/late-flow-verify.json" --domain "/Volumes/mxl/local-IT-LF-INGEST" \
     --video-flow "$(essence_field "$GWI" "LOOP V" flow_id)" --audio-flow "$(essence_field "$GWI" "LOOP A" flow_id)" \
-    --anc-flow "$(essence_field "$GWI" "LOOP ANC" flow_id)" --width 1920 --height 1080 --rate 25/1 --channels 2 --duration-ms 5000 \
-    >"$IT_ARTIFACTS/late-flow-verify.json" || { cat "$IT_ARTIFACTS/late-flow-verify.json" >&2; fail "ST 2110 output of the late flow"; }
+    --anc-flow "$(essence_field "$GWI" "LOOP ANC" flow_id)" --width 1920 --height 1080 --rate 25/1 --channels 2 --duration-ms 5000 ||
+    { cat "$IT_ARTIFACTS/late-flow-verify.json" >&2; fail "ST 2110 output of the late flow"; }
 pass "receivers started on their own; ST 2110 output verified by the ingest side"
 
 log "stopping the writer"

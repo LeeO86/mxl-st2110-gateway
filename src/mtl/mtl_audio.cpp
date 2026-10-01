@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // ST 2110-30 PCM with MTL st30p (§6.2).
+#include <algorithm>
 #include <atomic>
+#include <cstdint>
 
 #include "mtl/mtl_sessions.hpp"
 
@@ -8,6 +10,8 @@ namespace mxlgw::media::mtlimpl
 {
     namespace
     {
+        constexpr std::int64_t rxBufferNs = 100'000'000;
+
         enum st30_fmt fmtOf(int bitDepth)
         {
             return bitDepth == 16 ? ST30_FMT_PCM16 : ST30_FMT_PCM24;
@@ -40,7 +44,10 @@ namespace mxlgw::media::mtlimpl
                 ops.ptime = ptimeOf(_params.format.ptimeUs);
                 // §6.2: framebuff_size = block_us worth of samples (an integer multiple of the packet size).
                 ops.framebuff_size = blockBytes(_params.format);
-                ops.framebuff_cnt = 16;
+                // MTL drops a block when no frame buffer is free, so the pool covers rxBufferNs of blocks to
+                // ride out a late ingest worker (a few KiB each).
+                ops.framebuff_cnt = static_cast<std::uint16_t>(
+                    std::clamp<std::int64_t>((rxBufferNs + _params.format.blockUs * 1000 - 1) / (_params.format.blockUs * 1000), 16, 512));
                 ops.flags = ST30P_RX_FLAG_BLOCK_GET | ST30P_RX_FLAG_RECEIVE_INCOMPLETE_FRAME;
                 _handle = st30p_rx_create(ctx.mt, &ops);
                 if (_handle == nullptr)

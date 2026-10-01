@@ -24,3 +24,9 @@ First full implementation of SPECIFICATION.md Draft 1.2.
 - **Tools:** `mxl-pattern-writer` (v210 bars with frame counter, tones, timecode ANC) and `mxl-verify`.
 - **Deployment:** Dockerfile (webui, deps, build, fuzz, runtime stages; E810 DDP package bundled), Compose files (single host, mxl-fabrics-agent host A/B), Kubernetes manifests with an mxl-fabrics-agent two-node kustomization.
 - **CI:** lint, unit tests in the image build, MTL patch check, web tests, 60 s libFuzzer per parser, integration tests (smoke, kernel-backend loopback with leg loss, late flow with a mirror domain, AMWA nmos-testing); container publishing to GHCR and releases.
+
+### Fixed
+
+- MTL patch 0004: lost wakeup in MTL's scheduler sleep (1 s stalls under load).
+- Kernel backend: MTL's scheduler runs as a sleeping thread instead of a pinned busy-polling lcore, so the CI loopback works on small runners; audio RX keeps 100 ms of frame buffers.
+- Integration tests: Avahi start on systemd hosts, promtool image pull output no longer counted as lint findings.

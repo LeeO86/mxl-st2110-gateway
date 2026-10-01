@@ -1,0 +1,30 @@
+From 8171ccc270cd65b1bb007e725d5892805dc23e16 Mon Sep 17 00:00:00 2001
+From: mxlgw <mxlgw@localhost>
+Date: Thu, 1 Oct 2026 18:41:39 +0000
+Subject: [PATCH] sch: arm the sleep alarm under the wake mutex (lost wakeup)
+
+---
+ lib/src/mt_sch.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/lib/src/mt_sch.c b/lib/src/mt_sch.c
+index ea40560..16964cb 100644
+--- a/lib/src/mt_sch.c
++++ b/lib/src/mt_sch.c
+@@ -86,8 +86,12 @@ static int sch_tasklet_sleep(struct mtl_main_impl* impl, struct mtl_sch_impl* sc
+   if (sleep_us < mt_sch_zero_sleep_thresh_us(impl)) {
+     mt_sleep_ms(0);
+   } else {
+-    rte_eal_alarm_set(sleep_us, sch_sleep_alarm_handler, sch);
++    /* Arm the alarm with the mutex held: the handler signals under the same mutex, so it
++     * cannot fire before this thread waits. Arming it first lost the wakeup whenever the
++     * alarm expired before the wait started (a loaded host), and the scheduler then slept
++     * for the full 1s safety timeout. */
+     mt_pthread_mutex_lock(&sch->sleep_wake_mutex);
++    rte_eal_alarm_set(sleep_us, sch_sleep_alarm_handler, sch);
+     /* timeout 1s, safety net in case the alarm above missed */
+     const int _ret = mt_pthread_cond_timedwait_ns(&sch->sleep_wake_cond,
+                                                   &sch->sleep_wake_mutex, NS_PER_S);
+-- 
+2.43.0
+

@@ -233,3 +233,61 @@ make_veth() {
     as_root sysctl -q -w net.core.rmem_max=4194304
     as_root sysctl -q -w net.core.wmem_max=4194304
 }
+
+# ---- media verification on the test-only kernel backend
+# The kernel backend has no pacing guarantees and reads the two legs' sockets one after the other
+# (§17.2). Under CPU load (GitHub runners) MTL drops frames whose transmit time passed
+# (mxlgw_tx_late_frames_total), loses packets on both legs (audio: its "unrecovered (lost on both)"
+# statistic; video: frames counted as incomplete) and the ingest correctly marks such grains invalid.
+# Bad audio blocks and invalid video grains are accepted only if those counters explain them for the
+# same window (one lost audio packet can touch two verify blocks); bars, frame counters, timecode,
+# offsets and A/V alignment must always be exact (docs/decisions.md).
+#
+# The caller sets ACCT_EGRESS / ACCT_INGEST (base URLs), ACCT_INGEST_CONTAINER and the metric
+# selectors ACCT_AUDIO_TX (egress, late audio), ACCT_VIDEO_TX (egress, late video) and ACCT_VIDEO_RX
+# (ingest, incomplete/dropped video).
+sum_metrics() { # <base> <metric{labels}>...
+    local base="$1" sum=0 v
+    shift
+    for m in "$@"; do
+        v=$(metric "$base" "$m")
+        sum=$((sum + ${v:-0}))
+    done
+    echo "$sum"
+}
+acct_late_audio() { sum_metrics "$ACCT_EGRESS" "${ACCT_AUDIO_TX[@]}"; }
+acct_lost_video() {
+    echo $(($(sum_metrics "$ACCT_EGRESS" "${ACCT_VIDEO_TX[@]}") + $(sum_metrics "$ACCT_INGEST" "${ACCT_VIDEO_RX[@]}")))
+}
+acct_unrecovered_audio() { # <since RFC 3339>
+    docker logs --since "$1" "$ACCT_INGEST_CONTAINER" 2>&1 |
+        grep -o 'RX_AUDIO_SESSION([0-9,]*): per-port loss[^"]*unrecovered (lost on both) [0-9]*' |
+        awk '{s += $NF} END {print s + 0}'
+}
+verify_media() { # <image> <mxl-root> <report.json> <mxl-verify arguments...>
+    local image="$1" mxl="$2" report="$3" since late0 video0 audio_allowed video_allowed
+    shift 3
+    since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    late0=$(acct_late_audio)
+    video0=$(acct_lost_video)
+    run_tool "$image" "$mxl" mxl-verify "$@" >"$report" && return 0
+    sleep 11 # MTL prints its per-port loss statistics every 10 s
+    audio_allowed=$(($(acct_late_audio) - late0 + 2 * $(acct_unrecovered_audio "$since")))
+    video_allowed=$(($(acct_lost_video) - video0))
+    python3 - "$report" "$audio_allowed" "$video_allowed" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+audio_allowed, video_allowed = int(sys.argv[2]), int(sys.argv[3])
+explainable = ("audio tone frequency/level/phase mismatch", "video grains missing (marked invalid)")
+other = [f for f in r["failures"] if f not in explainable]
+bad = r.get("audio", {}).get("bad_blocks", 0)
+invalid = r.get("video", {}).get("invalid", 0)
+if not other and bad <= audio_allowed and invalid <= video_allowed:
+    print(f"accepted: {bad} bad audio block(s) (allowance {audio_allowed}), {invalid} invalid video grain(s) "
+          f"(allowance {video_allowed}), all explained by late, incomplete or both-legs-lost packets counted by the gateways", file=sys.stderr)
+    sys.exit(0)
+print(f"not explained: {bad} bad audio block(s) (allowance {audio_allowed}), {invalid} invalid video grain(s) "
+      f"(allowance {video_allowed}), other failures {other}", file=sys.stderr)
+sys.exit(1)
+PY
+}
