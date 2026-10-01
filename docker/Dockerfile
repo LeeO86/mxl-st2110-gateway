@@ -82,12 +82,14 @@ RUN git clone --depth 1 --branch "${MTL_REF}" \
 
 # DPDK with the MTL patches. Same steps as MTL script/build_dpdk.sh, but with
 # -Dplatform=generic so the image does not depend on the build host's CPU
-# (build_dpdk.sh would build for -march=native). See docs/decisions.md.
+# (build_dpdk.sh would build for -march=native), and without the drivers that need
+# rdma-core, which is not part of the image (§14.1). See docs/decisions.md.
 RUN curl -fsSL -o /tmp/dpdk.zip "https://github.com/DPDK/dpdk/archive/refs/tags/v${DPDK_VER}.zip" \
     && cd /tmp && unzip -q dpdk.zip && rm dpdk.zip \
     && cd "/tmp/dpdk-${DPDK_VER}" \
     && for p in /opt/mtl-src/patches/dpdk/"${DPDK_VER}"/*.patch; do patch -p1 -i "$p"; done \
     && meson setup build --prefix=/usr/local -Dplatform=generic -Dtests=false -Denable_docs=false \
+        -Ddisable_drivers=common/mlx5,net/mlx4,net/mlx5,net/mana,compress/mlx5,crypto/mlx5,regex/mlx5,vdpa/mlx5 \
     && ninja -C build \
     && ninja -C build install \
     && ldconfig \
@@ -162,7 +164,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl iproute2 \
-        libnuma1 libjson-c5 libpcap0.8t64 libssl3t64 \
+        libnuma1 libjson-c5 libpcap0.8t64 libssl3t64 libatomic1 \
         libcpprest2.10 libboost-chrono1.83.0t64 libboost-thread1.83.0 libboost-date-time1.83.0 \
         libboost-regex1.83.0 libboost-random1.83.0 libboost-filesystem1.83.0 libboost-system1.83.0 \
         libavahi-compat-libdnssd1 \
@@ -183,8 +185,13 @@ COPY --from=build /src/build/tools/mxl-pattern-writer /src/build/tools/mxl-verif
 COPY schema/gateway-config.schema.json /usr/share/mxl-st2110-gateway/gateway-config.schema.json
 COPY config/examples/ /usr/share/mxl-st2110-gateway/examples/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# DPDK's EAL loads every PMD plugin at start and fails on one with a missing library, so the
+# image build fails instead when anything shipped has an unresolved dependency.
 RUN echo /usr/local/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/dpdk.conf \
-    && ldconfig && chmod +x /usr/local/bin/entrypoint.sh
+    && ldconfig && chmod +x /usr/local/bin/entrypoint.sh \
+    && missing=$(for f in /usr/local/bin/* /usr/local/lib/x86_64-linux-gnu/dpdk/pmds-*/*.so; do \
+                   ldd "$f" 2>/dev/null | grep "not found" | sed "s|^|$f: |"; done) \
+    && if [ -n "$missing" ]; then echo "$missing"; exit 1; fi
 
 LABEL org.opencontainers.image.title="mxl-st2110-gateway" \
       org.opencontainers.image.description="SMPTE ST 2110 <-> MXL gateway (Intel MTL/DPDK, NMOS IS-04/IS-05, BCP-007-03)" \

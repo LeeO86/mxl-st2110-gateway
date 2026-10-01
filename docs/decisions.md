@@ -35,6 +35,11 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: same steps (MTL DPDK patches, meson) but `-Dplatform=generic` (also in §14.1).
 - Consequence: the image runs on any x86-64 host; MTL keeps its runtime SIMD dispatch. Only `src/mtl/ethdev.cpp` is compiled with DPDK's pkg-config flags.
 
+### 2026-10-01 — DPDK drivers that need rdma-core are not built
+- Context: the deps stage has `libibverbs` (pulled in by `libpcap-dev`), so DPDK built the mlx4/mlx5/mana drivers; the runtime image has no rdma-core (§14.1) and DPDK's EAL refuses to start when one PMD plugin cannot be loaded (`libmana.so.1: cannot open shared object file`, found by the kernel-backend loopback test on the runtime image).
+- Decision: `-Ddisable_drivers=common/mlx5,net/mlx4,net/mlx5,net/mana,compress/mlx5,crypto/mlx5,regex/mlx5,vdpa/mlx5`; the runtime installs `libatomic1` (net/sfc); the runtime stage fails the image build if any shipped binary or PMD plugin has an unresolved library.
+- Consequence: only Intel and other self-contained PMDs are in the image, which is all MTL needs on an E810.
+
 ### 2026-10-01 — Test-only `mock` media backend
 - Context: unit tests, the whole-application tests and the NMOS conformance run need a gateway without DPDK, hugepages or packets. §17.2 names only `dpdk` and `kernel`.
 - Decision: `nic.backend = "mock"`: no network; TX sessions deliver frames to RX sessions of the same process whose group address and port match, at the frame's transmit time (`CLOCK_TAI`). It is in the schema and flagged test-only in preflight, the UI and the `/readyz` warnings.
