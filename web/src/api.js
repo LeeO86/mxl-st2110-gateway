@@ -117,5 +117,5 @@ export function setPath(obj, pointer, value) {
 }
 
 export function clone(v) {
-  return JSON.parse(JSON.stringify(v));
+  return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 }

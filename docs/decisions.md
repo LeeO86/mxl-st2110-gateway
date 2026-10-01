@@ -118,6 +118,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 | OpenSSL libcrypto | SHA-1 for UUIDv5 (§7.3), SHA-256 ETags | Apache-2.0 |
 | doctest 2.4.12 (vendored `third_party/doctest`) | unit tests, as mxl-decklink | MIT |
 | Vue 3, Vite, `@vitejs/plugin-vue`, `vite-plugin-singlefile`, Vitest (dev, `web/`) | admin UI built into one embedded HTML file (§11.1) | MIT |
+| `@vue/test-utils`, `happy-dom` (dev, `web/`) | component tests of the UI (banners, group create/edit/delete) without a browser (Phase 7) | MIT |
 | Python `jsonschema`, `PyYAML` (CI/tooling only) | `tools/validate_configs.py` | MIT |
 | clang compiler-rt (deps image) | libFuzzer + sanitizers for `tests/fuzz` | Apache-2.0 WITH LLVM-exception |
 

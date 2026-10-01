@@ -32,7 +32,7 @@ code=$(curl -s -o "$WORK/readyz.json" -w '%{http_code}' "$BASE/readyz")
 if [[ "$code" != "503" ]] || ! grep -q unconfigured "$WORK/readyz.json"; then
     fail "/readyz in setup mode: $code $(cat "$WORK/readyz.json")"
 fi
-curl -fsS "$BASE/admin/" | grep -q "<!DOCTYPE html>" || fail "admin UI"
+[[ "$(curl -fsS "$BASE/admin/")" == "<!DOCTYPE html>"* ]] || fail "admin UI"
 [[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin")" == "301" ]] || fail "/admin redirect"
 [[ -s "$WORK/setup/gateway.json" ]] || fail "minimal configuration not written"
 docker rm -f "$IT_PREFIX-setup" >/dev/null
@@ -81,7 +81,8 @@ if [[ "$(stat -f -c %T "$WORK/plain/mxl")" == "tmpfs" ]]; then
     log "skipping the non-tmpfs check: $WORK is on tmpfs"
 else
     [[ $rc -eq 78 ]] || fail "non-tmpfs domain exited with $rc, expected 78"
-    grep -q "mxl_domain_not_tmpfs" "$WORK/plain.log" || fail "non-tmpfs domain: no mxl_domain_not_tmpfs event"
+    # refused by the preflight (check domain-<NAME>) before the bootstrap would log mxl_domain_not_tmpfs
+    grep -qE '"check":"domain-MAIN"|"event":"mxl_domain_not_tmpfs"' "$WORK/plain.log" || fail "non-tmpfs domain: no domain check failure logged"
 fi
 pass "exit code 78 paths"
 
@@ -102,7 +103,7 @@ domain_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"
 [[ "$(json "$BASE/x-nmos/node/v1.3/senders" 'len(j)')" == "3" ]] || fail "expected 3 senders"
 json "$BASE/x-nmos/connection/v1.2/single/receivers/" 'len(j)' >/dev/null || fail "IS-05 Connection API v1.2"
 json "$BASE/x-nmos/connection/v1.1/single/senders/" 'len(j)' >/dev/null || fail "IS-05 Connection API v1.1"
-curl -fsS "$BASE/admin/" | grep -q "<!DOCTYPE html>" || fail "admin UI"
+[[ "$(curl -fsS "$BASE/admin/")" == "<!DOCTYPE html>"* ]] || fail "admin UI"
 [[ "$(json "$BASE/api/domains" 'j["configured"][0]["id"]')" == "$domain_id" ]] || fail "/api/domains"
 "$(dirname "$0")/check-metrics.sh" "$BASE/metrics"
 pass "configured node"

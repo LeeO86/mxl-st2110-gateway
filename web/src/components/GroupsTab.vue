@@ -18,6 +18,8 @@ const RATE_VALUES = { "23.98": "24000/1001", "29.97": "30000/1001", "59.94": "60
 const rateValue = (r) => RATE_VALUES[r] || r;
 
 const groups = computed(() => config.value?.file?.groups || []);
+// errors without their own field in the create dialog
+const otherCreateErrors = computed(() => Object.entries(createErrors.value).filter(([p]) => p !== "/label" && p !== ""));
 const domains = computed(() => (config.value?.effective?.mxl?.domains || []).map((d) => d.name));
 const runtime = (uid) => status.value?.groups?.find((g) => g.uid === uid);
 
@@ -253,7 +255,7 @@ async function submitEdit() {
         </div>
       </div>
       <p class="note">Essences get the default profile (1080p50 · 8 ch L24 1 ms · ANC) and fresh uids; edit them afterwards.</p>
-      <div class="err-text" v-for="(m, p) in createErrors" :key="p">{{ p }} {{ m }}</div>
+      <div class="err-text" v-for="[p, m] in otherCreateErrors" :key="p">{{ p }} {{ m }}</div>
       <div class="actions">
         <button class="btn secondary" @click="createDialog.close()">Cancel</button>
         <button class="btn" @click="create">Create</button>

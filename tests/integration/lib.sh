@@ -59,6 +59,14 @@ ensure_hugepages() {
     if ((have < want)); then
         as_root sysctl -q -w vm.nr_hugepages="$want"
         have=$(cat /proc/sys/vm/nr_hugepages)
+    fi
+    if ((have < want)); then
+        # fragmented memory: free the page cache, compact and try again
+        sync
+        as_root sysctl -q -w vm.drop_caches=3
+        as_root sysctl -q -w vm.compact_memory=1 || true
+        as_root sysctl -q -w vm.nr_hugepages="$want"
+        have=$(cat /proc/sys/vm/nr_hugepages)
         ((have >= want)) || fail "only $have of $want hugepages available"
     fi
     mountpoint -q /dev/hugepages || fail "/dev/hugepages is not mounted"

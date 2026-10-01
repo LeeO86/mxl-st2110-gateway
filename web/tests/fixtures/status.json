@@ -1,0 +1,496 @@
+{
+    "config_changed_on_disk": false,
+    "domains": {
+        "configured": [
+            {
+                "flows": 2,
+                "free_bytes": 508829696,
+                "fs_type": "tmpfs",
+                "id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                "kind": "configured",
+                "label": "main",
+                "name": "main",
+                "path": "/Volumes/mxl/main",
+                "tmpfs": true,
+                "total_bytes": 536870912
+            }
+        ],
+        "conflicts": [],
+        "domains": [
+            {
+                "description": "main",
+                "flows": 2,
+                "free_bytes": 508829696,
+                "fs_type": "tmpfs",
+                "id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                "kind": "configured",
+                "label": "main",
+                "name": "main",
+                "path": "/Volumes/mxl/main",
+                "tmpfs": true,
+                "total_bytes": 536870912
+            }
+        ],
+        "scan_path": "/Volumes/mxl",
+        "skipped": []
+    },
+    "groups": [
+        {
+            "direction": "ingest",
+            "domain": "main",
+            "enabled": true,
+            "essences": [
+                {
+                    "direction": "ingest",
+                    "flow_id": "5e3dd908-3ee7-56d1-a261-c0a2f3b285b3",
+                    "frames": {
+                        "complete": 0,
+                        "dropped": 0,
+                        "incomplete": 0
+                    },
+                    "grains_written": 0,
+                    "label": "CAM 1 V",
+                    "legs": [
+                        {
+                            "lost": 0,
+                            "packets": 0
+                        },
+                        {
+                            "lost": 0,
+                            "packets": 0
+                        }
+                    ],
+                    "origin_age_ns": null,
+                    "packets": 0,
+                    "reason": "no_packets",
+                    "receiver_active": true,
+                    "samples_written": 0,
+                    "sender_active": true,
+                    "state": "no_signal",
+                    "type": "video",
+                    "uid": "8eec1ccc-d86d-4559-95e1-e311998e725b",
+                    "write_errors": 0,
+                    "writer_resyncs": 0
+                },
+                {
+                    "direction": "ingest",
+                    "flow_id": "e0ec4f98-a657-59be-9c27-6ab6fec06569",
+                    "frames": {
+                        "complete": 0,
+                        "dropped": 0,
+                        "incomplete": 0
+                    },
+                    "grains_written": 0,
+                    "label": "CAM 1 A1-8",
+                    "legs": [
+                        {
+                            "lost": 0,
+                            "packets": 0
+                        },
+                        {
+                            "lost": 0,
+                            "packets": 0
+                        }
+                    ],
+                    "origin_age_ns": null,
+                    "packets": 0,
+                    "reason": "no_packets",
+                    "receiver_active": true,
+                    "samples_written": 0,
+                    "sender_active": true,
+                    "state": "no_signal",
+                    "type": "audio",
+                    "uid": "d6c5cb6b-11a9-4964-ba05-db73a7612e6c",
+                    "write_errors": 0,
+                    "writer_resyncs": 0
+                }
+            ],
+            "label": "CAM 1",
+            "output_delay_ns": null,
+            "uid": "49825638-8f5f-4733-877f-c9406debbe1e"
+        },
+        {
+            "direction": "egress",
+            "domain": "main",
+            "enabled": true,
+            "essences": [
+                {
+                    "direction": "egress",
+                    "flow_id": null,
+                    "flow_not_found": 0,
+                    "frames_sent": 192,
+                    "grains_invalid": 0,
+                    "grains_read": 0,
+                    "label": "PGM V",
+                    "late_frames": 0,
+                    "late_reads": 0,
+                    "lead_ns": 19937607,
+                    "mxl_receiver_active": false,
+                    "packets": 192,
+                    "read_lag_grains": null,
+                    "read_offset_ns": 0,
+                    "read_timeouts": 0,
+                    "reason": "receiver_inactive",
+                    "resolved_domain": null,
+                    "rtp_sender_active": true,
+                    "state": "idle",
+                    "type": "video",
+                    "uid": "5f628fb1-f876-46c1-a183-e69526978260"
+                }
+            ],
+            "label": "PGM",
+            "output_delay_ns": 40000000,
+            "uid": "6ccb1878-842e-4ca3-a88b-6453ac1d0fa7"
+        }
+    ],
+    "media": {
+        "backend": "mock",
+        "mtl_version": "mock",
+        "ports": [
+            {
+                "bind_mode": "mock",
+                "ddp_package": "",
+                "driver": "mock",
+                "ifname": "",
+                "ip": "10.1.1.21",
+                "leg": "p",
+                "link_speed_mbps": 25000,
+                "link_up": true,
+                "mac": "02:00:00:00:00:01",
+                "name": "media-p",
+                "pci": "",
+                "rx_bytes": 0,
+                "rx_errors": 0,
+                "rx_missed": 0,
+                "rx_packets": 0,
+                "tx_bytes": 0,
+                "tx_packets": 0
+            },
+            {
+                "bind_mode": "mock",
+                "ddp_package": "",
+                "driver": "mock",
+                "ifname": "",
+                "ip": "10.2.1.21",
+                "leg": "r",
+                "link_speed_mbps": 25000,
+                "link_up": true,
+                "mac": "02:00:00:00:00:02",
+                "name": "media-r",
+                "pci": "",
+                "rx_bytes": 0,
+                "rx_errors": 0,
+                "rx_missed": 0,
+                "rx_packets": 0,
+                "tx_bytes": 0,
+                "tx_packets": 0
+            }
+        ],
+        "test_backend": true
+    },
+    "nmos": {
+        "device_id": "c11a943d-a9c1-57af-84a0-413d0219ef39",
+        "node_id": "010d680c-b02f-4e98-8fb2-2b916d035114",
+        "receivers": [
+            {
+                "active": {
+                    "activation": {
+                        "activation_time": "1790870234:834777636",
+                        "mode": "activate_scheduled_relative",
+                        "requested_time": "0:0"
+                    },
+                    "master_enable": false,
+                    "sender_id": null,
+                    "transport_file": {
+                        "data": null,
+                        "type": null
+                    },
+                    "transport_params": [
+                        {
+                            "mxl_domain_id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                            "mxl_flow_id": null
+                        }
+                    ]
+                },
+                "essence_uid": "5f628fb1-f876-46c1-a183-e69526978260",
+                "group_uid": "6ccb1878-842e-4ca3-a88b-6453ac1d0fa7",
+                "id": "03ee605b-8b8d-5535-94b4-d40758db3188",
+                "label": "PGM V",
+                "tags": {
+                    "urn:x-nmos:tag:grouphint/v1.0": [
+                        "PGM:Video 1"
+                    ]
+                },
+                "transport": "urn:x-nmos:transport:mxl",
+                "type": "video"
+            },
+            {
+                "active": {
+                    "activation": {
+                        "activation_time": "1790870234:834725836",
+                        "mode": "activate_scheduled_relative",
+                        "requested_time": "0:0"
+                    },
+                    "master_enable": true,
+                    "sender_id": null,
+                    "transport_file": {
+                        "data": null,
+                        "type": null
+                    },
+                    "transport_params": [
+                        {
+                            "destination_port": 20000,
+                            "interface_ip": "10.1.1.21",
+                            "multicast_ip": "239.1.1.2",
+                            "rtp_enabled": true,
+                            "source_ip": null
+                        },
+                        {
+                            "destination_port": 20000,
+                            "interface_ip": "10.2.1.21",
+                            "multicast_ip": "239.2.1.2",
+                            "rtp_enabled": true,
+                            "source_ip": null
+                        }
+                    ]
+                },
+                "essence_uid": "d6c5cb6b-11a9-4964-ba05-db73a7612e6c",
+                "group_uid": "49825638-8f5f-4733-877f-c9406debbe1e",
+                "id": "d3bfc384-1704-5529-8f06-d7081d889afa",
+                "label": "CAM 1 A1-8",
+                "tags": {
+                    "urn:x-nmos:tag:grouphint/v1.0": [
+                        "CAM 1:Audio 1"
+                    ]
+                },
+                "transport": "urn:x-nmos:transport:rtp",
+                "type": "audio"
+            },
+            {
+                "active": {
+                    "activation": {
+                        "activation_time": "1790870234:834622187",
+                        "mode": "activate_scheduled_relative",
+                        "requested_time": "0:0"
+                    },
+                    "master_enable": true,
+                    "sender_id": null,
+                    "transport_file": {
+                        "data": null,
+                        "type": null
+                    },
+                    "transport_params": [
+                        {
+                            "destination_port": 20000,
+                            "interface_ip": "10.1.1.21",
+                            "multicast_ip": "239.1.1.1",
+                            "rtp_enabled": true,
+                            "source_ip": null
+                        },
+                        {
+                            "destination_port": 20000,
+                            "interface_ip": "10.2.1.21",
+                            "multicast_ip": "239.2.1.1",
+                            "rtp_enabled": true,
+                            "source_ip": null
+                        }
+                    ]
+                },
+                "essence_uid": "8eec1ccc-d86d-4559-95e1-e311998e725b",
+                "group_uid": "49825638-8f5f-4733-877f-c9406debbe1e",
+                "id": "f83e2b19-4d5d-567d-8afc-86f62bb65d04",
+                "label": "CAM 1 V",
+                "tags": {
+                    "urn:x-nmos:tag:grouphint/v1.0": [
+                        "CAM 1:Video 1"
+                    ]
+                },
+                "transport": "urn:x-nmos:transport:rtp",
+                "type": "video"
+            }
+        ],
+        "registered": false,
+        "registration_uri": "",
+        "registry_mode": "static",
+        "senders": [
+            {
+                "active": {
+                    "activation": {
+                        "activation_time": "1790870234:834703063",
+                        "mode": "activate_scheduled_relative",
+                        "requested_time": "0:0"
+                    },
+                    "master_enable": true,
+                    "receiver_id": null,
+                    "transport_params": [
+                        {
+                            "mxl_domain_id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                            "mxl_flow_id": "5e3dd908-3ee7-56d1-a261-c0a2f3b285b3"
+                        }
+                    ]
+                },
+                "essence_uid": "8eec1ccc-d86d-4559-95e1-e311998e725b",
+                "group_uid": "49825638-8f5f-4733-877f-c9406debbe1e",
+                "id": "1fe9db87-e250-51ea-a9fc-bd211b2bc4d3",
+                "label": "CAM 1 V",
+                "tags": {
+                    "urn:x-nmos:tag:grouphint/v1.0": [
+                        "CAM 1:Video 1"
+                    ]
+                },
+                "transport": "urn:x-nmos:transport:mxl",
+                "type": "video"
+            },
+            {
+                "active": {
+                    "activation": {
+                        "activation_time": "1790870234:834812144",
+                        "mode": "activate_scheduled_relative",
+                        "requested_time": "0:0"
+                    },
+                    "master_enable": true,
+                    "receiver_id": null,
+                    "transport_params": [
+                        {
+                            "destination_ip": "239.10.0.1",
+                            "destination_port": 20000,
+                            "rtp_enabled": true,
+                            "source_ip": "10.1.1.21",
+                            "source_port": 5004
+                        }
+                    ]
+                },
+                "essence_uid": "5f628fb1-f876-46c1-a183-e69526978260",
+                "group_uid": "6ccb1878-842e-4ca3-a88b-6453ac1d0fa7",
+                "id": "49463d2e-07d7-549c-b694-8dc6eb446f25",
+                "label": "PGM V",
+                "sdp": "v=0\r\no=- 3999858997 3999858997 IN IP4 10.1.1.21\r\ns=PGM V\r\nt=0 0\r\nm=video 20000 RTP/AVP 96\r\nc=IN IP4 239.10.0.1/32\r\na=ts-refclk:localmac=02-00-00-00-00-01\r\na=mediaclk:direct=0\r\na=source-filter: incl IN IP4 239.10.0.1 10.1.1.21\r\na=rtpmap:96 raw/90000\r\na=fmtp:96 width=1920; height=1080; exactframerate=50; sampling=YCbCr-4:2:2; depth=10; colorimetry=BT709; TCS=SDR; PM=2110BPM; SSN=ST2110-20:2017; TP=2110TPN\r\n",
+                "tags": {
+                    "urn:x-nmos:tag:grouphint/v1.0": [
+                        "PGM:Video 1"
+                    ]
+                },
+                "transport": "urn:x-nmos:transport:rtp",
+                "type": "video"
+            },
+            {
+                "active": {
+                    "activation": {
+                        "activation_time": "1790870234:834760541",
+                        "mode": "activate_scheduled_relative",
+                        "requested_time": "0:0"
+                    },
+                    "master_enable": true,
+                    "receiver_id": null,
+                    "transport_params": [
+                        {
+                            "mxl_domain_id": "1e197409-8632-4e5c-abc1-b7df4d668b1e",
+                            "mxl_flow_id": "e0ec4f98-a657-59be-9c27-6ab6fec06569"
+                        }
+                    ]
+                },
+                "essence_uid": "d6c5cb6b-11a9-4964-ba05-db73a7612e6c",
+                "group_uid": "49825638-8f5f-4733-877f-c9406debbe1e",
+                "id": "b1537273-7ce9-5dfc-93f8-8897a74561e9",
+                "label": "CAM 1 A1-8",
+                "tags": {
+                    "urn:x-nmos:tag:grouphint/v1.0": [
+                        "CAM 1:Audio 1"
+                    ]
+                },
+                "transport": "urn:x-nmos:transport:mxl",
+                "type": "audio"
+            }
+        ]
+    },
+    "node": {
+        "description": "ST 2110 <-> MXL gateway",
+        "device_id": "c11a943d-a9c1-57af-84a0-413d0219ef39",
+        "http_port": 18190,
+        "id": "010d680c-b02f-4e98-8fb2-2b916d035114",
+        "label": "GW-UI-TEST"
+    },
+    "ptp": {
+        "available": false,
+        "clock": {
+            "max_60s_ns": 1,
+            "min_60s_ns": 0,
+            "mtl_minus_host_tai_ns": 0
+        },
+        "domain": 127,
+        "kernel_tai_offset_s": 0,
+        "max_offset_ns": 1000000,
+        "mode": "external",
+        "phc2sys_locked": false,
+        "ports": [
+            {
+                "active": false,
+                "domain": 0,
+                "gm_changes": 0,
+                "leg": "p",
+                "locked": false,
+                "offset_ns": {
+                    "avg": 0,
+                    "last": 0,
+                    "max": 0,
+                    "min": 0
+                },
+                "parent": null,
+                "path_delay_ns": {
+                    "avg": 0,
+                    "last": 0,
+                    "max": 0,
+                    "min": 0
+                },
+                "selected": false,
+                "sync_count": 0,
+                "utc_offset": 37
+            },
+            {
+                "active": false,
+                "domain": 0,
+                "gm_changes": 0,
+                "leg": "r",
+                "locked": false,
+                "offset_ns": {
+                    "avg": 0,
+                    "last": 0,
+                    "max": 0,
+                    "min": 0
+                },
+                "parent": null,
+                "path_delay_ns": {
+                    "avg": 0,
+                    "last": 0,
+                    "max": 0,
+                    "min": 0
+                },
+                "selected": false,
+                "sync_count": 0,
+                "utc_offset": 37
+            }
+        ],
+        "require_lock": false,
+        "selection_changes": 0,
+        "warn_offset_ns": 10000
+    },
+    "readiness": {
+        "ready": false,
+        "reasons": [
+            "nmos_not_registered"
+        ],
+        "warnings": [
+            "test_backend"
+        ]
+    },
+    "restart_reasons": [],
+    "restart_required": false,
+    "setup_mode": false,
+    "versions": {
+        "dpdk": "26.07",
+        "gateway": "0.0.0-dev+1fdcd5a0",
+        "mtl": "v26.09",
+        "mxl": "1.1.0-+0 g8f3f1096e804",
+        "nmos_cpp": "fe303849527394b03bdedc8f161f377fe458bb62"
+    }
+}

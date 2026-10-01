@@ -27,7 +27,7 @@
 | Component | License | Use |
 |---|---|---|
 | [doctest](https://github.com/doctest/doctest) 2.4.12 (`third_party/doctest`) | MIT | unit tests |
-| Vite, `@vitejs/plugin-vue`, `vite-plugin-singlefile`, Vitest | MIT | building and testing the web UI |
+| Vite, `@vitejs/plugin-vue`, `vite-plugin-singlefile`, Vitest, `@vue/test-utils`, happy-dom | MIT | building and testing the web UI |
 | LLVM / clang compiler-rt (libFuzzer, sanitizers) | Apache-2.0 WITH LLVM-exception | `tests/fuzz` |
 | vcpkg | MIT | MXL dependency build |
 | AMWA [nmos-testing](https://github.com/AMWA-TV/nmos-testing) | Apache-2.0 | conformance tests (`tests/integration/nmos-testing.sh`) |
