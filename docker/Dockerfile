@@ -139,6 +139,19 @@ RUN --mount=type=tmpfs,target=/mnt/mxl-test,size=2048m \
     cd /src/build && MXLGW_TEST_TMPFS=/mnt/mxl-test LD_LIBRARY_PATH=/opt/mxl/lib ctest --output-on-failure
 
 # ---------------------------------------------------------------------------
+# libFuzzer run for CI (`docker build --target fuzz`, §18); not part of the runtime image.
+FROM deps AS fuzz
+ARG FUZZ_SECONDS=60
+COPY . /src
+RUN cmake -S /src -B /fuzz -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMXLGW_BUILD_FUZZERS=ON -DMXLGW_BUILD_TESTS=OFF \
+        -DMXLGW_BUILD_TOOLS=OFF -DMXLGW_WITH_MXL=OFF -DMXLGW_WITH_MTL=OFF "-DCMAKE_PREFIX_PATH=/opt/nmos-cpp" \
+    && cmake --build /fuzz --target fuzz-anc8331 fuzz-sdp \
+    && mkdir -p /fuzz/corpus/anc /fuzz/corpus/sdp \
+    && /fuzz/tests/fuzz/fuzz-anc8331 -max_total_time="${FUZZ_SECONDS}" -print_final_stats=1 /fuzz/corpus/anc \
+    && /fuzz/tests/fuzz/fuzz-sdp -max_total_time="${FUZZ_SECONDS}" -print_final_stats=1 /fuzz/corpus/sdp /src/tests/fixtures/sdp
+
+# ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime
 ARG MTL_REF
 ARG DPDK_VER
@@ -158,7 +171,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=deps /usr/local/lib/x86_64-linux-gnu/ /usr/local/lib/x86_64-linux-gnu/
 COPY --from=deps /opt/mxl/lib/ /usr/local/lib/
 COPY --from=deps /opt/mxl/bin/mxl-info /opt/mxl/bin/mxl-data-probe /usr/local/bin/
-COPY --from=deps /opt/nmos-cpp/lib/ /usr/local/lib/
 # E810 DDP package where the DPDK ice PMD looks for it (DPDK 26.07 ice_ethdev.h).
 COPY --from=deps /opt/ddp/ice.pkg /lib/firmware/updates/intel/ice/ddp/ice.pkg
 COPY --from=deps /opt/ddp/ice.pkg /lib/firmware/intel/ice/ddp/ice.pkg
