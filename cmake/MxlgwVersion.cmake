@@ -21,7 +21,9 @@ else()
     endif()
 endif()
 
-set(MXLGW_PIN_MTL "v26.09" CACHE STRING "MTL pin reported in build info")
-set(MXLGW_PIN_DPDK "26.07" CACHE STRING "DPDK pin reported in build info")
-set(MXLGW_PIN_MXL "v1.1.0" CACHE STRING "MXL pin reported in build info")
-set(MXLGW_PIN_NMOS_CPP "fe303849527394b03bdedc8f161f377fe458bb62" CACHE STRING "nmos-cpp pin reported in build info")
+# Pins live only in docker/Dockerfile and .github/workflows/ci.yaml (AGENTS.md); the image build passes
+# them in. Local builds report "unknown" (the MXL version is also read at runtime via mxlGetVersion).
+set(MXLGW_PIN_MTL "unknown" CACHE STRING "MTL pin reported in build info")
+set(MXLGW_PIN_DPDK "unknown" CACHE STRING "DPDK pin reported in build info")
+set(MXLGW_PIN_MXL "unknown" CACHE STRING "MXL pin reported in build info")
+set(MXLGW_PIN_NMOS_CPP "unknown" CACHE STRING "nmos-cpp pin reported in build info")

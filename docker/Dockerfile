@@ -118,6 +118,11 @@ RUN cd /opt/mtl-src \
 # ---------------------------------------------------------------------------
 # Gateway build + unit tests. A failing test fails the image build.
 FROM deps AS build
+ARG MTL_REF
+ARG DPDK_VER
+ARG MXL_REF
+ARG NMOS_CPP_REF
+ARG MXLGW_VERSION=""
 COPY . /src
 COPY --from=webui /web/dist /src/web/dist
 RUN cmake -S /src -B /src/build -G Ninja \
@@ -125,8 +130,13 @@ RUN cmake -S /src -B /src/build -G Ninja \
         "-DCMAKE_PREFIX_PATH=/opt/mxl;/opt/mxl-vcpkg;/opt/nmos-cpp" \
         -DMXLGW_USE_PREBUILT_WEBUI=ON \
         -DMXLGW_WERROR=ON \
-    && cmake --build /src/build -j"$(nproc)" \
-    && cd /src/build && LD_LIBRARY_PATH=/opt/mxl/lib ctest --output-on-failure
+        "-DMXLGW_VERSION=${MXLGW_VERSION}" \
+        "-DMXLGW_PIN_MTL=${MTL_REF}" "-DMXLGW_PIN_DPDK=${DPDK_VER}" \
+        "-DMXLGW_PIN_MXL=${MXL_REF}" "-DMXLGW_PIN_NMOS_CPP=${NMOS_CPP_REF}" \
+    && cmake --build /src/build -j"$(nproc)"
+# MXL video flows do not fit the 64 MiB /dev/shm of a build container: give the tests a real tmpfs.
+RUN --mount=type=tmpfs,target=/mnt/mxl-test,size=2048m \
+    cd /src/build && MXLGW_TEST_TMPFS=/mnt/mxl-test LD_LIBRARY_PATH=/opt/mxl/lib ctest --output-on-failure
 
 # ---------------------------------------------------------------------------
 FROM ubuntu:24.04 AS runtime

@@ -1,0 +1,97 @@
+# Optional multi-host scenario with mxl-fabrics-agent (SPECIFICATION.md §8.6, §15.1, README
+# "Multi-host operation"). Run the same file on each real host with its profile:
+#
+#   host A (ST 2110 -> MXL):  docker compose -f docker-compose.fabrics.yaml --profile host-a up -d
+#   host B (MXL -> ST 2110):  docker compose -f docker-compose.fabrics.yaml --profile host-b up -d
+#
+# Both hosts: the same NMOS registry, CLOCK_TAI disciplined (§5.1), the host MXL root /Volumes/mxl
+# as tmpfs, RDMA-capable links between the hosts (rdma-core, irdma with RoCEv2 — see the agent's
+# README). The agent replicates host A's flows into /Volumes/mxl/mirror-<domain-id> on host B; the
+# host-B gateway finds that mirror domain by id (§8.5) and starts reading without further action.
+#
+# Copy the example configurations first:
+#   host A: cp ../config/examples/gateway.fabrics-host-a.json config/gateway.json
+#   host B: cp ../config/examples/gateway.fabrics-host-b.json config/gateway.json
+x-gateway: &gateway
+  image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev}
+  restart: unless-stopped
+  init: true
+  network_mode: host
+  stop_grace_period: 15s
+  ulimits:
+    memlock: { soft: -1, hard: -1 }
+  cap_add: [IPC_LOCK, SYS_NICE]
+  devices:
+    - /dev/vfio:/dev/vfio
+  volumes:
+    - ./config:/config
+    - /dev/hugepages:/dev/hugepages
+    - type: bind
+      source: /Volumes/mxl
+      target: /Volumes/mxl
+  healthcheck:
+    # The fabrics-host-* examples use node.http_port 8090 so mxl-decklink can keep 8080 (§15.4).
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/livez"]
+    interval: 10s
+    timeout: 3s
+    start_period: 60s
+
+x-agent: &agent
+  image: ${MXL_FABRICS_AGENT_IMAGE:-ghcr.io/leeo86/mxl-fabrics-agent:nightly-dev}
+  restart: unless-stopped
+  init: true
+  network_mode: host
+  ulimits:
+    memlock: { soft: -1, hard: -1 }
+  cap_add: [IPC_LOCK]
+  devices:
+    - /dev/infiniband:/dev/infiniband
+  volumes:
+    # The same host MXL root as the gateway (owner decision C7), here at the agent's default path.
+    - type: bind
+      source: /Volumes/mxl
+      target: /Volumes/mxl
+  environment:
+    MXL_ROOT: /Volumes/mxl
+    WEB_PORT: "8095" # agent UI / metrics; the gateway keeps 8080 (§15.4)
+    NMOS_PORT: "3232"
+
+services:
+  # ---------------------------------------------------------------- host A
+  gateway-a:
+    <<: *gateway
+    profiles: [host-a]
+    container_name: mxl-st2110-gateway
+    environment:
+      MXLGW_CONFIG: /config/gateway.json
+
+  agent-a:
+    <<: *agent
+    profiles: [host-a]
+    container_name: mxl-fabrics-agent
+    environment:
+      MXL_ROOT: /Volumes/mxl
+      WEB_PORT: "8095"
+      NMOS_PORT: "3232"
+      HOST_ID: host-a
+      MIRROR_MODE: eager
+
+  # ---------------------------------------------------------------- host B
+  agent-b:
+    <<: *agent
+    profiles: [host-b]
+    container_name: mxl-fabrics-agent
+    environment:
+      MXL_ROOT: /Volumes/mxl
+      WEB_PORT: "8095"
+      NMOS_PORT: "3232"
+      HOST_ID: host-b
+      MIRROR_MODE: eager
+
+  gateway-b:
+    <<: *gateway
+    profiles: [host-b]
+    container_name: mxl-st2110-gateway
+    # gateway.fabrics-host-b.json reads mirror flows 2 grains behind the writer (§5.7).
+    environment:
+      MXLGW_CONFIG: /config/gateway.json
