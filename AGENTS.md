@@ -42,3 +42,11 @@ python3 monitoring/tools/gen_dashboard.py --check   # dashboard up to date
 - English for code, comments, docs and commit messages; Conventional Commits (`feat:`, `fix:`, `docs:`, `ci:` …).
 - Small commits, each building and passing tests.
 - New dependencies: justify in `docs/decisions.md`, add license to `THIRD_PARTY_NOTICES.md`.
+
+## Cursor Cloud specific instructions
+
+The checkout is specification-only until Phase 0 (`IMPLEMENTATION_PLAN.md`). There is no CMake project or `docker/Dockerfile` to build yet.
+
+The image already provides CMake, Ninja, Clang 18 (the default `c++`), clang-format 18, doctest 2.4 (`doctest-dev`), `libstdc++-14-dev` (Clang cannot link without it), Python 3.12 with `jsonschema`, and Node 22. Docker Engine uses `fuse-overlayfs` and iptables-legacy. The environment start command brings the daemon up, and `ubuntu` is in the `docker` group. `sudo service docker start` exits non-zero when the daemon is already running, so start checks `docker info` first.
+
+Do not build DPDK, MTL, or MXL on the host. Those pins are built in `docker/Dockerfile` once that file exists. Kernel-backend hugepages and the MXL tmpfs domain are not mounted at boot; the commands are in the environment notes above.
