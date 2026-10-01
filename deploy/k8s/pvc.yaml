@@ -1,0 +1,12 @@
+# The gateway writes its configuration (UI saves, generated ids) and state/connections.json, so
+# /config is a PersistentVolumeClaim; a ConfigMap only seeds the first file (configmap-seed.yaml).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mxl-st2110-gateway-config
+  namespace: mxl
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 64Mi

@@ -1,0 +1,92 @@
+# mxl-st2110-gateway (SPECIFICATION.md §15.2). One replica per NIC; pin it to the node with the card.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mxl-st2110-gateway
+  namespace: mxl
+  labels:
+    app.kubernetes.io/name: mxl-st2110-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # never two instances on one NIC
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mxl-st2110-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mxl-st2110-gateway
+    spec:
+      nodeSelector:
+        mxl.example.net/st2110-gateway: "true" # label the node that has the E810
+      hostNetwork: true # DNS-SD and NMOS on the management network; media ports are DPDK-owned
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 15
+      initContainers:
+        - name: seed-config
+          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
+          command: ["/bin/sh", "-c", "[ -e /config/gateway.json ] || cp /seed/gateway.json /config/gateway.json"]
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: seed, mountPath: /seed, readOnly: true }
+      containers:
+        - name: gateway
+          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
+          imagePullPolicy: Always
+          env:
+            - { name: MXLGW_CONFIG, value: /config/gateway.json }
+            # Any scalar setting can come from the pod spec (§9.1), e.g.:
+            # - { name: MXLGW_NODE_LABEL, valueFrom: { fieldRef: { fieldPath: spec.nodeName } } }
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          resources:
+            # Guaranteed QoS: requests = limits, integer CPUs (static CPU manager policy for lcore pinning).
+            requests: &resources
+              cpu: "12"
+              memory: 8Gi
+              hugepages-1Gi: 4Gi
+              intel.com/e810_media_p: "1"
+              intel.com/e810_media_r: "1"
+            limits: *resources
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: [IPC_LOCK, SYS_NICE] # + SYS_TIME only for ptp.mode=builtin_phc2sys
+          startupProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 5
+            failureThreshold: 30 # covers >= 120 s DPDK init
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: hugepages, mountPath: /dev/hugepages }
+            - { name: mxl, mountPath: /Volumes/mxl }
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: mxl-st2110-gateway-config
+        - name: seed
+          configMap:
+            name: mxl-st2110-gateway-seed
+        - name: hugepages
+          emptyDir:
+            medium: HugePages-1Gi
+        # The node's MXL root tmpfs, shared with other media functions and the mxl-fabrics-agent
+        # DaemonSet on this node (§8.5). The configured domain /Volumes/mxl/main is created by the
+        # gateway's bootstrap (§8.3). Alternative when all MXL consumers are containers of this pod:
+        #   emptyDir: { medium: Memory, sizeLimit: 4Gi }   (not shared across pods)
+        - name: mxl
+          hostPath:
+            path: /Volumes/mxl
+            type: Directory

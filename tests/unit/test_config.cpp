@@ -66,13 +66,16 @@ TEST_CASE("minimal example is setup mode")
     CHECK(r.config->mxl.scanPath == std::string("/Volumes/mxl"));
 }
 
-TEST_CASE("full example validates")
+TEST_CASE("every shipped example passes the semantic rules")
 {
-    auto const text = util::readFile(std::string(MXLGW_SOURCE_DIR) + "/config/examples/gateway.example.json");
-    REQUIRE(text);
-    auto const r = parse(json::parse(*text));
-    INFO(config::formatErrors(r.errors));
-    CHECK(r.ok());
+    for (auto const* name : {"gateway.example.json", "gateway.fabrics-host-a.json", "gateway.fabrics-host-b.json"})
+    {
+        auto const text = util::readFile(std::string(MXLGW_SOURCE_DIR) + "/config/examples/" + name);
+        REQUIRE_MESSAGE(text, name);
+        auto const r = parse(json::parse(*text));
+        INFO(name << ": " << config::formatErrors(r.errors));
+        CHECK(r.ok());
+    }
 }
 
 TEST_CASE("semantic rules")

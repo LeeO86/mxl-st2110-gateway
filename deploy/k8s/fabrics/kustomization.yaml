@@ -1,0 +1,10 @@
+# Optional multi-host scenario with mxl-fabrics-agent (SPECIFICATION.md §15.2, README.md here).
+# Self-contained (kustomize does not allow an overlay inside its base directory, docs/decisions.md):
+# gateway A (ingest) on node-a, gateway B (egress) on node-b. The SR-IOV device plugin config is the
+# base ../sriov-dp-configmap.yaml; the agent DaemonSet comes from the mxl-fabrics-agent repository.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - gateway-a.yaml
+  - gateway-b.yaml

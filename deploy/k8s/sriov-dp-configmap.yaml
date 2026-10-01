@@ -1,0 +1,27 @@
+# SR-IOV Network Device Plugin configuration (SPECIFICATION.md §15.2): one resource per media port so
+# primary and redundant stay deterministic. The plugin injects
+#   PCIDEVICE_INTEL_COM_E810_MEDIA_P=0000:31:00.0   (+ _INFO with the vfio mounts)
+# which the gateway configuration references as "pci": "env:PCIDEVICE_INTEL_COM_E810_MEDIA_P".
+# The PFs must be bound to vfio-pci on the node beforehand (README "Host preparation":
+# `driverctl set-override 0000:31:00.0 vfio-pci`). Adjust pciAddresses to the node's card.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sriovdp-config
+  namespace: kube-system
+data:
+  config.json: |
+    {
+      "resourceList": [
+        {
+          "resourcePrefix": "intel.com",
+          "resourceName": "e810_media_p",
+          "selectors": [{ "vendors": ["8086"], "drivers": ["vfio-pci"], "pciAddresses": ["0000:31:00.0"] }]
+        },
+        {
+          "resourcePrefix": "intel.com",
+          "resourceName": "e810_media_r",
+          "selectors": [{ "vendors": ["8086"], "drivers": ["vfio-pci"], "pciAddresses": ["0000:31:00.1"] }]
+        }
+      ]
+    }
