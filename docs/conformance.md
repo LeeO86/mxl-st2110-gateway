@@ -22,7 +22,7 @@ Run of 2026-10-01 on the image built from commit `46d78bcf`:
 | IS-04-01 `test_02`, `test_02_01` | Disabled | unicast DNS-SD tests; CI uses multicast DNS-SD (Q13) |
 | IS-04-01 `test_12` | Disabled | not applicable to Node API v1.3 |
 | IS-04-01 `test_19_01` | Not implemented | Node `interfaces` carry no `attached_network_device` (LLDP data of the switch port is not known to the gateway) |
-| IS-04-01 `test_22` | Manual | "Node resource IDs persist over a reboot": all ids are UUIDv5 derivations of the persisted `node.id` and the essence `uid`s (§7.3, unit tests `test_ids.cpp`; `app-tests` restart the application on the same file) |
+| IS-04-01 `test_22` | Manual | "Node resource IDs persist over a reboot": all ids are UUIDv5 derivations of the persisted `node.id` and the essence `uid`s (§7.3; unit tests `test_ids.cpp`, and `test_store.cpp` for `node.id` being written back and kept on reload) |
 | IS-04-01 `test_27_4`–`27_6` | Not implemented | BCP-004-01 constraint sets have no labels, preferences or enabled flags (one exact constraint set per receiver, §7.2) |
 | IS-04-01 `test_28` | Not implemented | no BCP-002-02 asset tags |
 | IS-05-01 `test_41` | Disabled | SDPoker is not installed on the CI runner |
