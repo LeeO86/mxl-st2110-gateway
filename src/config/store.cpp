@@ -318,6 +318,11 @@ namespace mxlgw::config
     {
         std::lock_guard const lock{_mutex};
         UpdateResult result;
+        if (util::mtimeNs(_path) != _knownMtime)
+        {
+            result.conflict = true;
+            return result;
+        }
         auto file = parseOrdered(text, result.errors);
         if (!result.errors.empty())
         {

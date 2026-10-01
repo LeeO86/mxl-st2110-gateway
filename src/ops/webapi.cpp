@@ -209,14 +209,15 @@ namespace mxlgw::ops
                   {
                       return HttpResponse::error(428, "If-Match header required");
                   }
-                  if (req.queryParam("force") == "true")
+                  bool const force = req.queryParam("force") == "true";
+                  if (force)
                   {
                       // "overwrite with UI state" after a change on disk (§9.2)
                       services.store().acceptDiskVersion();
                   }
-                  auto const before = services.store().snapshot().overlay.effective;
-                  auto const ifMatchValue = req.queryParam("force") == "true" ? std::optional<std::string>{} : ifMatch;
-                  return writeConfig(services, services.store().replace(*body, ifMatchValue), before);
+                  auto const snap = services.store().snapshot();
+                  return writeConfig(services, services.store().replace(*body, force ? std::optional<std::string>{snap.etag} : ifMatch),
+                                     snap.overlay.effective);
               });
         r.add("GET", "/api/config/export",
               [&services](HttpRequest const&)

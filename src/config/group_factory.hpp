@@ -31,6 +31,7 @@ namespace mxlgw::config
     nlohmann::ordered_json makeGroup(GroupRequest const& request, nlohmann::json const& body = nlohmann::json::object(),
                                      std::function<util::Uuid()> newUid = util::uuidV4);
 
-    /// Copy of a group with new uids and the label suffixed with " copy".
+    /// Copy of a group with new uids and the label suffixed with " copy"; egress essences lose their
+    /// default legs because two egress legs must not share a destination.
     nlohmann::ordered_json duplicateGroup(nlohmann::ordered_json group, std::function<util::Uuid()> newUid = util::uuidV4);
 }

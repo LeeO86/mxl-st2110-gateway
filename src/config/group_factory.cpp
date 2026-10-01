@@ -152,6 +152,7 @@ namespace mxlgw::config
         {
             group["label"] = group["label"].get<std::string>() + " copy";
         }
+        bool const egress = group.value("direction", std::string()) == "egress";
         for (auto const* key : {"video", "audio", "anc"})
         {
             if (group.contains(key) && group[key].is_array())
@@ -159,6 +160,11 @@ namespace mxlgw::config
                 for (auto& e : group[key])
                 {
                     e["uid"] = newUid().toString();
+                    if (egress)
+                    {
+                        // egress destinations must be unique (§9.5)
+                        e.erase("defaults");
+                    }
                 }
             }
         }
