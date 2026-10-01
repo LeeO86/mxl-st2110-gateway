@@ -65,6 +65,11 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: the ingest side of `loopback.sh` / `late-flow.sh` runs in the network namespace of a helper container.
 - Consequence: tests need `sudo` for `ip`/`nsenter`; documented in `tests/integration/lib.sh`.
 
+### 2026-10-01 — Loopback test: bad audio blocks only when counted as late by the gateway
+- Context: on the kernel-socket backend one MTL lcore issues ~200 000 `sendto` calls per second for the two video legs; on a 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`), which `mxl-verify` sees as one bad audio block in 60 000. The kernel backend has no pacing guarantees (§17.2, R8).
+- Decision: `loopback.sh` accepts bad audio blocks only if `mxlgw_tx_late_frames_total` of the egress audio essences grew by at least as many during the same verify window; video, ANC, offsets and A/V alignment must always be exact.
+- Consequence: the test stays strict about the gateway's data path while tolerating the test backend's scheduling; on DPDK hardware late frames must be zero (`docs/performance.md`).
+
 ### 2026-10-01 — Egress groups: one grain rate for video and ANC
 - Context: one worker per group reads one grain of every discrete essence per cadence period (§3.6, §5.7). The spec does not forbid mixing rates within a group.
 - Decision: semantic rule — all video and ANC essences of an egress group have the same grain rate (field rate for interlaced). Audio is independent (blocks of `block_us`). Ingest groups may mix rates.
