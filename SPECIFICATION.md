@@ -2,13 +2,49 @@
 
 | | |
 |---|---|
-| Status | Draft 1.0 — implementation baseline for Claude Code |
+| Status | Draft 1.1 — implementation baseline for Claude Code; adds cooperation with mxl-fabrics-agent (see Changelog) |
 | Date | 2026-10-01 |
 | Repository | `mxl-st2110-gateway` (new, empty repository) |
 | Sibling project | [`LeeO86/mxl-decklink`](https://github.com/LeeO86/mxl-decklink) — reuse its conventions (layout, CI, web UI stack, health/metrics, NMOS integration, `mxlbridge/` module shapes) wherever this document does not say otherwise |
+| Related project | [`LeeO86/mxl-fabrics-agent`](https://github.com/LeeO86/mxl-fabrics-agent) — per-host container that replicates MXL flows between hosts via the MXL 1.1 Fabrics API; its `SPECIFICATION.md` (commit `3b981c6`, Draft v0.1, §7 mirror domains, §11 requirements on media functions) is normative for §8.5–§8.6 |
 | Companion documents | `IMPLEMENTATION_PLAN.md` (phases + acceptance criteria), `AGENTS.md` (agent instructions) |
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as in RFC 2119. Anything marked **VERIFY** is a fact that was checked against the pinned sources on 2026-10-01 but that the implementer MUST re-confirm in code before relying on it (write a unit test or a source comment citing file and line).
+
+## Changelog
+
+### Draft 1.1 (2026-10-01) — interoperability with mxl-fabrics-agent
+
+Changes:
+
+- §1.1, §1.2 (goal 9), §1.3: the gateway cooperates with mxl-fabrics-agent; host-to-host replication is delegated to the agent, the gateway itself still has no Fabrics code.
+- §2: MXL pin shared with mxl-decklink; all MXL users on one host use the same v1.1 line; mxl-fabrics-agent specification referenced.
+- §3.2, §3.3, §3.5, §3.6: new module `mxlbridge/domainscan`, configured/discovered/mirror domains, domain resolution step in the egress data flow, scanning off the media threads.
+- §5.1: every host that writes, replicates or reads a flow MUST be TAI-disciplined.
+- §5.7: per-receiver read offset; output when no data arrives in time. New §5.8: reader bring-up and resilience (retry with backoff on `MXL_ERR_FLOW_NOT_FOUND`, `no_signal` is not an error, flow re-creation).
+- §6.4: flow format check repeated whenever an egress flow appears or is re-created.
+- §7.2, §7.3: Flow id = MXL flow id rationale; stable domain ids; behaviour when a new flow UUID is minted (mxl-decklink sequence).
+- §7.1, §10: nmos-cpp Settings/Logging APIs and Events WebSocket disabled by default (no extra host ports); `/readyz` considers configured domains only, and `waiting_for_flow` / `no_signal` do not affect readiness.
+- §7.4: MXL Receivers resolve `mxl_domain_id` over configured and discovered domains (including mirror domains), re-scan before resolving or rejecting, no negative caching; MXL Senders write only into their configured domain.
+- §8.1 (domain identity, mirror domains and their marker, MXL reader status codes), §8.2 (`mxl.scan_path`), §8.3 (mirror write protection, id write-back, GC only on configured domains), §8.4 (re-opened flows are compared with the descriptor), new §8.5 (domain discovery), new §8.6 (host-to-host replication with mxl-fabrics-agent, mapping of the agent's §11 requirements).
+- §9.3, §9.5: `mxl.scan_path`, `read_offset_grains` / `read_offset_ns`, new semantic rules, port-collision note on `http_port`.
+- §11.2, §11.3: UI and REST API show discovered/mirror domains, the resolved domain per MXL Receiver and the new states.
+- §12.1, §12.2: new essence state `no_signal`; `mxlgw_mxl_read_timeouts_total` defined as "no data by the deadline"; new MXL reader metrics (flow-not-found retries, read lag, late and invalid reads, resolved domain info, discovered domains) and matching Grafana panels.
+- §13: new log events.
+- §14.1, §14.2, §14.3: Fabrics OFF and same MXL pin as mxl-decklink; MXL root mount; preflight checks for mirror domains, the scan path, a zero kernel TAI offset and port collisions.
+- §15.1, §15.2, §15.3, new §15.4: MXL root mount (instead of a single-domain mount) in Compose/Kubernetes, optional multi-host scenario with mxl-fabrics-agent, TAI on all hosts, port table.
+- §16.1, §17.1, §17.3: late-flow integration test, discovery/resilience unit tests.
+- §18, §19 (items 13, 14), §20 (R11–R14), §21, §22: robustness, acceptance, risks, later stage, glossary.
+
+Conflicts with existing decisions — the existing decision is kept; owner decision required:
+
+- **C1 — default HTTP port.** `node.http_port` defaults to `8080` (§3.1, §9.5, §10, §15.1), which collides with mxl-decklink (`8080`) under host networking. Kept `8080`; proposed new default `8090` (free in the §15.4 port table).
+- **C2 — environment variables.** The requested `MXL_DOMAIN_SCAN_PATH` and `MXL_READ_OFFSET_GRAINS` / `_MS` conflict with §9.1 (environment variables are bootstrap-only, everything else lives in the config file). Kept §9.1; added config keys `mxl.scan_path` and per-receiver `read_offset_grains` / `read_offset_ns` (nanoseconds instead of milliseconds, following the spec's `_ns` convention). Open: should environment overrides exist as well?
+- **C3 — unknown `mxl_domain_id` on MXL Receivers.** §7.4 rejects a domain id that is not accessible with HTTP 400 at staging (BCP-007-03 "MUST reject … an MXL Domain the Node is not capable of accessing"). With mxl-fabrics-agent `MIRROR_MODE=on-demand` the mirror domain is only created after a receiver is activated with that id, so such activations would be rejected. Kept 400 after a fresh re-scan; this works with the agent's default `MIRROR_MODE=eager`. Open: accept any domain UUID and wait for the domain instead?
+- **C4 — flow polling interval.** §6.4 polled for missing flows every 500 ms; the new requirement asks for exponential backoff. Kept 500 ms as the first retry interval; backoff doubles up to 5 s (§5.8). Open: confirm the 5 s cap, or keep a fixed 500 ms poll?
+- **C5 — new flow UUID on format change.** §7.3 derives the Flow id from the essence `uid` only, so a format edit keeps the Flow id and no new UUID is minted. Kept §7.3; §7.3 now specifies the update sequence that applies whenever a new UUID is minted. Open: mint a new flow UUID on format changes (needed for clean mirroring by id)?
+- **C6 — domain id mismatch.** §8.3: if the config `id` differs from an existing `domain_def.json`, the file wins and the config is left unchanged. After a tmpfs wipe the config id would then be used, so remote mirrors keyed by the previous id would break. Kept §8.3. Open: write the adopted id back to the config in that case too?
+- **C7 — host MXL root path.** This spec's examples use the host tmpfs `/run/mxl`; mxl-decklink and mxl-fabrics-agent use `/Volumes/mxl`. Containers on one host MUST share the same root. Kept `/run/mxl`. Open: align the examples to `/Volumes/mxl`?
 
 ---
 
@@ -25,6 +61,8 @@ It is controlled exclusively through **AMWA NMOS IS-04 / IS-05** (including **BC
 
 The data path uses **Intel Media Transport Library (MTL)** on **DPDK** with Intel **E810** NICs to achieve ST 2110-21 compliant pacing (narrow / narrow-linear) and hardware PTP timestamping. **GStreamer is explicitly not used.**
 
+On its host the gateway is an ordinary MXL media function. Making its MXL flows available on other hosts (and flows of other hosts available to it) is the job of **mxl-fabrics-agent**, a separate per-host container that replicates flows with the MXL 1.1 Fabrics API into *mirror domains* (§8.6). The gateway cooperates with the agent only through standard NMOS (IS-04/IS-05, BCP-007-03) and the MXL domain conventions of §8.5; it contains no Fabrics code.
+
 ### 1.2 Goals
 
 1. Spec-correct MXL: v210 grains contain real v210 (never RFC 4175 wire data), audio is de-interleaved float32 in a continuous flow, ANC follows the MXL RFC 8331 grain layout.
@@ -35,11 +73,12 @@ The data path uses **Intel Media Transport Library (MTL)** on **DPDK** with Inte
 6. One container = one NIC = one NMOS Node, bidirectional.
 7. Container and Kubernetes deployment are both first-class (documented and shipped).
 8. Observability via Prometheus `/metrics` plus a generated Grafana dashboard.
+9. Works with mxl-fabrics-agent without code coupling: ingest flows can be mirrored to other hosts by domain id and flow id, and egress MXL Receivers find flows replicated from other hosts in mirror domains (§8.5, §8.6).
 
 ### 1.3 Non-Goals (this version)
 
 - ST 2110-22 (JPEG XS / compressed video), ST 2022-6, AES67-only profiles beyond what ST 2110-30 covers.
-- MXL Fabrics / RDMA (host-to-host MXL). Build MXL with `-DMXL_ENABLE_FABRICS_OFI=OFF`.
+- MXL Fabrics / RDMA inside the gateway process. Host-to-host replication is delegated to mxl-fabrics-agent (§8.6). Build MXL with `-DMXL_ENABLE_FABRICS_OFI=OFF` (§2, §14.1).
 - Format conversion (scaling, frame-rate conversion, audio resampling, channel shuffling beyond 1:1). Formats are fixed per essence in the configuration.
 - Sample-rate conversion or drift correction between an unlocked source and the host clock (see §5.6).
 - More than one NIC (one port pair) per container — see §4.4 and §21 "Later stage".
@@ -56,7 +95,7 @@ All versions are pinned in exactly one place each (`docker/Dockerfile` build arg
 |---|---|---|
 | Intel MTL | tag **`v26.09`** (`VERSION` = `26.09.0.REL`) | `github.com/OpenVisualCloud/Media-Transport-Library`, BSD-3-Clause |
 | DPDK | **26.07** + MTL patches (`versions.env`: `DPDK_VER=26.07`, `DPDK_MTL_MINOR_VER=90`) | built via MTL `script/build_dpdk.sh`; never use distro DPDK |
-| MXL SDK | tag **`v1.1.0`** | `github.com/dmf-mxl/mxl`, Apache-2.0, Fabrics OFF, built with vcpkg exactly as in mxl-decklink `docker/Dockerfile` |
+| MXL SDK | tag **`v1.1.0`** | `github.com/dmf-mxl/mxl`, Apache-2.0, Fabrics OFF (`-DMXL_ENABLE_FABRICS_OFI=OFF`), built with vcpkg exactly as in mxl-decklink `docker/Dockerfile`. MUST be the same pin as mxl-decklink's `MXL_REF`; bump both together. All MXL users sharing a host's MXL root (gateway, mxl-decklink, mxl-fabrics-agent, which builds its own MXL with Fabrics ON) MUST use the same v1.1 line so the shared-memory flow format is compatible — check the agent's pin when bumping (R12) |
 | Sony nmos-cpp | commit **`fe303849527394b03bdedc8f161f377fe458bb62`** | = `master` on 2026-10-01 and = mxl-decklink pin; contains `urn:x-nmos:transport:mxl`, `make_connection_mxl_sender/receiver`, MXL `auto` resolution |
 | AMWA nmos-testing | commit `90018513758e6fbc096c26d7ef001f700b28b510` (master 2026-10-01) | contains `BCP0070301Test.py` / `BCP0070302Test.py` |
 | Host `ice` kernel driver | 2.6.7 (MTL `versions.env`), with MTL `patches/ice_drv/` | only needed on the host if VFs are used (§4.2) |
@@ -70,11 +109,12 @@ Normative references (pin the versions in `docs/references.md`):
 - SMPTE ST 2110-10/-20/-21/-30/-40, ST 2022-7, ST 2059-1/-2, RFC 4175, RFC 8331, RFC 7273.
 - MXL docs (`docs/Architecture.md`, `docs/Timing.md`, `docs/Configuration.md`, `docs/Tools.md`) at `v1.1.0`.
 - MTL docs at `v26.09`: `doc/design.md` (§5.4 PTP), `doc/external_frame.md`, `doc/run.md`, `doc/e800_series_drivers.md`, `doc/kernel_socket.md`, `docker/README.md`.
+- mxl-fabrics-agent `SPECIFICATION.md` at commit `3b981c6` (Draft v0.1): §5 domain scanning and classification, §7 mirror domains and mirror flows, §9 timing, §10 port defaults, §11 requirements on media functions.
 
 Reference implementations (read, do not copy blindly):
 
 - MTL `ecosystem/MTL_with_MXL/poc/src/sender/mxl_bridge.c` — FlowWriter setup, grain slot management, `query_ext_frame` pattern. **Known defect: it DMAs RFC 4175 pgroup data (`ST20_FMT_YUV_422_10BIT`) straight into grains declared as `video/v210` without conversion. Do not replicate.**
-- mxl-decklink `src/mxlbridge/` (`videowriter`, `audiowriter`, `ancwriter`, `videoreader`, `audioreader`, `flowsync`, `domain`, `flowdef`), `src/util/` (`audioconv`, `anc`, `taiclock`, `uuid`, `v210`), `src/nmos/node.cpp`, `src/ops/` (`httpserver`, `metrics`, `health`, `webapi`).
+- mxl-decklink `src/mxlbridge/` (`videowriter`, `audiowriter`, `ancwriter`, `videoreader`, `audioreader`, `flowsync`, `domain`, `domainscan`, `flowdef`), `src/util/` (`audioconv`, `anc`, `taiclock`, `uuid`, `v210`), `src/nmos/node.cpp` (incl. `onRuntimeFlows`: Flow/Sender/`mxl_flow_id` update when a new flow UUID is minted), `src/ops/` (`httpserver`, `metrics`, `health`, `webapi`).
 - nmos-cpp `Development/nmos-cpp-node/node_implementation.cpp` — MXL sender/receiver construction (~l.990–1070) and MXL `auto` resolution (~l.2125).
 
 ---
@@ -97,7 +137,7 @@ mxl-st2110-gateway/
 │   ├── main.cpp
 │   ├── config/        schema.{hpp,cpp} store.{hpp,cpp} config.{hpp,cpp} formats.{hpp,cpp}
 │   ├── mtl/           instance.* (EAL/ports/PTP) video_rx.* video_tx.* audio_rx.* audio_tx.* anc_rx.* anc_tx.* sdp_map.*
-│   ├── mxlbridge/     domain.* flowdef.* videowriter.* videoreader.* audiowriter.* audioreader.* ancwriter.* ancreader.* flowsync.*
+│   ├── mxlbridge/     domain.* domainscan.* flowdef.* videowriter.* videoreader.* audiowriter.* audioreader.* ancwriter.* ancreader.* flowsync.*
 │   ├── timing/        ptp.* rtpclock.* (RTP⇄TAI⇄MXL index, pure functions)
 │   ├── codec/         audioconv.* (L16/L24 ⇄ float32) anc8331.* (st40 meta ⇄ RFC 8331)
 │   ├── group/         group.* ingest_essence.* egress_essence.* group_manager.*
@@ -107,12 +147,12 @@ mxl-st2110-gateway/
 ├── web/               Vue 3 + Vite, single-file build embedded in the binary (mxl-decklink pattern)
 ├── patches/mtl/       0001-ptp-status-api.patch (§5.5)
 ├── schema/            gateway-config.schema.json (JSON Schema draft 2020-12)
-├── config/examples/   gateway.example.json  gateway.minimal.json
-├── docker/            Dockerfile entrypoint.sh docker-compose.yaml
-├── deploy/k8s/        namespace.yaml sriov-dp-configmap.yaml deployment.yaml service.yaml configmap.yaml kustomization.yaml README.md
+├── config/examples/   gateway.example.json  gateway.minimal.json  gateway.fabrics-host-a.json  gateway.fabrics-host-b.json
+├── docker/            Dockerfile entrypoint.sh docker-compose.yaml docker-compose.fabrics.yaml
+├── deploy/k8s/        namespace.yaml sriov-dp-configmap.yaml deployment.yaml service.yaml configmap.yaml kustomization.yaml README.md fabrics/
 ├── monitoring/        grafana/mxl-st2110-gateway.json prometheus/scrape-example.yaml tools/gen_dashboard.py
 ├── tests/unit/        doctest
-├── tests/integration/ smoke.sh loopback.sh nmos-testing.sh
+├── tests/integration/ smoke.sh loopback.sh late-flow.sh nmos-testing.sh
 └── .github/workflows/ ci.yaml container.yaml release.yaml
 ```
 
@@ -124,6 +164,8 @@ Language: **C++20**, CMake + Ninja, `-Wall -Wextra -Werror` in CI, unit tests wi
 - **Essence** — one stream of one type within a group. Each essence owns exactly one MTL session and one MXL writer or reader.
 - **Ingest essence** = IS-04 *Receiver* (`rtp.mcast`) + IS-04 *Source/Flow/Sender* (`mxl`) + MTL RX session + MXL FlowWriter.
 - **Egress essence** = IS-04 *Receiver* (`mxl`) + IS-04 *Source/Flow/Sender* (`rtp.mcast`) + MXL FlowReader + MTL TX session.
+- **Configured domain** — an MXL domain listed in `mxl.domains[]` (§8.2). The only kind of domain the gateway writes to; groups reference it by name.
+- **Discovered domain** — any MXL domain found by scanning `mxl.scan_path` (§8.5). Readable by egress MXL Receivers, never written. A **mirror domain** is a discovered domain created by mxl-fabrics-agent that carries the identity of a domain on another host (§8.6).
 
 ### 3.4 Data Flow — Ingest (2110 → MXL)
 
@@ -141,8 +183,10 @@ E810 port P (+R) ──DPDK PMD──► MTL st20p/st30p/st40p RX (2022-7 merge,
 ### 3.5 Data Flow — Egress (MXL → 2110)
 
 ```
-mxlFlowReader (per essence), all readers of a group in one mxlFlowSynchronizationGroup
-     ──► wait for index i (group-aligned)                               (§5.7)
+IS-05 mxl_domain_id ──► domain resolution over configured + discovered domains (§8.5)
+     ──► mxlFlowReader (per essence, retried while the flow is missing  (§5.8)),
+         all readers of a group in one mxlFlowSynchronizationGroup
+     ──► wait for index i (group-aligned, behind head by the read offset) (§5.7)
      ──► codec: v210 grain used as st20p ext_frame (MTL converts to RFC 4175)
                float32 per channel → L16/L24 BE interleaved
                RFC 8331 grain body → st40 meta+UDW
@@ -155,6 +199,7 @@ mxlFlowReader (per essence), all readers of a group in one mxlFlowSynchronizatio
 - MTL owns its lcores (polling, pacing, PTP). Lcore list is configurable (`nic.lcores`) and MUST be disjoint from application threads.
 - Per essence, one application worker thread (blocking `*_get_frame` with timeout for RX, sync-group wait for TX). Callbacks executed on MTL lcores (`notify_frame_available` etc.) MUST NOT block, allocate, log synchronously or take contended locks — they only signal the worker.
 - One control thread processes NMOS activations and admin changes through a single serialized queue (mxl-decklink `enqueue(readActivation(...))` pattern). Pipeline (re)configuration never runs on an HTTP handler thread.
+- Domain discovery (§8.5) runs on the control thread or a housekeeping thread, never on media worker threads or MTL lcores. Workers receive resolved domain paths; reader (re)creation and sync-group changes run on the thread that owns the egress group's `mxlFlowSynchronizationGroup` (§5.7, §5.8).
 - Real-time threads MAY use `SCHED_FIFO` when `CAP_SYS_NICE` is available; failure to raise priority is a warning, not an error.
 
 ### 3.7 Latency Budget (targets, 1080p50)
@@ -222,6 +267,8 @@ This is the most critical part of the design. Implement it as pure, unit-tested 
 
 MXL readers on the same host (other containers) compute "now" from **their** `CLOCK_TAI`. If the gateway writes grains at indices derived from MTL PTP time while the host `CLOCK_TAI` disagrees, other media functions see grains as too early/too late. The two clocks MUST agree to well within one grain.
 
+The same holds across hosts. mxl-fabrics-agent replicates grains and samples 1:1 at the same indices (mxl-fabrics-agent §9), so **every host that writes, replicates or reads a flow MUST be TAI-disciplined** to the same time scale — PTP (`ptp4l` + `phc2sys`) or chrony with a PHC/PTP reference — **with the correct kernel TAI offset** (37 s). A host whose `CLOCK_TAI` is off reads the wrong grains, or none. This applies to hosts that run only an MXL Receiver of the gateway as well.
+
 ### 5.2 PTP Modes (`ptp.mode`)
 
 | Mode | MTL flags | Host clock handling | Use when |
@@ -271,6 +318,19 @@ The gateway does not resample or drop/repeat to compensate drift. If a source is
 - Video/ANC are read per grain; audio is read in blocks aligned to the video grain period (e.g. 960 samples at 50/1) or, for audio-only groups, to `audio.block_us`.
 - Transmit uses MTL `ST20P_TX_FLAG_USER_TIMESTAMP` + `ST20P_TX_FLAG_USER_PACING` (and the st30p/st40p equivalents `ST30P_TX_FLAG_USER_PACING`, `ST40P_TX_FLAG_USER_TIMESTAMP`, `ST40P_TX_FLAG_USER_PACING`). Use `*_DROP_WHEN_LATE` and count late frames.
 - `output_delay` (per group, default one video frame, minimum enforced so that `T(i)+delay` is in the future when the grain is complete) defines the constant MXL→wire latency. All essences of a group use the same delay ⇒ lip-sync preserved.
+- **Read offset.** Every MXL Receiver (egress essence) has a read offset (`read_offset_grains` or `read_offset_ns`, §9.5; default `0`, suitable for local flows) by which the gateway reads behind the writer. The worker does not start waiting for grain *i* (or the audio block starting at sample *s*) before the end of that grain period plus the read offset. Flows replicated from another host arrive in their mirror domain with replication lag (mxl-fabrics-agent §11 item 5), so their receivers SHOULD use a read offset ≥ the observed lag (`mxlgw_mxl_read_lag_grains`, §12.1, or the agent's `mxl_fabrics_agent_replication_lag_grains`). One sync group waits for one timestamp, so the group's worker uses the largest read offset of the group's essences. `output_delay_ns` MUST be at least one grain plus that largest read offset (validation, §9.5), so the transmit deadline `T(i)+output_delay` stays reachable. The read offset changes only the read schedule, never RTP timestamps or lip-sync.
+- **No data by the deadline.** If a grain or audio block is not available when its transmit deadline would be missed, the essence counts a read timeout (`mxlgw_mxl_read_timeouts_total`) and, as the conservative default, nothing is sent for that frame or block; data that arrives after its deadline is skipped and counted as a late read (`mxlgw_mxl_late_reads_total`). This is the `no_signal` behaviour of §5.8, not an error.
+
+### 5.8 MXL Reader Bring-up and Resilience (egress)
+
+Applies to every MXL Receiver whose IS-05 `/active` has `master_enable=true`. A missing or silent flow is a normal operating state (for example a source not started yet, a writer restart, or replication by mxl-fabrics-agent that has not started); it never needs operator or controller action.
+
+- **Flow or domain not present.** If `mxlCreateFlowReader` returns `MXL_ERR_FLOW_NOT_FOUND`, or the resolved domain disappeared (for example a mirror domain removed by mxl-fabrics-agent), the essence enters `waiting_for_flow`. It retries with exponential backoff: the first retry after 500 ms, doubling up to 5 s (see changelog C4), with ±10 % jitter. Every attempt re-runs domain resolution (§8.5); a negative result is never cached. Retrying continues for as long as `master_enable` is `true` — a missing flow or domain never fails the receiver permanently. `master_enable=false` stops the retries. The IS-05 activation itself succeeds immediately (§6.4).
+- **Flow present but silent.** A flow that exists but delivers no new grains or samples — writer stopped, source lost, or a mirror flow whose replication has not started yet (mxl-fabrics-agent §7.1) — puts the essence in state `no_signal`. `no_signal` is not `error`: it does not affect `/readyz`, the output follows the "no data by the deadline" rule of §5.7, reads continue at the normal cadence, and the essence returns to `running` with the first grain that arrives in time, without reconnecting.
+- **Flow re-created.** On `MXL_ERR_FLOW_INVALID` (the writer re-created the flow), the reader is released and re-created immediately with the same flow id, the flow definition is re-checked (§6.4) and reading resumes.
+- **Flow definition mismatch.** Whenever a flow appears or is re-created, its `flow_def.json` is checked against the essence format (§6.4). A mismatch puts the essence in `error` with reason `format_mismatch`, but the retry loop continues, so a later matching flow is picked up automatically.
+- The other essences of a group keep running while one essence waits. Readers are added to and removed from the group's sync group on the thread that owns it (§3.6).
+- Counters and gauges: `mxlgw_mxl_flow_not_found_total`, `mxlgw_mxl_read_timeouts_total`, `mxlgw_mxl_late_reads_total`, `mxlgw_mxl_grains_invalid_total`, `mxlgw_mxl_read_lag_grains`, `mxlgw_mxl_reader_info` (§12.1).
 
 ---
 
@@ -313,7 +373,7 @@ Unit tests: golden vectors for SMPTE 12M timecode (DID 0x60/SDID 0x60), CEA-708 
 Formats are part of the essence configuration and are therefore static NMOS Flow attributes.
 
 - Ingest: an IS-05 activation whose SDP does not match the configured essence format (resolution, rate, interlace, sampling/depth, channels, sample rate, bit depth, ptime) MUST be rejected at staging with HTTP 400 and a descriptive error. Receiver caps (BCP-004-01) advertise exactly the configured format.
-- Egress: the MXL Receiver caps advertise the configured format; staging a `mxl_flow_id` whose `flow_def.json` exists and does not match is rejected with 400. A not-yet-existing flow is accepted; the essence waits (state `waiting_for_flow`) and attaches when the flow appears (poll `mxlIsFlowActive` / flow directory every 500 ms).
+- Egress: the MXL Receiver caps advertise the configured format; staging a `mxl_flow_id` whose `flow_def.json` exists in the resolved domain (§8.5) and does not match is rejected with 400. A not-yet-existing flow is accepted; the essence waits (state `waiting_for_flow`) and attaches when the flow appears (retry schedule of §5.8, starting with the 500 ms poll interval — see changelog C4). Because a flow can appear or be re-created after staging (for example a mirror flow created by mxl-fabrics-agent), the format check is repeated every time the flow appears or is re-created; a mismatch then becomes essence state `error` / `format_mismatch` (§5.8) instead of an HTTP error.
 
 ---
 
@@ -322,7 +382,7 @@ Formats are part of the essence configuration and are therefore static NMOS Flow
 ### 7.1 nmos-cpp Integration
 
 - Use `nmos::experimental::make_node_server(node_model, implementation, log_model, gate)` as in mxl-decklink `src/nmos/node.cpp`, then mount the gateway routers on the **same** listener: `server.api_routers[{ {}, http_port }].mount(U("/admin"), …)`, likewise `/api`, `/metrics`, `/livez`, `/readyz`, `/statusz` (`nmos::server::api_routers` is a public `std::map<host_port, api_router>`, `nmos/server.h`). Add an integration test proving all of them answer on one port.
-- Settings: `http_port` = `node.http_port`; disable IS-07 (`events_port`, `events_ws_port`), IS-08 (`channelmapping_port`), IS-12/MS-05 (`configuration_port`, `control_protocol_ws_port`) — **VERIFY** in `node_server.cpp` that a negative port skips mounting (mxl-decklink uses `control_protocol_ws_port = -1`). Bind the nmos-cpp Settings and Logging APIs to `127.0.0.1` on loopback-only ports or disable them; they MUST NOT be reachable on the public port.
+- Settings: `http_port` = `node.http_port`; disable IS-07 (`events_port`, `events_ws_port`), IS-08 (`channelmapping_port`), IS-12/MS-05 (`configuration_port`, `control_protocol_ws_port`) — **VERIFY** in `node_server.cpp` that a negative port skips mounting (mxl-decklink uses `control_protocol_ws_port = -1`). Bind the nmos-cpp Settings and Logging APIs to `127.0.0.1` on loopback-only ports or disable them; they MUST NOT be reachable on the public port. Default: disabled, so that the gateway opens no host port besides `node.http_port` (port table §15.4, important under host networking next to mxl-decklink and mxl-fabrics-agent); a debug option MAY bind them to loopback.
 - `seed_id` = node UUID (§7.3); `label`/`description` from config; `host_address`/`host_addresses` = management IP(s); registry: DNS-SD (default) or static `registry_address`/`registration_port`; `registration_version` v1.3.
 - IS-04 v1.3; IS-05 v1.1 and v1.2 (MXL resources only under v1.2 — nmos-cpp `connection_api.cpp` l.91).
 - TLS (BCP-003-01) optional: `node.tls.enabled` → `server_secure=true`, certificate/key paths from mounted secrets. When enabled it applies to the whole port (admin UI and `/metrics` included).
@@ -336,7 +396,7 @@ Ingest group, per essence *e*:
 | Resource | Key attributes |
 |---|---|
 | Receiver (2110) | `transport urn:x-nmos:transport:rtp.mcast`, `format` video/audio/data, `caps.media_types` (`video/raw`, `audio/L24` or `audio/L16`, `video/smpte291`), `caps.constraint_sets` = exact configured format (BCP-004-01), `interface_bindings` per §4.5 |
-| Source + Flow (MXL) | Flow = the MXL flow descriptor (`format`, `media_type` `video/v210` / `audio/float32` / `video/smpte291`, geometry/rate/channels); **the IS-04 Flow `id` IS the MXL flow id** and the JSON written to `flow_def.json` is the IS-04 Flow body |
+| Source + Flow (MXL) | Flow = the MXL flow descriptor (`format`, `media_type` `video/v210` / `audio/float32` / `video/smpte291`, geometry/rate/channels); **the IS-04 Flow `id` IS the MXL flow id** and the JSON written to `flow_def.json` is the IS-04 Flow body (BCP-007-03 permits but does not require this; the gateway requires it so that controllers and mxl-fabrics-agent, which mirrors flows by id, can match IS-04 Flows and MXL flows on every host) |
 | Sender (MXL) | `transport urn:x-nmos:transport:mxl`, `interface_bindings: []`, `manifest_href: null`, `flow_id` = Flow id |
 
 Egress group, per essence *e*:
@@ -357,7 +417,9 @@ IDs MUST survive restarts and container recreation.
 - Every group has an immutable `uid` (UUID) generated at creation and persisted. Renaming a group keeps its IDs.
 - Every essence has an immutable `uid` as well (so reordering/removing essences does not shift IDs).
 - Resource IDs = UUIDv5(namespace = essence `uid`, name = `"sender"|"receiver"|"source"|"flow"`). Device id = UUIDv5(node id, `"device"`).
-- Unit test: same config ⇒ same IDs; rename ⇒ same IDs; delete+recreate essence ⇒ new IDs.
+- MXL domain ids (`domain_def.json` `id`) of configured domains are persisted in the config file and re-used after every restart and every tmpfs wipe (§8.3), because other hosts mirror a domain by its id (`mirror-<domain-id>`, §8.6) and controllers stage it as `mxl_domain_id`.
+- **New flow UUID.** With the derivation above, editing an essence's format keeps its Flow id: no new flow UUID is minted (see changelog C5). Whenever a new flow UUID *is* minted for an ingest essence, the gateway MUST, in one NMOS model update and before the new FlowWriter commits its first grain: insert the new IS-04 Flow (same Source); remove the old Flow; set the MXL Sender's `flow_id`; set `mxl_flow_id` in the Sender's IS-05 `/active` and `/staged` and in its `mxl_flow_id` constraint to the new id; bump all affected versions; and release the old FlowWriter. This is the same sequence as mxl-decklink (`onRuntimeFlows` in `src/nmos/node.cpp`). Receivers still pointing at the old flow id are not reconnected by the gateway; that is the controller's job (mxl-fabrics-agent reports them as `stale_reference`).
+- Unit test: same config ⇒ same IDs; rename ⇒ same IDs; delete+recreate essence ⇒ new IDs; new flow UUID ⇒ Flow, Sender `flow_id` and `/active` `mxl_flow_id` updated together.
 
 ### 7.4 IS-05 Behaviour — MXL Side (BCP-007-03 v1.0.0)
 
@@ -365,9 +427,9 @@ Use nmos-cpp `make_connection_mxl_sender(id, domain_id, flow_id)` / `make_connec
 
 - One transport-parameter set (no `_R` leg) in `/staged`, `/active`, `/constraints`.
 - MXL Sender (ingest): constraints `mxl_domain_id.enum = [group domain id]`, `mxl_flow_id.enum = [flow id]`. `auto` resolves to those. `null` accepted. `/transportfile` returns 404.
-- MXL Receiver (egress): `mxl_domain_id` constraint = enum of all configured domain ids; `auto` resolves to the group's domain, or — if the staged `mxl_flow_id` is found in a different configured domain — to that domain (BCP-007-03 "Automatic resolution"). `mxl_flow_id` accepts UUID or `null`, MUST NOT accept `auto`. A staging/activation request with a transport file is rejected; omitted or `{data:null,type:null}` is accepted.
-- Immediate activation whose `auto` cannot be resolved ⇒ HTTP 500 (BCP-007-03). A `mxl_domain_id` that is not one of the configured domains ⇒ 400 at staging.
-- `master_enable=true` starts the MXL write (sender) / read (receiver); `false` stops it. Stopping a writer releases the FlowWriter (`mxlReleaseFlowWriter`), so the flow becomes inactive for readers.
+- MXL Receiver (egress): `mxl_domain_id` constraint = enum of all **accessible** domain ids — the configured domains plus the domains discovered under `mxl.scan_path` (§8.5), including mirror domains created by mxl-fabrics-agent. Domain identity is the `id` in `domain_def.json`, never the directory name. The enum is recomputed after every scan; a change bumps the connection resource version. `auto` resolves to the group's domain, or — if the staged `mxl_flow_id` is found in a different accessible domain — to that domain (BCP-007-03 "Automatic resolution"). Before resolving `auto`, and before rejecting a domain id, the gateway re-scans; negative results are never cached. `mxl_flow_id` accepts UUID or `null`, MUST NOT accept `auto`. A staging/activation request with a transport file is rejected; omitted or `{data:null,type:null}` is accepted.
+- Immediate activation whose `auto` cannot be resolved ⇒ HTTP 500 (BCP-007-03). A `mxl_domain_id` that is not an accessible domain after a fresh re-scan ⇒ 400 at staging (see changelog C3 for mxl-fabrics-agent `MIRROR_MODE=on-demand`). A domain that disappears after activation (for example a removed mirror domain) is handled by the retry loop of §5.8.
+- `master_enable=true` starts the MXL write (sender) / read (receiver); `false` stops it. Stopping a writer releases the FlowWriter (`mxlReleaseFlowWriter`), so the flow becomes inactive for readers. MXL Senders only ever write into their group's configured domain (constraint `mxl_domain_id.enum = [group domain id]`), never into a discovered or mirror domain (§8.3, §8.5).
 
 ### 7.5 IS-05 Behaviour — ST 2110 Side
 
@@ -393,31 +455,67 @@ AMWA nmos-testing (pinned commit) suites run in CI against a live gateway instan
 - A domain is a directory on **tmpfs** (or ramfs). Flows live in `${domain}/${flowId}.mxl-flow/` (`data`, `flow_def.json`, `access`, `grains/`, `channels` for audio).
 - `mxlCreateInstance(domain, options)` only opens an **existing** directory.
 - Optional MXL `options.json` in the domain root: `{"urn:x-mxl:option:history_duration/v1.0": <ns>}` (default 200 ms).
-- BCP-007-03 requires `domain_def.json` in every domain root: `{id (UUID), label, description, tags}` (schema `mxl_domain_definition.json`). The **id is the `mxl_domain_id`** used in IS-05.
-- Domains are mapped into containers by volume mounts; the path inside the container may differ from the host path. Identity comes only from `domain_def.json`.
+- BCP-007-03 requires `domain_def.json` in every domain root: `{id (UUID), label, description, tags}` (schema `mxl_domain_definition.json`). The **id is the `mxl_domain_id`** used in IS-05. The schema allows additional properties; readers MUST ignore unknown fields (for example the `x-mxl-fabrics-agent` marker below).
+- Domains are mapped into containers by volume mounts; the path inside the container may differ from the host path. Identity comes only from `domain_def.json`, never from the directory name.
+- All MXL domains of a host normally live as sibling directories in one host tmpfs, the **MXL root** (mxl-fabrics-agent `MXL_ROOT`). mxl-fabrics-agent creates **mirror domains** there as siblings of the local domains: `<MXL root>/mirror-<source-domain-id>/`. Their `domain_def.json` carries the **source** domain's `id` plus a marker object `"x-mxl-fabrics-agent": {"mirror": true, "source_host_id": "…", "owner_host_id": "…"}`; their `options.json` is copied from the source domain; their flows have the source's flow ids and `flow_def.json` verbatim and are written by the agent at the same grain/sample indices (mxl-fabrics-agent §7.2, §9).
+- Reader status codes used in §5.8 (`lib/include/mxl/mxl.h`): `MXL_ERR_FLOW_NOT_FOUND` (flow absent), `MXL_ERR_OUT_OF_RANGE_TOO_EARLY` (not written yet; also returned when a blocking read times out), `MXL_ERR_OUT_OF_RANGE_TOO_LATE` (older than the history), `MXL_ERR_FLOW_INVALID` (flow re-created by its writer).
 
 ### 8.2 Configuration
 
-`mxl.domains[]` — one or more entries `{name, path, id?, label?, description?, history_duration_ns?}`. Each group references a domain by `name`. Paths MUST be absolute and unique.
+`mxl.domains[]` — one or more entries `{name, path, id?, label?, description?, history_duration_ns?}`. Each group references a domain by `name`. Paths MUST be absolute and unique. A configured domain path MUST NOT be a mirror domain (basename starting with `mirror-`); configured domains SHOULD lie directly below `mxl.scan_path` (required for replication by mxl-fabrics-agent, §8.6).
+
+`mxl.scan_path` — absolute path of the MXL root inside the container (default `/mxl`; `null` disables discovery). Egress MXL Receivers resolve `mxl_domain_id` over the configured domains plus all domains discovered under this path (§8.5). The requested environment variable `MXL_DOMAIN_SCAN_PATH` is not provided because of §9.1 (changelog C2).
 
 ### 8.3 Startup Bootstrap (per domain, before NMOS starts)
 
 1. **Mount check.** Determine the mount containing `path` (or its nearest existing ancestor). It MUST be tmpfs/ramfs (`statfs` `f_type`, same test as `mxlIsTmpFs`) **and** MUST NOT be the container's root/overlay filesystem. If the check fails ⇒ log `mxl_domain_not_tmpfs` with the path and the detected filesystem type, and **exit with code 78 (EX_CONFIG)**. No fallback, no "warn and continue" (stricter than mxl-decklink, by requirement).
-2. **Directory.** Create `path` (and parents within the tmpfs mount) with mode `0775` if missing.
-3. **`domain_def.json`.**
-   - Exists and valid ⇒ **adopt** its `id`; never rewrite it. If the config also specifies a different `id` ⇒ warning `domain_id_mismatch`, the file wins, the UI shows it.
+2. **Mirror check.** If the basename of `path` starts with `mirror-`, or an existing `domain_def.json` contains an `x-mxl-fabrics-agent` object ⇒ log `mxl_domain_is_mirror` and exit 78. The gateway never writes into a mirror domain: neither files nor flows.
+3. **Directory.** Create `path` (and parents within the tmpfs mount) with mode `0775` if missing.
+4. **`domain_def.json`.**
+   - Exists and valid ⇒ **adopt** its `id`; never rewrite it. Unknown fields are ignored. If the config `id` is `null`, the adopted id is written back to the config file, so the same id is used when the file must be re-created after a tmpfs wipe. If the config also specifies a different `id` ⇒ warning `domain_id_mismatch`, the file wins, the UI shows it, the config is not changed (changelog C6).
    - Exists and invalid ⇒ exit 78 (do not overwrite someone else's file).
-   - Missing ⇒ write it atomically (temp file + `rename`) with `id` = config `id` or a new UUIDv4, `label`/`description` from config (default: domain `name`), `tags: {}`; write the generated id back to the config file.
-4. **`options.json`.** Written only if missing **and** `history_duration_ns` is configured. Never overwritten. If present with a different value ⇒ warning, the file wins.
-5. `mxlCreateInstance`, then `mxlGarbageCollectFlows` (removes stale flows from crashed writers; MXL uses advisory locks for detection).
-6. Expose per domain in `/api/status`: path, id, label, tmpfs ok, flow count, free/used bytes of the mount.
+   - Missing ⇒ write it atomically (temp file + `rename`) with `id` = config `id` or a new UUIDv4, `label`/`description` from config (default: domain `name`), `tags: {}`; write the generated id back to the config file. The id is therefore stable across restarts and host reboots — remote hosts mirror the domain by this id (§7.3, §8.6).
+5. **`options.json`.** Written only if missing **and** `history_duration_ns` is configured. Never overwritten. If present with a different value ⇒ warning, the file wins.
+6. `mxlCreateInstance`, then `mxlGarbageCollectFlows` (removes stale flows from crashed writers; MXL uses advisory locks for detection). Garbage collection runs on configured domains only, never on discovered or mirror domains (§8.5).
+7. Expose per domain in `/api/status`: path, id, label, tmpfs ok, flow count, free/used bytes of the mount.
 
 Domain deletion is not offered (as in mxl-decklink).
 
 ### 8.4 Flow Lifecycle
 
 - Ingest writer flows are created on MXL Sender activation (`master_enable=true`) with the essence's flow descriptor and released on deactivation or shutdown.
+- If `mxlCreateFlowWriter` reports `created=false` (the flow still exists, for example after a crash or while other processes hold it), MXL opens it without comparing definitions (`lib/include/mxl/flow.h`). The gateway compares the existing definition (`mxlGetFlowDef`) with the essence's descriptor; a mismatch is an error (`flow_def_mismatch`, essence state `error`) — an existing flow is never re-used silently with a different format. This matters for mirrored flows, because mxl-fabrics-agent copies `flow_def.json` verbatim (§8.6).
 - On SIGTERM: stop MTL sessions, release all FlowWriters/Readers, destroy MXL instances, then MTL (`mtl_uninit`), within 10 s.
+
+### 8.5 Domain Discovery (MXL Receivers)
+
+- **Scan set.** `mxl.scan_path` itself and each of its direct subdirectories (depth 1, the mxl-fabrics-agent §5.1 convention) that contains a `domain_def.json`, plus every configured domain (always accessible, also outside the scan path).
+- **Filesystem.** A candidate is used only if it passes the tmpfs/ramfs test of §8.3 step 1. A failing candidate is skipped with warning `mxl_domain_skipped` (no exit: discovered domains belong to other functions). The scan path itself may be on the container root filesystem, for example when only individual domains are mounted.
+- **Identity.** `domain_def.json` MUST be valid against the BCP-007-03 schema; unknown fields are ignored; an invalid file means the directory is skipped with a warning. The `id` is the domain's identity. The directory name is never used as identity — it is only used to recognise `mirror-*` for the write protection of §8.3.
+- **Classification.** `configured` (in `mxl.domains[]`); `mirror` (`x-mxl-fabrics-agent` marker present, or basename `mirror-*`); `discovered` (all others, for example domains of other media functions on the host).
+- **Duplicate ids.** If several directories carry the same id, a configured domain wins; otherwise the id is classified `conflict`, excluded from resolution and from the `mxl_domain_id` constraint enum, and reported (status, log `mxl_domain_conflict`, metric `mxlgw_mxl_discovered_domains{kind="conflict"}`).
+- **When.** At startup, every 2 s while running, and inline before resolving `auto`, before validating a staged `mxl_domain_id` (§7.4) and on every reader retry (§5.8). A scan reads only the scan path directory and the `domain_def.json` files, so it is cheap enough to run inline. Negative results are never cached: a failed lookup always triggers a fresh scan, and its "not found" outcome is not remembered.
+- **Access.** For each discovered domain used by at least one reader, the gateway opens one `mxlInstance` and destroys it when no reader uses the domain any more. It never creates directories, `domain_def.json`, `options.json` or flows in discovered domains, never garbage-collects them and never changes their permissions. Readers on mirror domains are plain MXL readers; no Fabrics API is involved.
+- **Reporting.** `/api/domains` and the MXL tab list every accessible domain with kind, path, id, label and, for mirror domains, `source_host_id` from the marker (§11). Changes are logged (`mxl_domain_discovered`, `mxl_domain_removed`).
+
+### 8.6 Host-to-Host Replication with mxl-fabrics-agent
+
+mxl-fabrics-agent runs as one container per host. It reads IS-04/IS-05 state from the registry and replicates the flows that enabled MXL Receivers on its host need from the host that holds the origin flow (mxl-fabrics-agent §1, §6, §8). The gateway never calls the agent and needs no configuration for it.
+
+- **Gateway as MXL Sender (ingest, host A).** Flows are written into a configured domain with a stable domain id (§8.3) and stable flow ids (§7.3). For the agent on host A to export the domain, it MUST be a direct subdirectory of the host's MXL root (the agent discovers only direct subdirectories, mxl-fabrics-agent §5.1) — hence the recommendation in §8.2. The agent on host B mirrors the flows into `mirror-<domain-id>` with the same flow ids and indices.
+- **Gateway as MXL Receiver (egress, host B).** A controller stages the remote Sender's `mxl_domain_id` and `mxl_flow_id`. The receiver finds the mirror domain by id (§8.5), waits while the mirror flow is missing or still silent (§5.8), and reads behind head by its read offset (§5.7). The agent's default `MIRROR_MODE=eager` creates mirror domains before activation; `MIRROR_MODE=on-demand` creates them only after activation and therefore depends on changelog C3.
+
+Requirements on media functions from mxl-fabrics-agent §11, and where this specification meets them:
+
+| mxl-fabrics-agent §11 requirement | Gateway section |
+|---|---|
+| 1. Receivers resolve `mxl_domain_id` by scanning the MXL root; mirror domains are siblings of local domains | §7.4, §8.2, §8.5 |
+| 2. Retry with backoff instead of failing when a flow is not (yet) present | §5.8 |
+| 3. Tolerate a flow that exists but has no new grains | §5.7, §5.8 |
+| 4. No `MXL_ENABLE_FABRICS_OFI` | §1.3, §2, §14.1 |
+| 5. Read with a small latency offset on destination hosts | §5.7, §9.5 |
+
+Further rules for this scenario: no writes into mirror domains (§8.3), new flow UUIDs propagated to NMOS (§7.3), all hosts TAI-disciplined (§5.1), non-colliding ports (§15.4), multi-host demo (§15.1, §15.2).
 
 ---
 
@@ -443,7 +541,8 @@ Domain deletion is not offered (as in mxl-decklink).
 | Add a group | applied live: resources created, registered, MTL/MXL objects created on activation |
 | Edit / remove a group (incl. its essences) | only that group is torn down and rebuilt; its NMOS resources are re-registered (versions bump, IDs unchanged except removed essences) |
 | Edit an essence's network defaults only | applied live via update_source/destination if the essence is active |
-| `nic.*`, `ptp.*`, `mxl.domains`, `node.*` | persisted, flagged `restart_required` (UI banner, `/api/status`) |
+| Edit an egress essence's read offset only (`read_offset_grains` / `read_offset_ns`) | applied live by the group's worker from the next grain (subject to the `output_delay_ns` rule of §9.5) |
+| `nic.*`, `ptp.*`, `mxl.domains`, `mxl.scan_path`, `node.*` | persisted, flagged `restart_required` (UI banner, `/api/status`) |
 
 ### 9.4 Import / Export
 
@@ -459,7 +558,7 @@ Domain deletion is not offered (as in mxl-decklink).
     "id": "c0f1…",                      // generated if absent
     "label": "GW-STUDIO1-A",
     "description": "ST 2110 <-> MXL gateway",
-    "http_port": 8080,
+    "http_port": 8080,                  // collides with mxl-decklink under host networking — changelog C1, §15.4
     "management_addresses": ["10.10.0.21"],   // empty = auto (all non-DPDK interfaces)
     "registry": { "mode": "dns-sd" },          // or { "mode": "static", "address": "10.10.0.5", "port": 8235 }
     "tls": { "enabled": false, "certificate": "/certs/tls.crt", "private_key": "/certs/tls.key" },
@@ -487,7 +586,8 @@ Domain deletion is not offered (as in mxl-decklink).
     "max_offset_ns": 1000000
   },
   "mxl": {
-    "domains": [
+    "scan_path": "/mxl",                // MXL root; egress receivers also resolve discovered/mirror domains here (§8.5); null = off
+    "domains": [                        // configured domains: the only ones the gateway writes to; never mirror-*
       { "name": "main", "path": "/mxl/main", "id": null, "label": "Studio 1", "history_duration_ns": 200000000 }
     ]
   },
@@ -507,14 +607,16 @@ Domain deletion is not offered (as in mxl-decklink).
     {
       "uid": "…", "label": "PGM OUT", "direction": "egress", "domain": "main", "redundancy": true,
       "output_delay_ns": 20000000,
-      "video": [ { …format…, "pacing": "narrow", "defaults": { "legs": [ { "multicast": "239.10.0.1", "port": 20000 }, { … } ] } } ],
-      "audio": [ … ], "anc": [ … ]
+      "video": [ { …format…, "pacing": "narrow",
+                   "read_offset_grains": 0,             // or "read_offset_ns"; per MXL Receiver, default 0 (§5.7)
+                   "defaults": { "legs": [ { "multicast": "239.10.0.1", "port": 20000 }, { … } ] } } ],
+      "audio": [ … ], "anc": [ … ]                       // audio/anc egress essences accept the same read offset keys
     }
   ]
 }
 ```
 
-Semantic validation (beyond JSON Schema) in `src/config/config.cpp`, each rule unit-tested: unique labels/uids/ports names; one port pair; redundant port required when any group has `redundancy`; PCI address format and existence (at runtime, not in import); IPs in the configured subnet; `block_us` multiple of packet time; interlace only with 25/1 or 30000/1001; channel count vs ptime limits; multicast addresses in 224.0.0.0/4; no two egress legs with identical destination; `output_delay_ns` ≥ one grain; domain references exist; lcores parse and are disjoint from `app_cpus`.
+Semantic validation (beyond JSON Schema) in `src/config/config.cpp`, each rule unit-tested: unique labels/uids/ports names; one port pair; redundant port required when any group has `redundancy`; PCI address format and existence (at runtime, not in import); IPs in the configured subnet; `block_us` multiple of packet time; interlace only with 25/1 or 30000/1001; channel count vs ptime limits; multicast addresses in 224.0.0.0/4; no two egress legs with identical destination; `output_delay_ns` ≥ one grain plus the largest read offset of the group's essences (§5.7); `read_offset_grains` and `read_offset_ns` are mutually exclusive, ≥ 0 and only allowed on egress essences; domain references exist; configured domain paths are not mirror domains (basename `mirror-*`); `mxl.scan_path` is absolute or `null`; lcores parse and are disjoint from `app_cpus`.
 
 ---
 
@@ -527,10 +629,12 @@ Semantic validation (beyond JSON Schema) in `src/config/config.cpp`, each rule u
 | `/api/…` | gateway | JSON REST API used by the UI (§11.3) |
 | `/metrics` | gateway | Prometheus text exposition format 0.0.4 |
 | `/livez` | gateway | 200 when the process and HTTP server are alive |
-| `/readyz` | gateway | 200 only when: config valid, MTL up, PTP locked (unless `require_lock=false`), clock offset ≤ `max_offset_ns`, all domains ok, NMOS node registered (or registry intentionally absent); else 503 with JSON reasons |
+| `/readyz` | gateway | 200 only when: config valid, MTL up, PTP locked (unless `require_lock=false`), clock offset ≤ `max_offset_ns`, all configured domains ok, NMOS node registered (or registry intentionally absent); else 503 with JSON reasons. Discovered/mirror domains and essences in `waiting_for_flow` or `no_signal` (§5.8) do not affect readiness |
 | `/statusz` | gateway | human-readable plain-text status (mxl-decklink parity) |
 
 No authentication (§1.3). All mutating `/api` routes require `Content-Type: application/json` and reject cross-origin requests (check `Origin` against `Host`).
+
+`node.http_port` is the only TCP port the gateway opens on the host. nmos-cpp's IS-07 Events WebSocket (`http_port + 1` by nmos-cpp default), the Settings and Logging APIs and the other optional APIs are disabled (§7.1), so that the gateway can share host networking with mxl-decklink and mxl-fabrics-agent (port table §15.4).
 
 ---
 
@@ -542,12 +646,12 @@ Vue 3 + Vite, built to a single HTML file embedded into the binary at build time
 
 ### 11.2 Tabs
 
-- **Dashboard** — node label/id, version (gateway, MTL, DPDK, MXL, nmos-cpp), readiness with reasons, PTP lock + GM identity, MTL−host-TAI offset, NIC link state, per-group tiles with per-essence state, bitrate, frame/packet counters, 2022-7 leg health (green/amber/red from `pkts_recv[P/R]` vs `pkts_total`).
+- **Dashboard** — node label/id, version (gateway, MTL, DPDK, MXL, nmos-cpp), readiness with reasons, PTP lock + GM identity, MTL−host-TAI offset, NIC link state, per-group tiles with per-essence state (including `waiting_for_flow` and `no_signal`, shown as neutral/amber, not red), bitrate, frame/packet counters, 2022-7 leg health (green/amber/red from `pkts_recv[P/R]` vs `pkts_total`); egress tiles show the resolved MXL domain per essence and mark mirror domains.
 - **Groups** — list of groups; *Create group* dialog: label, direction (ingest/egress), MXL domain, redundancy, and **counts per type** (Video ×n, Audio ×m, ANC ×k as steppers). Creating generates the essences with defaults (format from a node-wide default profile, e.g. 1080p50 / 8 ch L24 1 ms); each essence is then editable (format, payload type, default legs, labels). Editing/removing a group shows which NMOS resources will be re-registered or removed and whether active connections will be interrupted. Duplicate group (new uids).
 - **NMOS** — node/device ids, registry discovered/used, registration state and last heartbeat, table of all Senders/Receivers (id, label, transport, group hint, master_enable, active transport params, active SDP for 2110 senders), links to the raw `/x-nmos` resources.
 - **Network** — port pair configuration form (PCI, IP, netmask, gateway, port names), detected card model, bind mode (PF/VF), MAC, link speed/state, DDP package version, per-port RX/TX counters and errors. Changes are `restart_required`.
 - **PTP** — mode, domain, lock state, grandmaster identity, GM priority/clock class/accuracy, steps removed, parent port identity, UTC offset, last/min/max offset and path delay (sparklines, last 5 min held in memory), GM change counter, PHC2SYS state, MTL−host-TAI offset with thresholds.
-- **MXL** — configured domains (path, id from `domain_def.json`, label, tmpfs check, usage), flow browser per domain (id, label, media type, active, head index, last write) — mxl-decklink §7.6 behaviour, read-only.
+- **MXL** — configured domains (path, id from `domain_def.json`, label, tmpfs check, usage), discovered and mirror domains under `mxl.scan_path` (kind, path, id, label, `source_host_id` of mirrors, conflicts), flow browser per domain (id, label, media type, active, head index, last write) — mxl-decklink §7.6 behaviour, read-only. Per egress MXL Receiver: resolved domain (id, path, kind), state, flow-not-found retries, read lag and read offset.
 - **Configuration** — export/download, import/upload (with validation report before writing), raw JSON view (read-only), "changed on disk" diff and resolution, restart button, preflight report (§14.3).
 
 All forms are validated client-side for UX and server-side authoritatively (same rule set as §9.5); errors are shown per field (JSON pointer mapping).
@@ -564,7 +668,7 @@ All forms are validated client-side for UX and server-side authoritatively (same
 | `/api/config/export` | GET | download file |
 | `/api/config/import` | POST | upload file (`?keep_ids=true`), never live |
 | `/api/schema` | GET | JSON Schema |
-| `/api/nic` `/api/ptp` `/api/domains` `/api/flows?domain=` `/api/nmos` | GET | tab data |
+| `/api/nic` `/api/ptp` `/api/domains` `/api/flows?domain=` `/api/nmos` | GET | tab data. `/api/domains` lists configured, discovered and mirror domains with `kind`; `/api/flows?domain=` takes a domain id (`domain_def.json`), not a path |
 | `/api/preflight` | GET | preflight results |
 | `/api/restart` | POST | graceful exit for supervisor restart |
 
@@ -589,14 +693,20 @@ Implement a minimal registry like mxl-decklink `src/ops/metrics.*` (no external 
 | `mxlgw_clock_mtl_minus_host_tai_ns` | gauge | — |
 | `mxlgw_nic_link_up`, `mxlgw_nic_link_speed_mbps` | gauge | `port` |
 | `mxlgw_nic_rx_packets_total`, `_tx_packets_total`, `_rx_bytes_total`, `_tx_bytes_total`, `_rx_errors_total`, `_rx_missed_total` | counter | `port` (from MTL port stats — **VERIFY** `mtl_get_port_stats`) |
-| `mxlgw_essence_state` | gauge (1 for current) | essence labels + `state` (`idle|waiting_for_flow|running|degraded|error`) |
+| `mxlgw_essence_state` | gauge (1 for current) | essence labels + `state` (`idle\|waiting_for_flow\|no_signal\|running\|degraded\|error`) |
 | `mxlgw_rx_frames_total` | counter | essence + `result` (`complete|incomplete|dropped`) |
 | `mxlgw_rx_leg_packets_total` | counter | essence + `leg` (`p|r`) |
 | `mxlgw_rx_packets_total` | counter | essence (after 2022-7 merge) |
 | `mxlgw_rx_leg_seq_lost_total` | counter | essence + `leg` |
 | `mxlgw_ingest_origin_age_ns` | gauge | essence |
 | `mxlgw_mxl_grains_written_total`, `mxlgw_mxl_samples_written_total`, `mxlgw_mxl_write_errors_total` | counter | essence |
-| `mxlgw_mxl_grains_read_total`, `mxlgw_mxl_read_timeouts_total` | counter | essence |
+| `mxlgw_mxl_grains_read_total`, `mxlgw_mxl_read_timeouts_total` | counter | essence (`read_timeouts` = grains/blocks with no data by their deadline, §5.7) |
+| `mxlgw_mxl_late_reads_total` | counter | essence (data that became available only after its deadline and was skipped) |
+| `mxlgw_mxl_grains_invalid_total` | counter | essence (grains read with `MXL_GRAIN_FLAG_INVALID`, i.e. the writer marked them as having no valid data) |
+| `mxlgw_mxl_flow_not_found_total` | counter | essence (reader attempts that found no flow or no domain, §5.8) |
+| `mxlgw_mxl_read_lag_grains` | gauge | essence (writer head index − read index; for audio converted to grains of the group's video rate, or to audio blocks in audio-only groups) |
+| `mxlgw_mxl_reader_info` | gauge=1 | essence + `domain_id, domain_path, domain_kind` (`configured\|discovered\|mirror`), `flow_id` — resolved domain of every enabled MXL Receiver; the series is replaced when the resolution changes |
+| `mxlgw_mxl_discovered_domains` | gauge | `kind` (`discovered\|mirror\|conflict`) (§8.5) |
 | `mxlgw_tx_frames_total`, `mxlgw_tx_late_frames_total` | counter | essence |
 | `mxlgw_egress_lead_ns` | gauge | essence (time from grain available to TX deadline; negative = late) |
 | `mxlgw_nmos_registered` | gauge | — |
@@ -610,14 +720,14 @@ Metric names and labels are a public interface: document them in `docs/metrics.m
 
 - Generated by `monitoring/tools/gen_dashboard.py` (deterministic output, no network access) into `monitoring/grafana/mxl-st2110-gateway.json`; CI fails if the committed file differs from a fresh generation.
 - Grafana ≥ 11 JSON model; template variables: `datasource` (Prometheus), `instance`, `group`, `essence`.
-- Rows: *Overview* (ready, restart required, PTP locked, GM identity as table, clock offset), *PTP* (offset, path delay, GM changes, sync rate), *NIC* (link, throughput, errors/missed per port), *Ingest* (frames by result, leg packet loss P vs R, origin age), *Egress* (late frames, lead time, read timeouts), *NMOS* (registered, activations), *MXL domains* (usage, flow counts).
+- Rows: *Overview* (ready, restart required, PTP locked, GM identity as table, clock offset), *PTP* (offset, path delay, GM changes, sync rate), *NIC* (link, throughput, errors/missed per port), *Ingest* (frames by result, leg packet loss P vs R, origin age), *Egress* (late frames, lead time, read timeouts; per MXL Receiver: read lag in grains, flow-not-found retry rate, no-data / invalid / late reads, essence state incl. `waiting_for_flow` and `no_signal`, and a table of resolved domains from `mxlgw_mxl_reader_info` with mirror domains highlighted), *NMOS* (registered, activations), *MXL domains* (usage, flow counts, discovered/mirror/conflict domain counts).
 - Also ship `monitoring/prometheus/scrape-example.yaml` and a Kubernetes `ServiceMonitor` example (`deploy/k8s/servicemonitor.yaml`, optional).
 
 ---
 
 ## 13. Logging
 
-Structured JSON lines to stdout (one object per line: `ts`, `level`, `event`, fields), human-readable text with `MXLGW_LOG_FORMAT=text`. Stable `event` identifiers (e.g. `mxl_domain_not_tmpfs`, `ptp_gm_changed`, `nmos_activation`, `essence_state`). MTL and DPDK log output is redirected into the same stream with `component=mtl` (MTL log callback / `mtl_set_log_level`, **VERIFY** API). Last 500 lines kept in memory for the UI.
+Structured JSON lines to stdout (one object per line: `ts`, `level`, `event`, fields), human-readable text with `MXLGW_LOG_FORMAT=text`. Stable `event` identifiers (e.g. `mxl_domain_not_tmpfs`, `ptp_gm_changed`, `nmos_activation`, `essence_state`; for §8.5/§5.8: `mxl_domain_is_mirror`, `mxl_domain_discovered`, `mxl_domain_removed`, `mxl_domain_skipped`, `mxl_domain_conflict`, `mxl_flow_not_found` (rate-limited: first occurrence, then at most every 30 s per essence), `flow_def_mismatch`). MTL and DPDK log output is redirected into the same stream with `component=mtl` (MTL log callback / `mtl_set_log_level`, **VERIFY** API). Last 500 lines kept in memory for the UI.
 
 ---
 
@@ -626,7 +736,7 @@ Structured JSON lines to stdout (one object per line: `ts`, `level`, `event`, fi
 ### 14.1 Dockerfile (multi-stage, `docker/Dockerfile`)
 
 1. `webui` — `node:22-bookworm`, `npm ci && npm run build`.
-2. `deps` — `ubuntu:24.04`: toolchain, vcpkg; DPDK 26.07 via MTL `script/build_dpdk.sh` (MTL patches); MTL v26.09 + `patches/mtl/*.patch` (`git apply --check` first); MXL v1.1.0 (vcpkg, `-DMXL_ENABLE_FABRICS_OFI=OFF`, `-DBUILD_TOOLS=ON` for `mxl-info` / `mxl-data-probe`); nmos-cpp at the pinned commit. This stage changes only when pins change → maximal cache hits.
+2. `deps` — `ubuntu:24.04`: toolchain, vcpkg; DPDK 26.07 via MTL `script/build_dpdk.sh` (MTL patches); MTL v26.09 + `patches/mtl/*.patch` (`git apply --check` first); MXL v1.1.0 (vcpkg, `-DMXL_ENABLE_FABRICS_OFI=OFF`, `-DBUILD_TOOLS=ON` for `mxl-info` / `mxl-data-probe`; same `MXL_REF` as mxl-decklink; no libfabric or rdma-core in the image — the gateway does not use the Fabrics API even when mxl-fabrics-agent replicates its flows); nmos-cpp at the pinned commit. This stage changes only when pins change → maximal cache hits.
 3. `build` — compile the gateway, run unit tests (`ctest --output-on-failure`); failing tests fail the image build.
 4. `runtime` — `ubuntu:24.04` with runtime libraries only, the binary, MTL/DPDK/MXL shared libs, `mxl-info`, `mxl-data-probe`, the JSON schema, example configs, and the **E810 DDP package** (from the pinned `ice` driver tarball, `versions.env` `ICE_VER`/`ICE_DMID`) installed where the DPDK ice PMD looks for it (`/lib/firmware/updates/intel/ice/ddp/ice.pkg` and `/lib/firmware/intel/ice/ddp/ice.pkg` — **VERIFY** the search path list in DPDK 26.07 `drivers/net/intel/ice/ice_ethdev.c`). The PMD runs in user space inside the container, so the package must be in the **container** filesystem; a host `/lib/firmware` mount MAY override it.
 
@@ -643,14 +753,15 @@ Build args (one place, mirrored in CI): `MTL_REF`, `DPDK_VER`, `MXL_REF`, `NMOS_
 | `CAP_SYS_TIME` | **only** for `ptp.mode = builtin_phc2sys` |
 | unlimited `memlock` ulimit | belt and braces for Docker |
 | `/config` volume (read-write) | config + `state/` |
-| MXL domain volume(s), tmpfs-backed | §8 |
+| host MXL root (tmpfs) mounted read-write at `mxl.scan_path` (default `/mxl`), containing the configured domains | §8; mounting the whole root lets egress receivers discover sibling and mirror domains (§8.5). Mounting only individual domains remains possible, but then nothing is discovered |
 | management network | NMOS + UI (host network recommended for DNS-SD) |
+| — (not required) | no RDMA devices, libfabric or Fabrics capabilities: replication is done by mxl-fabrics-agent in its own container (§8.6) |
 
 **No `privileged: true`.** The process runs as root inside the container by default (VFIO group nodes are root-owned on most hosts); a non-root mode is documented in the README (udev rule for `/dev/vfio/*`, group-owned domain directories). Files created in domains use mode `0664`/`0775` so other media functions in the same group can read them.
 
 ### 14.3 Preflight (`mxl-st2110-gateway --preflight`, also run at startup and served at `/api/preflight`)
 
-Checks with actionable messages (each with a README anchor): hugepages mounted and free pages sufficient for the configured sessions (estimate per session); `/dev/vfio/vfio` present; each configured PCI address exists in `/sys/bus/pci/devices`, is bound to `vfio-pci`, has an IOMMU group whose node exists in `/dev/vfio`; device is an E810/E830 (vendor 0x8086, warn otherwise); capabilities present (`CAP_IPC_LOCK`, `CAP_SYS_NICE`, `CAP_SYS_TIME` if needed); MXL domains tmpfs (§8.3); kernel TAI offset (`adjtimex`) consistent with the PTP mode; lcores exist and are not shared with `app_cpus`. Startup aborts with exit code 78 on any hard failure; soft failures are warnings in the UI.
+Checks with actionable messages (each with a README anchor): hugepages mounted and free pages sufficient for the configured sessions (estimate per session); `/dev/vfio/vfio` present; each configured PCI address exists in `/sys/bus/pci/devices`, is bound to `vfio-pci`, has an IOMMU group whose node exists in `/dev/vfio`; device is an E810/E830 (vendor 0x8086, warn otherwise); capabilities present (`CAP_IPC_LOCK`, `CAP_SYS_NICE`, `CAP_SYS_TIME` if needed); MXL domains tmpfs and not mirror domains (§8.3); `mxl.scan_path` exists and is readable, with a listing of discovered/mirror domains and conflicts (informational, §8.5); kernel TAI offset (`adjtimex`) consistent with the PTP mode — a zero offset outside `builtin_phc2sys` is a warning that names the multi-host requirement of §5.1; `node.http_port` free and not one of the sibling defaults of §15.4 (warning); lcores exist and are not shared with `app_cpus`. Startup aborts with exit code 78 on any hard failure; soft failures are warnings in the UI.
 
 ### 14.4 Signals and Exit Codes
 
@@ -679,11 +790,12 @@ services:
     volumes:
       - ./config:/config                       # gateway.json + state/
       - /dev/hugepages:/dev/hugepages
-      # MXL domain shared with other media functions on this host:
-      # /run/mxl is a host tmpfs (see README "Host preparation")
+      # Host MXL root, shared with other media functions and mxl-fabrics-agent on this host:
+      # /run/mxl is a host tmpfs (see README "Host preparation"). The gateway writes only to its
+      # configured domains (e.g. /mxl/main) and discovers sibling and mirror-<id> domains (§8.5).
       - type: bind
-        source: /run/mxl/main
-        target: /mxl/main
+        source: /run/mxl
+        target: /mxl
     environment:
       MXLGW_CONFIG: /config/gateway.json
     healthcheck:
@@ -693,7 +805,14 @@ services:
       start_period: 60s
 ```
 
-README explains: why host networking, how to create the host tmpfs (`/etc/fstab`: `tmpfs /run/mxl tmpfs size=8g,mode=1777 0 0`), an alternative compose `tmpfs:` volume when the domain is only shared inside one compose project (other services mount the same named tmpfs volume), and how other MXL media functions mount the same domain (read-only for readers is allowed by MXL).
+README explains: why host networking, how to create the host tmpfs (`/etc/fstab`: `tmpfs /run/mxl tmpfs size=8g,mode=1777 0 0`), an alternative compose `tmpfs:` volume when the domain is only shared inside one compose project (other services mount the same named tmpfs volume), how other MXL media functions mount the same domain (read-only for readers is allowed by MXL), that all containers of a host (gateway, mxl-decklink, mxl-fabrics-agent) MUST mount the **same** host MXL root (changelog C7), and the port table of §15.4.
+
+**Optional multi-host scenario with mxl-fabrics-agent** (`docker/docker-compose.fabrics.yaml`, one file per real host, README walkthrough):
+
+- *Host A:* the gateway with an **ingest** group (ST 2110 → MXL Sender, config `config/examples/gateway.fabrics-host-a.json`, configured domain `/mxl/main` with a fixed `id`), plus mxl-fabrics-agent with `MXL_ROOT` = the same host root.
+- *Host B:* mxl-fabrics-agent plus an MXL Receiver — either the gateway with an **egress** group (`gateway.fabrics-host-b.json`, MXL → ST 2110) or mxl-decklink with an output channel.
+- Shared: one NMOS registry (both hosts register; the agents discover each other via their NMOS Nodes or a static `PEERS` map), TAI-disciplined clocks on both hosts (§5.1), non-colliding ports (§15.4).
+- Demo steps: activate the host-A gateway's ingest receivers and MXL Senders; then, with `curl` or a controller, PATCH the host-B MXL Receiver with host A's `mxl_domain_id` and `mxl_flow_id`. The host-B agent creates (eager mode: has already created) `mirror-<domain-id>` and replicates; the host-B receiver resolves the mirror domain by id (§8.5), waits in `waiting_for_flow` / `no_signal` until grains arrive (§5.8) and starts without further action. Show `mxlgw_mxl_reader_info{domain_kind="mirror"}` and `mxlgw_mxl_read_lag_grains`, and recommend a read offset of a few grains on host B (§5.7).
 
 ### 15.2 Kubernetes (`deploy/k8s/`, first-class, also in README)
 
@@ -702,15 +821,34 @@ README explains: why host networking, how to create the host tmpfs (`/etc/fstab`
 - **Resources:** Guaranteed QoS — requests = limits, integer CPUs (static CPU manager policy recommended for lcore pinning), `hugepages-1Gi` (e.g. `4Gi`), `memory`, the two device resources.
 - **Security:** `capabilities.add: [IPC_LOCK, SYS_NICE]` (+ `SYS_TIME` only for `builtin_phc2sys`), `privileged: false`, `allowPrivilegeEscalation: false`. `IPC_LOCK` covers memlock (no runtime ulimit change needed — **VERIFY** on the target containerd).
 - **Volumes:** hugepages `emptyDir: {medium: HugePages-1Gi}` at `/dev/hugepages`; config on a **PersistentVolumeClaim** at `/config` (the gateway writes its config — a ConfigMap is read-only, so a ConfigMap MAY only seed the file via an `initContainer` that copies it if absent); MXL domain:
-  - **default:** `hostPath` to a node tmpfs (`/run/mxl/main`, `type: DirectoryOrCreate`) so media functions in **other pods on the node** can use the domain;
-  - **alternative:** `emptyDir: {medium: Memory, sizeLimit: …}` when all MXL consumers are containers of the **same pod** (emptyDir is not shared across pods).
+  - **default:** `hostPath` to the node's MXL root tmpfs (`/run/mxl` mounted at `/mxl`, `type: Directory`; the configured domain `/mxl/main` is created by the bootstrap of §8.3) so media functions and the mxl-fabrics-agent DaemonSet in **other pods on the node** share the domains and egress receivers discover mirror domains (§8.5);
+  - **alternative:** `emptyDir: {medium: Memory, sizeLimit: …}` when all MXL consumers are containers of the **same pod** (emptyDir is not shared across pods, so this alternative cannot be combined with mxl-fabrics-agent).
 - **Probes:** `startupProbe` `/livez` (failureThreshold covering ≥ 120 s DPDK init), `livenessProbe` `/livez`, `readinessProbe` `/readyz`.
-- **PTP:** the media port runs MTL built-in PTP inside the pod; the node's `CLOCK_TAI` must be disciplined by the cluster (e.g. linuxptp DaemonSet / PTP operator) for `ptp.mode=builtin`.
-- Files: `namespace.yaml`, `sriov-dp-configmap.yaml`, `pvc.yaml`, `configmap-seed.yaml`, `deployment.yaml`, `service.yaml`, `servicemonitor.yaml` (optional), `kustomization.yaml`, `README.md`. All MUST pass `kubeconform` in CI.
+- **PTP:** the media port runs MTL built-in PTP inside the pod; the node's `CLOCK_TAI` must be disciplined by the cluster (e.g. linuxptp DaemonSet / PTP operator) for `ptp.mode=builtin`. With mxl-fabrics-agent, every node that writes, replicates or reads flows MUST be TAI-disciplined (§5.1).
+- **Optional multi-host scenario with mxl-fabrics-agent** (`deploy/k8s/fabrics/`, kustomize overlay + README): the agent runs as a DaemonSet from its own repository's manifests (hostNetwork, hostPath of the same MXL root); the gateway with an ingest group is pinned to node A; an MXL Receiver — the gateway with an egress group (its own Deployment, pinned to node B, with its own NIC resources) or mxl-decklink — runs on node B. Same demo steps and checks as §15.1. The overlay MUST pass `kubeconform`.
+- Files: `namespace.yaml`, `sriov-dp-configmap.yaml`, `pvc.yaml`, `configmap-seed.yaml`, `deployment.yaml`, `service.yaml`, `servicemonitor.yaml` (optional), `kustomization.yaml`, `README.md`, `fabrics/` (optional overlay). All MUST pass `kubeconform` in CI.
 
 ### 15.3 Host Preparation (README section, both deployment styles)
 
-BIOS: VT-d on, SR-IOV on (if VFs), C-states limited; kernel cmdline `intel_iommu=on iommu=pt default_hugepagesz=1G hugepagesz=1G hugepages=<n>` (or 2M pages); bind media PFs to `vfio-pci` persistently; E810 NVM/firmware as recommended by MTL; for VF mode the patched host `ice` driver (MTL `doc/e800_series_drivers.md`); recommended `isolcpus`/`nohz_full`/`rcu_nocbs` for MTL lcores and irqbalance exclusion; host time sync for `CLOCK_TAI` (§5.2) with correct TAI offset (`ptp4l -f … ` + `phc2sys -a -r` or chrony with `leapsectz right/UTC`); host tmpfs for MXL domains. Works on Ubuntu 24.04 and Debian 13 hosts (container userland is independent of the host distro; host kernel needs VFIO).
+BIOS: VT-d on, SR-IOV on (if VFs), C-states limited; kernel cmdline `intel_iommu=on iommu=pt default_hugepagesz=1G hugepagesz=1G hugepages=<n>` (or 2M pages); bind media PFs to `vfio-pci` persistently; E810 NVM/firmware as recommended by MTL; for VF mode the patched host `ice` driver (MTL `doc/e800_series_drivers.md`); recommended `isolcpus`/`nohz_full`/`rcu_nocbs` for MTL lcores and irqbalance exclusion; host time sync for `CLOCK_TAI` (§5.2) with correct TAI offset (`ptp4l -f … ` + `phc2sys -a -r` or chrony with `leapsectz right/UTC`) — on **every** host that writes, replicates or reads MXL flows, including hosts that only run receivers, because grain indices are TAI-based and replicated 1:1 by mxl-fabrics-agent (§5.1); one host tmpfs as MXL root for all MXL domains of the host, mounted by every MXL container of that host at its configured root path (gateway: `mxl.scan_path`, mxl-fabrics-agent: `MXL_ROOT`). Works on Ubuntu 24.04 and Debian 13 hosts (container userland is independent of the host distro; host kernel needs VFIO).
+
+### 15.4 Port Usage and Co-location (README port table)
+
+The README MUST contain this table. Under host networking all containers of a host share one port space; the defaults of the gateway MUST NOT collide with the sibling projects.
+
+| Container | Default port(s) | Protocol | Purpose |
+|---|---|---|---|
+| mxl-st2110-gateway | `8080` (`node.http_port`, override `MXLGW_HTTP_PORT`) | TCP (HTTP/HTTPS) | IS-04 Node API, IS-05 Connection API, admin UI, `/api`, `/metrics`, health — the only host port the gateway opens (§10) |
+| mxl-st2110-gateway | none | — | IS-07 Events WebSocket (`http_port + 1`), nmos-cpp Settings/Logging APIs and other optional APIs are disabled (§7.1) |
+| mxl-st2110-gateway | none on the host stack | — | ST 2110 media and PTP run on DPDK-owned ports; only the test-only kernel backend (§17.2) uses UDP ports of the configured legs on its test interfaces |
+| mxl-st2110-gateway | `5353/udp` via the host's Avahi | mDNS | DNS-SD (registry discovery), shared host daemon |
+| mxl-decklink | `8080` | TCP | web UI, REST, health, metrics |
+| mxl-decklink | `3212`, `3213` | TCP | NMOS Node/Connection API, IS-07 WebSocket |
+| mxl-fabrics-agent | `8095` | TCP | UI, REST/control API, health, metrics |
+| mxl-fabrics-agent | `3232`, `3233` | TCP | NMOS Node API, WebSocket |
+| mxl-fabrics-agent | `23500`–`23599` | TCP / RDMA CM | fabric data ports (target pool) |
+
+**Collision:** the gateway default `8080` collides with mxl-decklink. Until changelog C1 is decided, deployments that co-locate both MUST set a different `node.http_port` (proposed default `8090`, free in this table); the preflight warns (§14.3). Prometheus scrape examples and health checks use the configured port.
 
 ---
 
@@ -721,8 +859,8 @@ BIOS: VT-d on, SR-IOV on (if VFs), C-states limited; kernel cmdline `intel_iommu
 - Build the `build` stage (compiles + unit tests) with GHA cache.
 - Lint: compiler warnings as errors; `clang-format --dry-run --Werror`.
 - Check `patches/mtl/*.patch` applies to `MTL_REF`.
-- Validate `config/examples/*.json` against the schema; regenerate the Grafana dashboard and diff; `kubeconform` on `deploy/k8s`; `docker compose config` on the compose file.
-- Integration job (§17.3): kernel-socket loopback media test and AMWA nmos-testing suites.
+- Validate `config/examples/*.json` (including the `fabrics-host-*` examples) against the schema; regenerate the Grafana dashboard and diff; `kubeconform` on `deploy/k8s` (including the `fabrics/` overlay); `docker compose config` on both compose files.
+- Integration job (§17.3): kernel-socket loopback media test, late-flow receiver test and AMWA nmos-testing suites.
 
 ### 16.2 `container.yaml` (build and push to `ghcr.io/${{ github.repository }}`)
 
@@ -748,7 +886,7 @@ Same structure as mxl-decklink `.github/workflows/container.yaml`:
 
 ### 17.1 Unit Tests (doctest, no hardware, run in the image build)
 
-Config schema + semantic rules; ID derivation (§7.3); `rtpclock` (§5.4); `audioconv` (§6.2); `anc8331` (§6.3); `sdp_map` (SDP fixtures for 1080p50, 1080i50, 2160p50, 8 ch L24 1 ms, 16 ch L24 125 µs, ANC, with and without DUP groups, malformed SDPs); BCP-007-03 constraint/auto resolution helpers; domain bootstrap against a temporary tmpfs (skip with message if not mountable) and a non-tmpfs dir (must fail); config store atomic write/backup/ETag.
+Config schema + semantic rules; ID derivation (§7.3); `rtpclock` (§5.4); `audioconv` (§6.2); `anc8331` (§6.3); `sdp_map` (SDP fixtures for 1080p50, 1080i50, 2160p50, 8 ch L24 1 ms, 16 ch L24 125 µs, ANC, with and without DUP groups, malformed SDPs); BCP-007-03 constraint/auto resolution helpers (including resolution into discovered and mirror domains, and re-scan before rejecting); domain bootstrap against a temporary tmpfs (skip with message if not mountable) and a non-tmpfs dir (must fail), a `mirror-*` path and a domain with the `x-mxl-fabrics-agent` marker (must fail), id write-back; domain discovery (§8.5): identity from `domain_def.json` and never from the directory name, unknown fields ignored, mirror classification, duplicate-id conflict, no negative caching (a domain created after a failed lookup is found by the next lookup); reader retry schedule (§5.8: backoff 500 ms → 5 s, continues while `master_enable`, stops on disable); read-offset validation against `output_delay_ns` (§9.5); new-flow-UUID NMOS update sequence (§7.3); config store atomic write/backup/ETag.
 
 ### 17.2 Hardware Abstraction
 
@@ -759,6 +897,7 @@ All MTL calls go through thin interfaces (`src/mtl/*.hpp`) so that unit tests an
 - Runner prep: `sudo sysctl vm.nr_hugepages=1024`, create a veth pair with multicast routing, tmpfs for the domain.
 - `tools/mxl-pattern-writer` (part of this repo): writes a v210 colour-bar pattern with a frame counter, a 1 kHz tone per channel, and SMPTE 12M timecode ANC into an MXL domain.
 - `tests/integration/loopback.sh`: gateway instance with an **egress** group (pattern flows → 2110 on veth A) and an **ingest** group (2110 on veth B → new MXL flows); verify with `tools/mxl-verify` (frame counter continuity, tone frequency/level per channel, timecode continuity, audio/video alignment within ±1 audio block) and `mxl-info` / `mxl-data-probe`.
+- `tests/integration/late-flow.sh` (receiver activated before its flow exists): start the gateway with an egress group and no pattern writer running; create a simulated mirror domain `mirror-<id>` (with `domain_def.json` incl. the `x-mxl-fabrics-agent` marker) under the scan path; IS-05 PATCH the MXL Receivers with that `mxl_domain_id`, a not-yet-existing `mxl_flow_id` and `master_enable=true` — the activation succeeds, the essences report `waiting_for_flow` and `mxlgw_mxl_flow_not_found_total` increases; after ≥ 10 s start `tools/mxl-pattern-writer` for that flow id in the mirror domain — the receivers start without any further request (state `running`, `mxlgw_mxl_reader_info{domain_kind="mirror"}`, ST 2110 output verified by the ingest side); stop the writer → `no_signal`, not `error`, `/readyz` unaffected; restart the writer (flow re-created) → reading resumes automatically; finally verify that no file was written into the mirror domain by the gateway.
 - `tests/integration/nmos-testing.sh`: start a Sony nmos-cpp registry container and the AMWA nmos-testing tool (pinned commit), run IS-04-01, IS-05-01, IS-05-02, BCP-007-03-01 non-interactively against the gateway, fail on any failure, publish the JSON results as an artifact.
 
 ### 17.4 Hardware Acceptance (manual, documented in `docs/acceptance.md`)
@@ -770,10 +909,10 @@ On an E810 2×25G and a 2×100G host with a real PTP grandmaster and the operato
 ## 18. Non-Functional Requirements
 
 - **Capacity targets** (measure and document in `docs/performance.md`; per direction, concurrently, zero packet loss and zero late frames over 24 h): E810 2×25G — 8× 1080p50 in + 8× 1080p50 out, each with 16 ch audio and ANC; E810 2×100G — 4× 2160p50 in + 4× 2160p50 out with audio/ANC. Report CPU cores used for conversion.
-- **Robustness:** loss of one 2022-7 leg causes no frame loss; loss of PTP is reported within 2 s; a crashed reader in another container never affects the gateway; malformed RTP/SDP never crashes the process (fuzz `sdp_map` and `anc8331` parsers with libFuzzer in CI for 60 s).
+- **Robustness:** loss of one 2022-7 leg causes no frame loss; loss of PTP is reported within 2 s; a crashed reader in another container never affects the gateway; malformed RTP/SDP never crashes the process (fuzz `sdp_map` and `anc8331` parsers with libFuzzer in CI for 60 s); flows that appear late, go silent, disappear or are re-created — including mirror domains and mirror flows managed by mxl-fabrics-agent — never require operator or controller action and never fail a receiver permanently (§5.8); a malformed or foreign `domain_def.json` in a discovered domain never stops the gateway (§8.5).
 - **Startup:** ready ≤ 60 s after container start on a prepared host (excluding PTP lock time).
 - **Security:** no secrets in config; TLS optional; container runs without `privileged`; dependencies pinned; SBOM published.
-- **Documentation:** README sections for overview, quick start (Compose), Kubernetes, host preparation, configuration reference (generated from the schema by `tools/gen_config_docs.py` into `docs/configuration.md`), admin UI, metrics, PTP modes and their side effects, limitations (one NIC, NIC is not a redundant element, fixed formats), troubleshooting (every preflight message), conformance results, license.
+- **Documentation:** README sections for overview, quick start (Compose), Kubernetes, host preparation, configuration reference (generated from the schema by `tools/gen_config_docs.py` into `docs/configuration.md`), admin UI, metrics, PTP modes and their side effects, port table and co-location with mxl-decklink / mxl-fabrics-agent (§15.4), multi-host operation with mxl-fabrics-agent (§8.6, the mxl-fabrics-agent §11 checklist, demo of §15.1/§15.2), limitations (one NIC, NIC is not a redundant element, fixed formats), troubleshooting (every preflight message), conformance results, license.
 
 ---
 
@@ -791,6 +930,8 @@ On an E810 2×25G and a 2×100G host with a real PTP grandmaster and the operato
 10. Prometheus scrapes `/metrics`; the shipped Grafana dashboard renders all panels with data.
 11. Tag `v1.0.0` produces images `1.0.0`, `1.0`, `1`, `latest` on GHCR and a GitHub Release with assets; a push to `main` updates `nightly-dev`.
 12. Kubernetes manifests deploy successfully on a node with the SR-IOV device plugin; readiness turns green; another pod on the node reads the flows via the hostPath domain.
+13. An egress MXL Receiver activated before its flow exists starts automatically when the flow appears, goes to `no_signal` (not `error`) when the writer stops and resumes after the writer is restarted (CI test `late-flow.sh`, §17.3).
+14. *(Optional, does not gate v1.0.)* Multi-host demo with mxl-fabrics-agent (§15.1 or §15.2): an ingest flow of the gateway on host A is received by an MXL Receiver on host B (gateway egress or mxl-decklink) through a mirror domain, without manual steps beyond the IS-05 connection; `mxlgw_mxl_reader_info` shows `domain_kind="mirror"`.
 
 ---
 
@@ -808,15 +949,19 @@ On an E810 2×25G and a 2×100G host with a real PTP grandmaster and the operato
 | R8 | Kernel-socket backend multicast behaviour on GitHub runners | veth pair with explicit multicast routes; fall back to self-hosted runner if flaky |
 | R9 | Single NIC is a single point of failure | documented limitation; later stage multi-NIC (§21) |
 | R10 | License | default MIT (as mxl-decklink); dependency licenses (BSD-3 MTL/DPDK, Apache-2.0 MXL/nmos-cpp) listed in `THIRD_PARTY_NOTICES.md` — owner to confirm |
+| R11 | Unknown `mxl_domain_id` is rejected at staging (§7.4), but mxl-fabrics-agent `MIRROR_MODE=on-demand` creates the mirror domain only after activation | document `eager` as the supported agent mode; owner decision (changelog C3) |
+| R12 | MXL version skew between gateway, mxl-decklink and mxl-fabrics-agent sharing one MXL root (the agent may pin a later v1.1 revision with Fabrics fixes) | same v1.1 line on a host (§2); check the agent's pin on every `MXL_REF` bump; integration test against a flow written by the agent's MXL build when available |
+| R13 | Host-port collisions under host networking (default `8080` = mxl-decklink) | port table §15.4, preflight warning; owner decision on the default (changelog C1) |
+| R14 | Cross-host TAI misalignment makes replicated indices land at the wrong time | TAI discipline required on all hosts (§5.1), preflight warning on a zero TAI offset, `mxlgw_mxl_read_lag_grains` and the agent's TAI-offset metric in Grafana |
 
 ---
 
 ## 21. Later Stage (explicitly out of v1, keep the design open for them)
 
-Multiple port pairs / two NICs per container (lift the `port_pairs` limit, add `groups[].port_pair`); four-port cards as two independent 2022-7 pairs; ST 2110-22; sub-frame latency (MTL slice RX + MXL partial grain commits / `mxlFlowReaderGetGrainSlice`); MXL Fabrics; BCP-008-01/-02 status monitoring (fed by the 2022-7 leg counters); IS-08 audio channel mapping; IS-12 control; "follow SDP" dynamic formats; `video/v210a`; authenticated UI.
+Multiple port pairs / two NICs per container (lift the `port_pairs` limit, add `groups[].port_pair`); four-port cards as two independent 2022-7 pairs; ST 2110-22; sub-frame latency (MTL slice RX + MXL partial grain commits / `mxlFlowReaderGetGrainSlice`); MXL Fabrics inside the gateway process (host-to-host replication is already covered in v1 by mxl-fabrics-agent, §8.6); BCP-008-01/-02 status monitoring (fed by the 2022-7 leg counters); IS-08 audio channel mapping; IS-12 control; "follow SDP" dynamic formats; `video/v210a`; authenticated UI.
 
 ---
 
 ## 22. Glossary
 
-**PF/VF** physical/virtual PCI function · **PMD** DPDK poll-mode driver · **lcore** DPDK logical core · **PHC** PTP hardware clock · **GM** grandmaster · **TAI** International Atomic Time (PTP timescale) · **grain** one discrete MXL ring-buffer entry (video frame/field, ANC frame) · **continuous flow** MXL sample-indexed ring buffer (audio) · **leg** one of the two 2022-7 paths.
+**PF/VF** physical/virtual PCI function · **PMD** DPDK poll-mode driver · **lcore** DPDK logical core · **PHC** PTP hardware clock · **GM** grandmaster · **TAI** International Atomic Time (PTP timescale) · **grain** one discrete MXL ring-buffer entry (video frame/field, ANC frame) · **continuous flow** MXL sample-indexed ring buffer (audio) · **leg** one of the two 2022-7 paths · **MXL root** the host tmpfs that holds all MXL domains of a host (mounted at `mxl.scan_path`) · **configured / discovered / mirror domain** see §3.3 and §8.5 · **origin flow** a flow written by a media function in a local domain · **mirror flow** a flow in a mirror domain, written by mxl-fabrics-agent with the origin's flow id, definition and indices · **read offset** how far behind the writer an MXL Receiver reads (§5.7).
