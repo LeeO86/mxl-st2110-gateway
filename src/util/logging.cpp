@@ -71,10 +71,28 @@ namespace mxlgw::log
             std::thread thread;
             bool running = false;
             bool stop = false;
+
+            // Exit paths that skip stopDrain() (tests, exit() from a library) must not destroy a
+            // joinable std::thread.
+            ~Drain()
+            {
+                {
+                    std::lock_guard const lock{mutex};
+                    stop = true;
+                }
+                cv.notify_all();
+                if (thread.joinable())
+                {
+                    thread.join();
+                }
+            }
         };
 
         Drain& drain()
         {
+            // Constructed first so they are destroyed after the drain thread is joined.
+            state();
+            ring();
             static Drain d;
             return d;
         }
