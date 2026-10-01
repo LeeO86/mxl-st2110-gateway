@@ -808,7 +808,8 @@ namespace mxlgw::app
             j["available"] = st.ptpAvailable;
             j["selection_changes"] = st.ptpSelectionChanges;
             j["phc2sys_locked"] = st.phc2sysLocked;
-            for (std::size_t i = 0; i < st.ports.size() && i < st.ptp.size(); ++i)
+            // ptp.mode = external / kernel backend: no MTL PTP instance, so no per-port state to show.
+            for (std::size_t i = 0; st.ptpAvailable && i < st.ports.size() && i < st.ptp.size(); ++i)
             {
                 auto const& p = st.ptp[i];
                 json pj{{"leg", ops::portLabel(i)},

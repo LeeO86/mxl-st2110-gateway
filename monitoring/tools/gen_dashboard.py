@@ -211,15 +211,18 @@ def build():
     L.add(stat("PTP locked", [(f"mxlgw_ptp_locked{{{INST}}}", "{{instance}} {{port}}")], mappings=value_map((0, "UNLOCKED", "red"), (1, "LOCKED", "green")),
                no_value="external / no MTL PTP", description="Per port; absent when ptp.mode = external or on the kernel backend (§5.2)."), 4, 4)
     L.add(stat("NMOS registered", [(f"mxlgw_nmos_registered{{{INST}}}", "{{instance}}")], mappings=yes_no), 4, 4)
-    L.add(stat("MTL − host TAI", [(f"mxlgw_clock_mtl_minus_host_tai_ns{{{INST}}}", "{{instance}}")], unit="ns",
+    L.add(stat("MTL − host TAI", [(f'mxlgw_clock_mtl_minus_host_tai_ns{{{INST}, stat=""}}', "{{instance}}")], unit="ns",
                steps=("red", -1_000_000, "orange", -10_000, "green", 10_000, "orange", 1_000_000, "red"),
                description="§5.3: MTL PTP time minus the host CLOCK_TAI. Beyond ptp.max_offset_ns the gateway is not ready."), 4, 4)
     L.add(stat("Essences running", [(f'sum by (instance) (mxlgw_essence_state{{{INST}, state="running"}})', "{{instance}}")]), 4, 4)
     L.add(table("Grandmaster", f"mxlgw_ptp_info{{{INST}}}", ["instance", "port", "gm_identity", "parent_port_identity", "domain", "bind_mode"],
                 renames={"gm_identity": "GM identity", "parent_port_identity": "parent port", "bind_mode": "bind mode"}), 12, 6)
     L.add(table("Build", f"mxlgw_build_info{{{INST}}}", ["instance", "version", "mtl", "dpdk", "mxl", "nmos_cpp"]), 12, 6)
-    L.add(timeseries("MTL − host TAI offset", [(f"mxlgw_clock_mtl_minus_host_tai_ns{{{INST}}}", "{{instance}}")], unit="ns",
-                     steps=("green", 10_000, "orange", 1_000_000, "red")), 24, 7)
+    L.add(timeseries("MTL − host TAI offset", [
+        (f'mxlgw_clock_mtl_minus_host_tai_ns{{{INST}, stat=""}}', "{{instance}}"),
+        (f'mxlgw_clock_mtl_minus_host_tai_ns{{{INST}, stat="min"}}', "{{instance}} min 60 s"),
+        (f'mxlgw_clock_mtl_minus_host_tai_ns{{{INST}, stat="max"}}', "{{instance}} max 60 s"),
+    ], unit="ns", steps=("green", 10_000, "orange", 1_000_000, "red")), 24, 7)
 
     # ------------------------------------------------------------------ PTP
     L.row("PTP")

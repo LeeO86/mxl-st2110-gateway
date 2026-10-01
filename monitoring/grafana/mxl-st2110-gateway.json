@@ -409,7 +409,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\"}",
+          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -739,10 +739,32 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\"}",
+          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"min\"}",
+          "legendFormat": "{{instance}} min 60 s",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"max\"}",
+          "legendFormat": "{{instance}} max 60 s",
+          "range": true,
+          "refId": "C"
         }
       ],
       "title": "MTL − host TAI offset",
