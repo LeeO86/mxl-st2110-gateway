@@ -993,8 +993,8 @@ Same structure as mxl-decklink `.github/workflows/container.yaml`:
 - `docker/metadata-action` tags:
   - release tag `v1.2.3` → `1.2.3`, `1.2`, `1` **and** `latest`;
   - push to `main` / nightly / manual → **`nightly-dev`** (the "dev latest" tag, always the newest successful `main` build);
-  - every build → `git-<sha7>`.
-  - `1.2.3` and `git-<sha7>` are never moved; examples reference released tags only.
+  - every push to `main` → `git-<sha7>`, written once: release, nightly and manual rebuilds of the same commit do not write it again.
+  - `1.2.3` and `git-<sha7>` are never moved: a release build fails if its `1.2.3` tag already exists; examples reference released tags only.
   - `flavor: latest=${{ startsWith(github.ref, 'refs/tags/') }}` so `latest` is never a dev build.
 - `docker/build-push-action` with `cache-from/to: type=gha,mode=max`, `provenance: true`, `sbom: true`, build args `MXLGW_VERSION`, `VCS_REF`. The package `ghcr.io/leeo86/mxl-st2110-gateway` is public.
 - Permissions: `contents: read`, `packages: write`.

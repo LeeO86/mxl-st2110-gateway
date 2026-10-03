@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Container workflow: `git-<sha7>` is written only by the push to `main`, so the release build and the nightly or manual rebuilds of the same commit no longer move it (the `v1.0.0` build had moved `git-151df45`); a release build fails when its `X.Y.Z` tag already exists.
+
 ## [1.0.0] - 2026-10-03
 
 First stable release: SPECIFICATION.md 1.3 — the implementation of Draft 1.2 plus the MXL PoC platform guideline G1–G14. The settings, APIs, metrics and behaviour below are a stable contract; a breaking change needs 2.0.0.
