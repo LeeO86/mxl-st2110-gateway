@@ -115,6 +115,7 @@ ACCT_EGRESS="$GWE"
 ACCT_INGEST="$GWI"
 ACCT_INGEST_CONTAINER="$IT_PREFIX-lf-ingest"
 ACCT_AUDIO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM A"}')
+ACCT_AUDIO_RX=('mxl_st2110_gateway_rx_frames_total{essence="LOOP A",result="dropped"}')
 ACCT_VIDEO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM V"}')
 ACCT_VIDEO_RX=('mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="dropped"}')
 ACCT_AUDIO_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM A"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM A"}')
