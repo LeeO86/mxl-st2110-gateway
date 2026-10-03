@@ -100,7 +100,12 @@ namespace mxlgw::media::mtlimpl
                 {
                     return {};
                 }
-                return rxStats(s.common, s.stat_frames_incomplete);
+                auto out = rxStats(s.common, s.stat_frames_incomplete);
+                // VERIFIED: OpenVisualCloud/Media-Transport-Library@v26.09 lib/src/st2110/st_rx_video_session.c:1231-1248,1634-1639 —
+                // a frame that finds no free transport frame is dropped before st20p (and queryExtFrame) sees it; its slot
+                // keeps the timestamp, so it counts once in stat_slot_get_frame_fail whatever the number of packets and legs.
+                out.framesDropped += s.stat_slot_get_frame_fail;
+                return out;
             }
 
         private:

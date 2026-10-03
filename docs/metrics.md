@@ -65,7 +65,7 @@ All `mxl_st2110_gateway_ptp_*` series exist only while MTL runs PTP (`ptp.mode` 
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `mxl_st2110_gateway_rx_frames_total` | counter | essence labels, `result` | `complete`, `incomplete` (written with missing packets), `dropped` (not written) |
+| `mxl_st2110_gateway_rx_frames_total` | counter | essence labels, `result` | `complete`, `incomplete` (written with missing packets), `dropped` (not written: discarded by the gateway, or by MTL because the ingest worker held every frame buffer; MTL counts audio drops per packet and leg, the gateway reports them as blocks, rounded up) |
 | `mxl_st2110_gateway_rx_leg_packets_total` | counter | essence labels, `leg` | packets per ST 2022-7 leg |
 | `mxl_st2110_gateway_rx_packets_total` | counter | essence labels | packets after the 2022-7 merge |
 | `mxl_st2110_gateway_rx_leg_seq_lost_total` | counter | essence labels, `leg` | sequence gaps on a leg (loss on one leg is harmless while the other is clean) |

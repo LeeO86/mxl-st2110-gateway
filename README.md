@@ -89,7 +89,7 @@ services:
       start_period: 60s
 ```
 
-Without a configuration file the gateway starts in **setup mode**: only the admin UI runs at `http://<host>:8080/admin/`, `/readyz` reports `unconfigured`. Configure the NIC (PCI addresses, IPs) on the *Network* tab, restart, then create groups on the *Groups* tab. Image tags: `1.2.3`, `1.2`, `1`, `latest` for releases (never moved, except the floating `1.2`, `1` and `latest`); `nightly-dev` for the newest `main` build; `git-<sha7>` for every build.
+Without a configuration file the gateway starts in **setup mode**: only the admin UI runs at `http://<host>:8080/admin/`, `/readyz` reports `unconfigured`. Configure the NIC (PCI addresses, IPs) on the *Network* tab, restart, then create groups on the *Groups* tab. Image tags: `1.2.3`, `1.2`, `1`, `latest` for releases (never moved, except the floating `1.2`, `1` and `latest`); `nightly-dev` for the newest `main` build; `git-<sha7>` for every commit pushed to `main` (written once, never moved).
 
 **Why host networking:** the media ports are owned by DPDK and are not visible to Docker networking, and both NMOS nodes announce the host's IPv4 address (`NMOS_HOST_ADDRESS`, default the default-route interface's address). With a bridge network, map `NMOS_PORT` and `NMOS_PORT + 1` and set `NMOS_HOST_ADDRESS` (and `node.public_port` behind a port mapping) to what controllers reach ([Port usage](#port-usage-and-co-location)). DNS-SD is off by default, so no Avahi or D-Bus is needed; with `NMOS_DNS_SD=true` mount `/run/dbus` and `/run/avahi-daemon` and, on AppArmor hosts, add `security_opt: ["apparmor=unconfined"]`.
 

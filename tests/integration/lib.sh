@@ -241,14 +241,15 @@ make_veth() {
 # The kernel backend has no pacing guarantees and reads the two legs' sockets one after the other
 # (§17.2). Under CPU load (GitHub runners) MTL drops frames whose transmit time passed
 # (mxl_st2110_gateway_tx_late_frames_total), loses packets on both legs (audio: its "unrecovered (lost on both)"
-# statistic; video: frames counted as incomplete) and the ingest correctly marks such grains invalid.
-# Bad audio blocks and invalid video grains are accepted only if those counters explain them for the
-# same window (one lost audio packet can touch two verify blocks); bars, frame counters, timecode,
-# offsets and A/V alignment must always be exact (docs/decisions.md).
+# statistic; video: frames counted as incomplete), drops ingest audio blocks when a stall outlasts the
+# frame buffers (mxl_st2110_gateway_rx_frames_total{result="dropped"}) and the ingest correctly marks such
+# grains invalid. Bad audio blocks and invalid video grains are accepted only if those counters explain
+# them for the same window (one lost audio packet or block can touch two verify blocks); bars, frame
+# counters, timecode, offsets and A/V alignment must always be exact (docs/decisions.md).
 #
 # The caller sets ACCT_EGRESS / ACCT_INGEST (base URLs), ACCT_INGEST_CONTAINER and the metric
-# selectors ACCT_AUDIO_TX (egress, late audio), ACCT_VIDEO_TX (egress, late video) and ACCT_VIDEO_RX
-# (ingest, incomplete/dropped video).
+# selectors ACCT_AUDIO_TX (egress, late audio), ACCT_AUDIO_RX (ingest, dropped audio), ACCT_VIDEO_TX
+# (egress, late video) and ACCT_VIDEO_RX (ingest, incomplete/dropped video).
 sum_metrics() { # <base> <metric{labels}>...
     local base="$1" sum=0 v
     shift
@@ -259,6 +260,7 @@ sum_metrics() { # <base> <metric{labels}>...
     echo "$sum"
 }
 acct_late_audio() { sum_metrics "$ACCT_EGRESS" "${ACCT_AUDIO_TX[@]}"; }
+acct_dropped_audio() { sum_metrics "$ACCT_INGEST" ${ACCT_AUDIO_RX[@]+"${ACCT_AUDIO_RX[@]}"}; }
 acct_lost_video() {
     echo $(($(sum_metrics "$ACCT_EGRESS" "${ACCT_VIDEO_TX[@]}") + $(sum_metrics "$ACCT_INGEST" "${ACCT_VIDEO_RX[@]}")))
 }
@@ -274,17 +276,18 @@ acct_unrecovered_audio() { # <since RFC 3339>
         awk '{s += $NF} END {print s + 0}'
 }
 verify_media() { # <image> <mxl-root> <report.json> <mxl-verify arguments...>
-    local image="$1" mxl="$2" report="$3" since late0 video0 gaps_audio0 gaps_video0 gaps_anc0 audio_allowed video_allowed
+    local image="$1" mxl="$2" report="$3" since late0 dropped0 video0 gaps_audio0 gaps_video0 gaps_anc0 audio_allowed video_allowed
     shift 3
     since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     late0=$(acct_late_audio)
+    dropped0=$(acct_dropped_audio)
     video0=$(acct_lost_video)
     gaps_audio0=$(acct_gaps_audio)
     gaps_video0=$(acct_gaps_video)
     gaps_anc0=$(acct_gaps_anc)
     run_tool "$image" "$mxl" mxl-verify "$@" >"$report" && return 0
     sleep 11 # MTL prints its per-port loss statistics every 10 s
-    audio_allowed=$(($(acct_late_audio) - late0 + 2 * $(acct_unrecovered_audio "$since") + $(acct_gaps_audio) - gaps_audio0))
+    audio_allowed=$(($(acct_late_audio) - late0 + 2 * $(acct_unrecovered_audio "$since") + 2 * ($(acct_dropped_audio) - dropped0) + $(acct_gaps_audio) - gaps_audio0))
     video_allowed=$(($(acct_lost_video) - video0))
     python3 - "$report" "$audio_allowed" "$video_allowed" "$(($(acct_gaps_video) - gaps_video0))" "$(($(acct_gaps_anc) - gaps_anc0))" <<'PY'
 import json, sys
@@ -303,7 +306,7 @@ anc_bad = anc.get("missing", 0) + anc.get("counter_jumps", 0)
 summary = (f"{bad} bad audio block(s) (allowance {audio_allowed}), {invalid} invalid video grain(s) (allowance {video_allowed}), "
            f"{jumps} video counter jump(s) (allowance {2 * video_gaps}), {anc_bad} ANC timecode gap(s) (allowance {2 * anc_gaps})")
 if not other and bad <= audio_allowed and invalid <= video_allowed and jumps <= 2 * video_gaps and anc_bad <= 2 * anc_gaps:
-    print(f"accepted: {summary}, all explained by late, incomplete, both-legs-lost or replaced data counted by the gateways", file=sys.stderr)
+    print(f"accepted: {summary}, all explained by late, incomplete, dropped, both-legs-lost or replaced data counted by the gateways", file=sys.stderr)
     sys.exit(0)
 print(f"not explained: {summary}, other failures {other}", file=sys.stderr)
 sys.exit(1)
