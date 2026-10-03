@@ -109,7 +109,16 @@ namespace mxlgw::media::mtlimpl
                 {
                     return {};
                 }
-                return rxStats(s.common, s.stat_frames_incomplete);
+                auto out = rxStats(s.common, s.stat_frames_incomplete);
+                // VERIFIED: OpenVisualCloud/Media-Transport-Library@v26.09 lib/src/st2110/st_rx_audio_session.c:267-273,479-499 —
+                // a block that finds no free frame buffer (the worker is more than rxBufferNs behind) is dropped before st30p
+                // sees it, so st30p's stat_frames_dropped stays 0; every packet of it, on every leg, counts once in
+                // stat_slot_get_frame_fail.
+                auto const& f = _params.format;
+                auto const packetsPerBlock = static_cast<std::uint64_t>(std::max(1, f.samplesPerBlock() / std::max(1, f.samplesPerPacket()))) *
+                                             std::max<std::size_t>(1, _params.legs.size());
+                out.framesDropped += (s.stat_slot_get_frame_fail + packetsPerBlock - 1) / packetsPerBlock;
+                return out;
             }
 
         private:

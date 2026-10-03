@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 
 - Container workflow: `git-<sha7>` is written only by the push to `main`, so the release build and the nightly or manual rebuilds of the same commit no longer move it (the `v1.0.0` build had moved `git-151df45`); a release build fails when its `X.Y.Z` tag already exists.
+- `mxl_st2110_gateway_rx_frames_total{result="dropped"}` now includes the video frames and audio blocks MTL discards when the ingest worker falls behind and no frame buffer is free (`stat_slot_get_frame_fail`); before, such drops reached only MTL's log ("back-pressure: framebuff pool empty"). Name and labels are unchanged.
 
 ## [1.0.0] - 2026-10-03
 
