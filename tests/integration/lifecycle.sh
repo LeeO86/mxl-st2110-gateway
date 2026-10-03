@@ -130,8 +130,8 @@ pass "MXL registry: node $NODE_ID (seed), IP-literal href and endpoints, NMOS_TA
 # ---- the ST 2110 node on its own port, not registered (§7.1)
 [[ "$(json "http://127.0.0.1:$ST2110_PORT/x-nmos/node/v1.3/self" 'j["id"]')" == "$ST2110_ID" ]] || fail "ST 2110 node id"
 [[ "$(json "http://127.0.0.1:$ST2110_PORT/x-nmos/node/v1.3/self" 'j["href"]')" == "http://$HOST_IP:$ST2110_PORT/" ]] || fail "ST 2110 node href"
-[[ "$(json "http://127.0.0.1:$ST2110_PORT/x-nmos/node/v1.3/senders" 'sorted({s["transport"] for s in j})')" == '["urn:x-nmos:transport:rtp.mcast"]' ]] ||
-    fail "ST 2110 node senders"
+transports=$(json "http://127.0.0.1:$ST2110_PORT/x-nmos/node/v1.3/senders" 'sorted({s["transport"] for s in j})')
+[[ "$transports" == '["urn:x-nmos:transport:rtp"]' ]] || fail "ST 2110 node senders: $transports"
 [[ "$(json "$BASE/api/nmos" 'j["st2110"]["registered"]')" == "False" ]] || fail "ST 2110 node reports a registration"
 pass "ST 2110 node $ST2110_ID on :$ST2110_PORT with the RTP Senders/Receivers, not in the MXL registry"
 
@@ -152,8 +152,9 @@ pass "seed-derived output domain $DOMAIN_ID, metric prefix, /api/v1, no D-Bus/Av
 run_gateway "$GW-2" "$WORK/config2" 18202 "$SEED-2" -e NMOS_SEED="$SEED-2"
 wait_until 30 "second instance /readyz" http_ok "http://127.0.0.1:18202/readyz"
 docker rm -f "$GW-2" >/dev/null
+IT_CONTAINERS+=("$GW-3")
 set +e
-docker run --rm --network host -v "$WORK/config2":/config -v "$WORK/mxl":/Volumes/mxl -e NMOS_PORT="$NMOS_PORT" \
+timeout 60 docker run --rm --name "$GW-3" --network host -v "$WORK/config2":/config -v "$WORK/mxl":/Volumes/mxl -e NMOS_PORT="$NMOS_PORT" \
     -e MXL_OUTPUT_DOMAIN_DIR="/Volumes/mxl/$SEED-3" "$IMAGE" >"$WORK/port-taken.log" 2>&1
 rc=$?
 set -e

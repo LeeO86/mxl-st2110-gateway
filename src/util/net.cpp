@@ -6,6 +6,10 @@
 #include <net/if.h>
 #include <netinet/in.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <set>
+
 #include "util/fs.hpp"
 #include "util/strings.hpp"
 
@@ -184,5 +188,69 @@ namespace mxlgw::util
     {
         auto const routes = readFile("/proc/net/route");
         return pickHostAddress(interfaceIpv4Addresses(), routes ? defaultRouteInterface(*routes) : std::nullopt);
+    }
+
+    bool processListensOn(int port)
+    {
+        std::set<std::string> inodes;
+        for (auto const* table : {"/proc/net/tcp", "/proc/net/tcp6"})
+        {
+            auto const text = readFile(table);
+            if (!text)
+            {
+                continue;
+            }
+            bool header = true;
+            for (auto const& line : split(*text, '\n'))
+            {
+                if (header)
+                {
+                    header = false;
+                    continue;
+                }
+                std::vector<std::string> fields;
+                std::string field;
+                for (char const c : line + " ")
+                {
+                    if (c == ' ' || c == '\t')
+                    {
+                        if (!field.empty())
+                        {
+                            fields.push_back(field);
+                        }
+                        field.clear();
+                    }
+                    else
+                    {
+                        field += c;
+                    }
+                }
+                // sl local_address rem_address st tx:rx tr:when retrnsmt uid timeout inode
+                if (fields.size() < 10 || fields[3] != "0A")
+                {
+                    continue;
+                }
+                auto const colon = fields[1].rfind(':');
+                if (colon != std::string::npos && std::strtol(fields[1].substr(colon + 1).c_str(), nullptr, 16) == port)
+                {
+                    inodes.insert(fields[9]);
+                }
+            }
+        }
+        if (inodes.empty())
+        {
+            return false;
+        }
+        std::error_code ec;
+        for (auto const& entry : std::filesystem::directory_iterator("/proc/self/fd", ec))
+        {
+            std::error_code linkError;
+            auto const target = std::filesystem::read_symlink(entry.path(), linkError).string();
+            if (!linkError && target.rfind("socket:[", 0) == 0 && target.size() > 9 && inodes.count(target.substr(8, target.size() - 9)) != 0)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -5,6 +5,11 @@
 #include <set>
 #include <thread>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include "helpers.hpp"
 #include "util/backoff.hpp"
 #include "util/cpuset.hpp"
@@ -114,6 +119,21 @@ TEST_CASE("host address detection (G5)")
     CHECK_FALSE(util::isAnnounceable(*util::parseIpv4("0.0.0.0")));
     CHECK_FALSE(util::isAnnounceable(*util::parseIpv4("127.1.2.3")));
     CHECK_FALSE(util::isAnnounceable(*util::parseIpv4("224.0.0.251")));
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(fd >= 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    REQUIRE(::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+    socklen_t len = sizeof(addr);
+    ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+    int const port = ntohs(addr.sin_port);
+    CHECK_FALSE(util::processListensOn(port)); // bound, not listening
+    REQUIRE(::listen(fd, 1) == 0);
+    CHECK(util::processListensOn(port));
+    ::close(fd);
+    CHECK_FALSE(util::processListensOn(port));
+
     auto const live = util::defaultHostAddress();
     if (live)
     {

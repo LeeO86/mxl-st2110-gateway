@@ -50,6 +50,7 @@
 #include "nmos/node_api.hpp"
 #include "nmos/sdp_parse.hpp"
 #include "util/logging.hpp"
+#include "util/net.hpp"
 
 namespace mxlgw::nmosnode
 {
@@ -262,6 +263,13 @@ namespace mxlgw::nmosnode
                 throw ListenError(httpPort(), ex.what());
             }
             _open = true;
+            // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/server.cpp:68 open_listeners() swallows listener
+            // errors (pplx::observe_exceptions), so a port in use or a privileged port opens "successfully".
+            if (!util::processListensOn(httpPort()))
+            {
+                stop();
+                throw ListenError(httpPort(), "the port is in use or cannot be bound");
+            }
             auto const& registry = this->registry();
             log::info("nmos_node_started", {{"node", toName(_setup.side)},
                                             {"node_id", _nodeId},

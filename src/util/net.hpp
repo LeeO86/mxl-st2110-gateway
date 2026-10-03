@@ -47,4 +47,7 @@ namespace mxlgw::util
     std::optional<std::string> pickHostAddress(std::vector<InterfaceAddress> const& addresses, std::optional<std::string> const& defaultInterface);
     /// pickHostAddress() for this host (network namespace).
     std::optional<std::string> defaultHostAddress();
+
+    /// True if this process owns a TCP socket listening on `port` (/proc/net/tcp{,6} and /proc/self/fd).
+    bool processListensOn(int port);
 }
