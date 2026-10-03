@@ -54,8 +54,14 @@ const clockKind = computed(() => {
       </div>
       <div class="panel">
         <h3>NMOS</h3>
-        <Pill :text="status.nmos?.registered ? 'registered' : 'not registered'" :kind="status.nmos?.registered ? 'ok' : 'warn'" />
-        <div class="note">{{ status.nmos?.registration_uri || status.nmos?.registry_mode }}</div>
+        <div v-for="n in status.nmos?.nodes || [status.nmos]" :key="n?.node_id" style="margin-bottom: 0.3rem">
+          <Pill
+            :text="n?.registered ? 'registered' : n?.registry && !n.registry.configured ? 'no registry' : 'not registered'"
+            :kind="n?.registered ? 'ok' : n?.registry && !n.registry.configured ? 'neutral' : 'warn'"
+          />
+          {{ n?.node === "st2110" ? "ST 2110" : "MXL" }}
+          <div class="note">{{ n?.registration_uri || n?.registry_mode }}</div>
+        </div>
       </div>
     </div>
 
