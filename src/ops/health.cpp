@@ -48,9 +48,17 @@ namespace mxlgw::ops
         {
             r.reasons.push_back("mxl_domain_error");
         }
-        if (!in.setupMode && !in.nmosRegistered && !in.registryAbsentIntended)
+        if (!in.setupMode && in.registryConfigured && !in.nmosRegistered)
         {
             r.reasons.push_back("nmos_not_registered");
+        }
+        if (!in.setupMode && in.st2110RegistryConfigured && !in.st2110Registered)
+        {
+            r.reasons.push_back("st2110_nmos_not_registered");
+        }
+        if (in.shuttingDown)
+        {
+            r.reasons.push_back("shutting_down");
         }
         for (auto const& extra : in.extraReasons)
         {

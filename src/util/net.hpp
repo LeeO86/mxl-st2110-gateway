@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace mxlgw::util
 {
@@ -29,4 +30,21 @@ namespace mxlgw::util
     bool isNetmask(Ipv4 mask);
     bool sameSubnet(Ipv4 a, Ipv4 b, Ipv4 mask);
     int prefixLength(Ipv4 mask);
+    /// An address other hosts can reach: not 0/8, 127/8, 169.254/16, multicast or broadcast.
+    bool isAnnounceable(Ipv4 ip);
+
+    struct InterfaceAddress
+    {
+        std::string ifname;
+        std::string address;
+    };
+
+    /// IPv4 addresses of the kernel interfaces in kernel order (getifaddrs).
+    std::vector<InterfaceAddress> interfaceIpv4Addresses();
+    /// Interface of the default route with the lowest metric from /proc/net/route content.
+    std::optional<std::string> defaultRouteInterface(std::string const& procNetRoute);
+    /// The address of the default-route interface, else the first announceable address (G5).
+    std::optional<std::string> pickHostAddress(std::vector<InterfaceAddress> const& addresses, std::optional<std::string> const& defaultInterface);
+    /// pickHostAddress() for this host (network namespace).
+    std::optional<std::string> defaultHostAddress();
 }

@@ -321,7 +321,7 @@ namespace
         scan.domains.push_back(mirror);
         in.scan = scan;
         in.domains.push_back({"main", 1024, 4096, 3});
-        in.nmosRegistered = true;
+        in.nmosRegistered = {{"mxl", true}, {"st2110", false}};
         in.activations[{"receiver", "urn:x-nmos:transport:mxl", "ok"}] = 2;
         return in;
     }

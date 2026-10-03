@@ -3,9 +3,11 @@
 // not include nmos-cpp headers.
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -74,38 +76,70 @@ namespace mxlgw::nmosnode
         std::function<bool(util::Uuid const& domainId)> domainAccessible;
     };
 
+    /// The gateway runs two NMOS nodes (§7.1): the MXL node (MXL Senders of ingest groups, MXL Receivers of egress
+    /// groups) registers with the MXL registry; the ST 2110 node (RTP Receivers of ingest groups, RTP Senders of
+    /// egress groups) has its own port and its own, optional registry.
+    enum class Side
+    {
+        Mxl,
+        St2110,
+    };
+
+    char const* toName(Side side);
+
     struct Setup
     {
+        Side side = Side::Mxl;
         config::Config config;
         std::vector<InterfaceInfo> interfaces; // media ports first (primary, redundant), then management
         std::vector<DomainInfo> domains;
         ClockInfo clock;
         app::ConnectionState* connections = nullptr; // §7.6; nullptr = no persistence
-        ops::Router const* routes = nullptr;         // gateway routes mounted on the same listener (§7.1)
+        ops::Router const* routes = nullptr;         // gateway routes on the node's listener (§7.1); nullptr = none
         std::string gatewayVersion;
+        std::string hostAddress; // IPv4 literal announced in hrefs and api.endpoints (§7.1, G5)
     };
 
     class Node
     {
     public:
         virtual ~Node() = default;
-        /// Opens the single listener (node.http_port) and registers. Throws std::runtime_error on failure.
+        /// Opens the node's listener and registers. Throws ListenError when the port cannot be bound.
         virtual void start() = 0;
         virtual void stop() = 0;
+        /// Removes every resource so the registry receives DELETEs (§14.4), then waits up to `timeout` for the
+        /// node's own DELETE. Returns true when the node is no longer registered.
+        virtual bool deregister(std::chrono::milliseconds timeout) = 0;
         /// Live group add/edit/remove (§9.3): re-registers the affected resources.
         virtual nlohmann::json applyGroups(config::Config const& config) = 0;
         virtual void updateClock(ClockInfo const& clock) = 0;
         virtual nlohmann::json status() const = 0;
         virtual bool registered() const = 0;
+        virtual Side side() const = 0;
+    };
+
+    /// A listener could not be opened (port in use, no permission): exit 75 (§14.4).
+    class ListenError : public std::runtime_error
+    {
+    public:
+        ListenError(int port, std::string const& what)
+            : std::runtime_error("cannot listen on port " + std::to_string(port) + ": " + what)
+            , _port(port)
+        {}
+        int port() const { return _port; }
+
+    private:
+        int _port;
     };
 
     std::unique_ptr<Node> createNode(Setup setup, Callbacks callbacks);
 
-    /// Setup mode / no-NMOS operation: a bare server with only the gateway routes on `port` (§7.1).
+    /// Setup mode, or node.web_port set: a bare server with only the gateway routes on `port` (§7.1).
     class HttpServer
     {
     public:
         virtual ~HttpServer() = default;
+        /// Throws ListenError when the port cannot be bound.
         virtual void start() = 0;
         virtual void stop() = 0;
     };

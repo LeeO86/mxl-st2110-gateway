@@ -88,6 +88,11 @@ namespace mxlgw::ops
 
     std::optional<HttpResponse> Router::dispatch(HttpRequest request) const
     {
+        // G10: /api/v1/... is the versioned name of every /api/... route (v1 = this stable contract).
+        if (request.path.rfind("/api/v1/", 0) == 0)
+        {
+            request.path = "/api" + request.path.substr(7);
+        }
         auto const segs = segmentsOf(request.path);
         bool pathMatched = false;
         for (auto const& route : _routes)

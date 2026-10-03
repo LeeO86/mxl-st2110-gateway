@@ -49,8 +49,8 @@ namespace mxlgw::mxlbridge
 
     struct BootstrapOptions
     {
-        /// The domain id is set by an environment variable (never written back, §9.1).
-        bool idFromEnvironment = false;
+        /// The domain id is set by an environment variable or derived from node.seed: never written back (§9.1, §7.3).
+        bool idNotPersisted = false;
         /// Root filesystem used for the "not the container root" test.
         std::string rootPath = "/";
     };

@@ -197,7 +197,10 @@ namespace mxlgw::ops
             out.gauge("mxlgw_mxl_domain_bytes", "Configured MXL domain filesystem usage", {{"domain", dom.name}, {"kind", "free"}}, d(dom.freeBytes));
             out.gauge("mxlgw_mxl_domain_flows", "Flows in a configured MXL domain", {{"domain", dom.name}}, static_cast<double>(dom.flows));
         }
-        out.gauge("mxlgw_nmos_registered", "1 when registered with an NMOS registry", {}, in.nmosRegistered ? 1 : 0);
+        for (auto const& [node, registered] : in.nmosRegistered)
+        {
+            out.gauge("mxlgw_nmos_registered", "1 when the NMOS node is registered with its registry", {{"node", node}}, registered ? 1 : 0);
+        }
         for (auto const& [key, value] : in.activations)
         {
             out.counter("mxlgw_nmos_activations_total", "IS-05 activations",

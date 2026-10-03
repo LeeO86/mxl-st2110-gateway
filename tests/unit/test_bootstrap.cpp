@@ -110,14 +110,29 @@ TEST_CASE("bootstrap: creates directory, domain_def.json and options.json on tmp
         CHECK(*r2.writeBackId == r.id);
         CHECK(r2.warnings.front() == "domain_id_mismatch");
     }
-    SUBCASE("id from the environment is never written back")
+    SUBCASE("id from the environment or the seed is never written back, domain_def.json never overwritten")
     {
+        auto const before = *util::readFile(mxlbridge::domainDefPath(d.path));
         auto d2 = d;
         d2.id = util::uuidV4();
         mxlbridge::BootstrapOptions o;
-        o.idFromEnvironment = true;
+        o.idNotPersisted = true;
         auto const r2 = mxlbridge::bootstrapDomain(d2, o);
         CHECK(r2.id == r.id);
+        CHECK_FALSE(r2.writeBackId);
+        CHECK(r2.warnings.front() == "domain_id_mismatch");
+        CHECK(*util::readFile(mxlbridge::domainDefPath(d.path)) == before);
+    }
+    SUBCASE("seed-derived id creates domain_def.json without write-back")
+    {
+        std::filesystem::remove_all(d.path);
+        auto d2 = d;
+        d2.id = util::uuidV5(config::seedNamespaceOf("prod1-gw"), "mxl-domain:" + d.name);
+        mxlbridge::BootstrapOptions o;
+        o.idNotPersisted = true;
+        auto const r2 = mxlbridge::bootstrapDomain(d2, o);
+        CHECK(r2.domainDefCreated);
+        CHECK(r2.id == *d2.id);
         CHECK_FALSE(r2.writeBackId);
     }
     SUBCASE("tmpfs wiped: the configured id re-creates the same domain_def.json")

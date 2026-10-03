@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "app/application.hpp"
 
+#include <csignal>
 #include <filesystem>
 #include <iostream>
 
@@ -16,8 +17,10 @@
 #include "ops/webapi.hpp"
 #include "ops/webui_embedded.hpp"
 #include "timing/ptp.hpp"
+#include "util/cpuset.hpp"
 #include "util/fs.hpp"
 #include "util/logging.hpp"
+#include "util/net.hpp"
 #include "util/threading.hpp"
 #include "version.hpp"
 
@@ -146,10 +149,19 @@ namespace mxlgw::app
         auto const snap = _store->snapshot();
         for (std::size_t i = 0; i < cfg.mxl.domains.size(); ++i)
         {
-            auto const& d = cfg.mxl.domains[i];
+            auto d = cfg.mxl.domains[i];
             auto const pointer = "/mxl/domains/" + std::to_string(i) + "/id";
             mxlbridge::BootstrapOptions opts;
-            opts.idFromEnvironment = snap.overlay.variableFor(pointer).has_value();
+            opts.idNotPersisted = snap.overlay.variableFor(pointer).has_value();
+            if (!d.id)
+            {
+                // G3: with node.seed the default domain id is derived, not generated and written back.
+                if (auto const seeded = cfg.seedDomainId(d.name))
+                {
+                    d.id = seeded;
+                    opts.idNotPersisted = true;
+                }
+            }
             try
             {
                 auto result = mxlbridge::bootstrapDomain(d, opts);
@@ -239,6 +251,11 @@ namespace mxlgw::app
         {
             log::setLevel(*level);
         }
+        _shutdownTimeoutS.store(cfg.node.shutdownTimeoutS);
+        if (cfg.node.seed && cfg.node.id && !_store->snapshot().overlay.variableFor("/node/id"))
+        {
+            log::warn("node_id_ignored", {{"node_id", cfg.node.id->toString()}, {"details", "node.seed is set: every NMOS id is derived from the seed"}});
+        }
         _setupMode = cfg.unconfigured();
         log::info("gateway_starting", {{"version", version::gateway},
                                        {"mtl", version::mtl},
@@ -301,6 +318,24 @@ namespace mxlgw::app
 
         if (!_setupMode)
         {
+            auto const placement = config::resolveCpuPlacement(cfg.nic, util::allowedCpus());
+            if (placement.lcoresDerived || placement.appCpusDerived)
+            {
+                log::info("cpu_placement", {{"lcores", placement.lcores},
+                                            {"app_cpus", placement.appCpus},
+                                            {"lcores_from", placement.lcoresDerived ? "cpu_affinity" : "config"},
+                                            {"app_cpus_from", placement.appCpusDerived ? "cpu_affinity" : "config"}});
+            }
+            auto const lcoreSet = util::parseCpuList(placement.lcores);
+            auto const appSet = util::parseCpuList(placement.appCpus);
+            if (lcoreSet && appSet && !util::disjoint(*lcoreSet, *appSet))
+            {
+                log::error("config_invalid", {{"errors", "/nic/app_cpus: must be disjoint from the MTL lcores " + placement.lcores}});
+                std::cerr << "mxl-st2110-gateway: nic.app_cpus " << placement.appCpus << " overlaps the MTL lcores " << placement.lcores << "\n";
+                return exitConfig;
+            }
+            cfg.nic.lcores = placement.lcores;
+            cfg.nic.appCpus = placement.appCpus;
             try
             {
                 _backend = media::createBackend(cfg);
@@ -324,49 +359,9 @@ namespace mxlgw::app
 
         if (_options.withNmos)
         {
-            try
+            if (auto const rc = startHttp(cfg); rc != exitOk)
             {
-                if (_setupMode)
-                {
-                    _http = nmosnode::createHttpServer(cfg.node.httpPort, cfg.node.tls, _router);
-                    _http->start();
-                    log::info("setup_mode", {{"http_port", cfg.node.httpPort}, {"details", "NIC not configured: only the admin UI is served"}});
-                }
-                else
-                {
-                    nmosnode::Setup setup;
-                    setup.config = cfg;
-                    setup.interfaces = interfaces();
-                    for (auto const& d : _domains)
-                    {
-                        setup.domains.push_back({d.name, d.path, d.id});
-                    }
-                    setup.clock = clockInfo();
-                    setup.connections = cfg.node.resumeConnections ? _connections.get() : nullptr;
-                    setup.routes = &_router;
-                    setup.gatewayVersion = version::gateway;
-                    nmosnode::Callbacks callbacks;
-                    callbacks.activated = [this](nmosnode::Activation const& a) { onActivation(a); };
-                    callbacks.resolveMxlDomain = [this](util::Uuid const& groupDomain, std::optional<util::Uuid> const& flow) -> std::optional<util::Uuid>
-                    {
-                        if (auto const d = _resolver->resolveAuto(groupDomain, flow))
-                        {
-                            return d->id;
-                        }
-                        return std::nullopt;
-                    };
-                    callbacks.checkMxlFlow = [this](util::Uuid const& essence, std::optional<util::Uuid> const& domain, util::Uuid const& flow)
-                    { return checkMxlFlow(essence, domain, flow); };
-                    callbacks.domainAccessible = [this](util::Uuid const& id) { return _directory->findById(id).has_value(); };
-                    _node = nmosnode::createNode(std::move(setup), std::move(callbacks));
-                    _groups->apply(cfg);
-                    _node->start();
-                }
-            }
-            catch (std::exception const& ex)
-            {
-                log::error("http_server_failed", {{"port", cfg.node.httpPort}, {"error", ex.what()}});
-                return exitRuntime;
+                return rc;
             }
         }
         else if (_groups)
@@ -376,7 +371,117 @@ namespace mxlgw::app
 
         _housekeeping = std::thread([this] { housekeeping(); });
         _started = true;
-        log::info("gateway_started", {{"http_port", cfg.node.httpPort}, {"setup_mode", _setupMode}});
+        log::info("gateway_started", {{"http_port", cfg.node.httpPort},
+                                      {"web_port", cfg.node.effectiveWebPort()},
+                                      {"st2110_http_port", !_setupMode && cfg.node.st2110.enabled ? json(cfg.node.st2110HttpPort()) : json()},
+                                      {"host_address", _hostAddress},
+                                      {"setup_mode", _setupMode}});
+        return exitOk;
+    }
+
+    int Application::startHttp(config::Config const& cfg)
+    {
+        auto const webPort = cfg.node.effectiveWebPort();
+        try
+        {
+            if (_setupMode)
+            {
+                _http = nmosnode::createHttpServer(webPort, cfg.node.tls, _router);
+                _http->start();
+                log::info("setup_mode", {{"http_port", webPort}, {"details", "NIC not configured: only the admin UI is served"}});
+                return exitOk;
+            }
+            // G5: announce an IPv4 literal only, never a host name, 0.0.0.0 or 127.x.
+            std::string source = "config";
+            if (cfg.node.hostAddress)
+            {
+                _hostAddress = *cfg.node.hostAddress;
+            }
+            else if (!cfg.node.managementAddresses.empty())
+            {
+                _hostAddress = cfg.node.managementAddresses.front();
+                source = "management_addresses";
+            }
+            else if (auto const detected = util::defaultHostAddress())
+            {
+                _hostAddress = *detected;
+                source = "detected";
+            }
+            else
+            {
+                log::error("nmos_host_address_unknown", {{"details", "no non-loopback IPv4 address found; set NMOS_HOST_ADDRESS"}});
+                std::cerr << "mxl-st2110-gateway: no IPv4 address to announce in NMOS; set NMOS_HOST_ADDRESS\n";
+                return exitConfig;
+            }
+            log::info("nmos_host_address", {{"address", _hostAddress}, {"source", source}});
+
+            bool const separateWeb = webPort != cfg.node.httpPort;
+            auto makeSetup = [&](nmosnode::Side side)
+            {
+                nmosnode::Setup setup;
+                setup.side = side;
+                setup.config = cfg;
+                setup.interfaces = interfaces();
+                for (auto const& d : _domains)
+                {
+                    setup.domains.push_back({d.name, d.path, d.id});
+                }
+                setup.clock = clockInfo();
+                setup.connections = cfg.node.resumeConnections ? _connections.get() : nullptr;
+                setup.routes = side == nmosnode::Side::Mxl && !separateWeb ? &_router : nullptr;
+                setup.gatewayVersion = version::gateway;
+                setup.hostAddress = side == nmosnode::Side::St2110 && cfg.node.st2110.hostAddress ? *cfg.node.st2110.hostAddress : _hostAddress;
+                return setup;
+            };
+            auto makeCallbacks = [this]
+            {
+                nmosnode::Callbacks callbacks;
+                callbacks.activated = [this](nmosnode::Activation const& a) { onActivation(a); };
+                callbacks.resolveMxlDomain = [this](util::Uuid const& groupDomain, std::optional<util::Uuid> const& flow) -> std::optional<util::Uuid>
+                {
+                    if (auto const d = _resolver->resolveAuto(groupDomain, flow))
+                    {
+                        return d->id;
+                    }
+                    return std::nullopt;
+                };
+                callbacks.checkMxlFlow = [this](util::Uuid const& essence, std::optional<util::Uuid> const& domain, util::Uuid const& flow)
+                { return checkMxlFlow(essence, domain, flow); };
+                callbacks.domainAccessible = [this](util::Uuid const& id) { return _directory->findById(id).has_value(); };
+                return callbacks;
+            };
+            _node = nmosnode::createNode(makeSetup(nmosnode::Side::Mxl), makeCallbacks());
+            if (cfg.node.st2110.enabled)
+            {
+                _st2110Node = nmosnode::createNode(makeSetup(nmosnode::Side::St2110), makeCallbacks());
+            }
+            else
+            {
+                log::info("st2110_node_disabled", {{"details", "RTP Senders/Receivers follow the group defaults only"}});
+            }
+            _groups->apply(cfg);
+            if (separateWeb)
+            {
+                _http = nmosnode::createHttpServer(webPort, cfg.node.tls, _router);
+                _http->start();
+            }
+            _node->start();
+            if (_st2110Node)
+            {
+                _st2110Node->start();
+            }
+        }
+        catch (nmosnode::ListenError const& ex)
+        {
+            log::error("http_listen_failed", {{"port", ex.port()}, {"error", ex.what()}});
+            std::cerr << "mxl-st2110-gateway: " << ex.what() << "\n";
+            return exitTempFail;
+        }
+        catch (std::exception const& ex)
+        {
+            log::error("http_server_failed", {{"port", webPort}, {"error", ex.what()}});
+            return exitRuntime;
+        }
         return exitOk;
     }
 
@@ -406,8 +511,29 @@ namespace mxlgw::app
         _stopCv.notify_all();
     }
 
+    void Application::terminate(int signal)
+    {
+        log::info("shutdown_requested", {{"signal", signal == SIGINT ? "SIGINT" : "SIGTERM"}, {"timeout_s", shutdownTimeoutS()}});
+        _signalled.store(true);
+        stop(signal == SIGINT ? exitSigint : exitSigterm);
+    }
+
+    void Application::deregister(std::chrono::steady_clock::time_point deadline)
+    {
+        for (auto* node : {_node.get(), _st2110Node.get()})
+        {
+            if (node == nullptr)
+            {
+                continue;
+            }
+            auto const left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+            node->deregister(std::max(left, std::chrono::milliseconds(0)));
+        }
+    }
+
     void Application::shutdown()
     {
+        auto const begin = std::chrono::steady_clock::now();
         if (!_stopRequested.exchange(true))
         {
             _stopCv.notify_all();
@@ -416,21 +542,36 @@ namespace mxlgw::app
         {
             _housekeeping.join();
         }
-        // §8.4: stop media, release MXL writers/readers, destroy instances, then MTL.
-        if (_node)
-        {
-            _node->stop();
-            _node.reset();
-        }
-        if (_http)
-        {
-            _http->stop();
-            _http.reset();
-        }
+        // §14.4 / G8, while /readyz already answers 503 shutting_down:
+        // 1. stop media and release the MXL writers and readers (the group objects stay for /api/status);
         if (_control)
         {
             _control->stop();
         }
+        if (_groups)
+        {
+            auto empty = _store->snapshot().config;
+            empty.groups.clear();
+            _groups->apply(empty);
+        }
+        // 2. deregister: every resource is removed so the registries receive DELETEs (at most 3 s, within the timeout);
+        auto const budget = std::min<std::chrono::steady_clock::duration>(std::chrono::seconds(3), std::chrono::seconds(shutdownTimeoutS()) / 2);
+        deregister(begin + budget);
+        // 3. close the listeners, then release MXL instances and MTL;
+        for (auto* node : {_node.get(), _st2110Node.get()})
+        {
+            if (node != nullptr)
+            {
+                node->stop();
+            }
+        }
+        if (_http)
+        {
+            _http->stop();
+        }
+        _node.reset();
+        _st2110Node.reset();
+        _http.reset();
         _groups.reset();
         if (_clock)
         {
@@ -440,12 +581,66 @@ namespace mxlgw::app
         _domains.clear();
         _instances.clear();
         _backend.reset();
+        // 4. with mxl.cleanup_on_exit, remove the gateway's own domains (signal-initiated termination only).
+        if (_signalled.load() && _store && _store->snapshot().config.mxl.cleanupOnExit)
+        {
+            cleanupDomains();
+        }
         if (_started)
         {
-            log::info("gateway_stopped", {{"exit_code", _exitCode.load()}});
+            auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin).count();
+            log::info("gateway_stopped", {{"exit_code", _exitCode.load()}, {"shutdown_ms", ms}});
             _started = false;
         }
         log::drainNow();
+    }
+
+    void Application::cleanupDomains()
+    {
+        auto const scanPath = _store->snapshot().config.mxl.scanPath;
+        for (auto const& b : _bootstrap)
+        {
+            auto skip = [&](std::string const& reason) { log::warn("mxl_domain_cleanup_skipped", {{"domain", b.name}, {"path", b.path}, {"reason", reason}}); };
+            std::error_code ec;
+            auto const path = std::filesystem::weakly_canonical(b.path, ec);
+            if (scanPath && std::filesystem::weakly_canonical(*scanPath, ec) == path)
+            {
+                skip("the domain is the MXL root");
+                continue;
+            }
+            auto const text = util::readFile(mxlbridge::domainDefPath(b.path));
+            std::string error;
+            auto const def = text ? mxlbridge::parseDomainDef(*text, error) : std::nullopt;
+            if (!def || def->id != b.id)
+            {
+                skip(def ? "domain_def.json carries another id" : "no valid domain_def.json");
+                continue;
+            }
+            bool foreign = false;
+            for (auto const& entry : std::filesystem::directory_iterator(b.path, ec))
+            {
+                if (entry.is_directory() && std::filesystem::exists(entry.path() / "domain_def.json"))
+                {
+                    foreign = true; // a nested domain of someone else
+                }
+            }
+            for (auto const& f : mxlbridge::listFlowDirs(b.path, false))
+            {
+                foreign = foreign || mxlbridge::flowInUse(b.path, f.id);
+            }
+            if (foreign)
+            {
+                skip("another process still writes into the domain");
+                continue;
+            }
+            std::filesystem::remove_all(b.path, ec);
+            if (ec && std::filesystem::exists(b.path))
+            {
+                log::warn("mxl_domain_cleanup_failed", {{"domain", b.name}, {"path", b.path}, {"error", ec.message()}});
+                continue;
+            }
+            log::info("mxl_domain_removed_on_exit", {{"domain", b.name}, {"path", b.path}, {"id", b.id.toString()}});
+        }
     }
 
     void Application::countActivation(std::string const& kind, std::string const& transport, std::string const& result)
@@ -590,6 +785,10 @@ namespace mxlgw::app
                 if (_node)
                 {
                     result["nmos"] = _node->applyGroups(cfg);
+                }
+                if (_st2110Node)
+                {
+                    result["nmos_st2110"] = _st2110Node->applyGroups(cfg);
                 }
                 auto const applied = _groups->apply(cfg);
                 auto ids = [](std::vector<util::Uuid> const& v)
@@ -736,6 +935,10 @@ namespace mxlgw::app
                     }
                     _lastGmid = c.gmid;
                     _node->updateClock(c);
+                    if (_st2110Node)
+                    {
+                        _st2110Node->updateClock(c);
+                    }
                 }
             }
             std::unique_lock lock{_stopMutex};
@@ -941,8 +1144,36 @@ namespace mxlgw::app
         {
             return {{"enabled", false}, {"setup_mode", _setupMode}};
         }
+        // The MXL node's fields at the top level; Senders/Receivers of both nodes, each with "node".
         auto j = _node->status();
         j["enabled"] = true;
+        json nodes = json::array();
+        auto summary = [](json const& s)
+        {
+            json n = s;
+            n.erase("senders");
+            n.erase("receivers");
+            return n;
+        };
+        nodes.push_back(summary(j));
+        if (_st2110Node)
+        {
+            auto const st = _st2110Node->status();
+            nodes.push_back(summary(st));
+            for (auto const* list : {"senders", "receivers"})
+            {
+                for (auto const& e : st[list])
+                {
+                    j[list].push_back(e);
+                }
+            }
+            j["st2110"] = summary(st);
+        }
+        else
+        {
+            j["st2110"] = {{"enabled", false}};
+        }
+        j["nodes"] = nodes;
         return j;
     }
 
@@ -991,8 +1222,11 @@ namespace mxlgw::app
             std::lock_guard const lock{_cacheMutex};
             in.domainsOk = _domainsOk;
         }
+        in.registryConfigured = _node && cfg.node.registry.configured();
         in.nmosRegistered = _node && _node->registered();
-        in.registryAbsentIntended = !_options.withNmos;
+        in.st2110RegistryConfigured = _st2110Node && cfg.node.st2110.registry.configured();
+        in.st2110Registered = _st2110Node && _st2110Node->registered();
+        in.shuttingDown = _stopRequested.load();
         auto r = ops::evaluateReadiness(in);
         if (restartRequired())
         {
@@ -1014,7 +1248,15 @@ namespace mxlgw::app
                      {"label", cfg.node.label},
                      {"description", cfg.node.description},
                      {"http_port", cfg.node.httpPort},
-                     {"device_id", cfg.mxlNodeId().isNil() ? json() : json(ids::deviceId(cfg.mxlNodeId()).toString())}};
+                     {"web_port", cfg.node.effectiveWebPort()},
+                     {"host_address", _hostAddress.empty() ? json() : json(_hostAddress)},
+                     {"seeded", cfg.node.seed.has_value()},
+                     {"device_id", cfg.mxlNodeId().isNil() ? json() : json(ids::deviceId(cfg.mxlNodeId()).toString())},
+                     {"st2110",
+                      {{"enabled", cfg.node.st2110.enabled},
+                       {"id", cfg.mxlNodeId().isNil() ? json() : json(cfg.st2110NodeId().toString())},
+                       {"label", cfg.node.st2110Label()},
+                       {"http_port", cfg.node.st2110HttpPort()}}}};
         j["versions"] = {{"gateway", version::gateway},
                          {"mtl", version::mtl},
                          {"dpdk", version::dpdk},
@@ -1062,7 +1304,7 @@ namespace mxlgw::app
         }
         j["groups"] = groups;
         j["domains"] = domains();
-        j["nmos"] = _node ? _node->status() : json{{"enabled", false}};
+        j["nmos"] = nmos();
         return j;
     }
 
@@ -1092,7 +1334,14 @@ namespace mxlgw::app
             in.domains = _domainUsage;
             in.activations = _activations;
         }
-        in.nmosRegistered = _node && _node->registered();
+        if (_node)
+        {
+            in.nmosRegistered["mxl"] = _node->registered();
+        }
+        if (_st2110Node)
+        {
+            in.nmosRegistered["st2110"] = _st2110Node->registered();
+        }
         ops::MetricsWriter w;
         ops::exportMetrics(w, in);
         return w.render();

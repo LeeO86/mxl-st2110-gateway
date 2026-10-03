@@ -709,16 +709,7 @@ namespace mxlgw::config
     bool isAnnounceableIpv4(std::string const& text)
     {
         auto const ip = util::parseIpv4(text);
-        if (!ip)
-        {
-            return false;
-        }
-        auto const o = ip->octets();
-        if (ip->value == 0 || ip->value == 0xFFFFFFFFu || o[0] == 127 || o[0] == 0 || (o[0] == 169 && o[1] == 254) || util::isMulticast(*ip))
-        {
-            return false;
-        }
-        return true;
+        return ip && util::isAnnounceable(*ip);
     }
 
     CpuPlacement resolveCpuPlacement(Nic const& nic, std::set<int> const& allowedCpus)

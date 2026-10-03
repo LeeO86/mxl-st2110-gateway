@@ -49,7 +49,14 @@ namespace mxlgw::nmosnode
 
             void start() override
             {
-                _server->open().wait();
+                try
+                {
+                    _server->open().wait();
+                }
+                catch (std::exception const& ex)
+                {
+                    throw ListenError(_port, ex.what());
+                }
                 _open = true;
                 log::info("http_server_started", {{"port", _port}});
             }

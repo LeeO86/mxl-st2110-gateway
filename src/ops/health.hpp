@@ -22,8 +22,13 @@ namespace mxlgw::ops
         std::optional<std::int64_t> clockOffsetNs; // MTL − host CLOCK_TAI
         std::int64_t maxOffsetNs = 1'000'000;
         bool domainsOk = true;
+        /// MXL node: registration is only required when a registry is configured (DNS-SD or static, G7).
+        bool registryConfigured = false;
         bool nmosRegistered = false;
-        bool registryAbsentIntended = false;
+        /// ST 2110 node (node.st2110.registry).
+        bool st2110RegistryConfigured = false;
+        bool st2110Registered = false;
+        bool shuttingDown = false;
         std::vector<std::string> extraReasons;
     };
 

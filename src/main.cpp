@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // mxl-st2110-gateway — SMPTE ST 2110 <-> MXL gateway (SPECIFICATION.md).
+#include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -8,6 +10,7 @@
 #include <thread>
 
 #include <pthread.h>
+#include <unistd.h>
 
 #include "app/application.hpp"
 #include "mxlbridge/instance.hpp"
@@ -70,16 +73,36 @@ int main(int argc, char** argv)
     pthread_sigmask(SIG_BLOCK, &signals, nullptr);
 
     app::Application application(options);
+    std::atomic<bool> finished{false};
     std::thread signalThread(
         [&]
         {
             int sig = 0;
-            if (sigwait(&signals, &sig) == 0 && !application.stopping())
+            if (sigwait(&signals, &sig) != 0 || finished.load())
             {
-                application.stop(app::exitOk);
+                return;
+            }
+            int const code = sig == SIGINT ? app::exitSigint : app::exitSigterm;
+            if (!application.stopping())
+            {
+                application.terminate(sig);
+            }
+            // §14.4: the graceful shutdown is bounded by node.shutdown_timeout_s; nothing is waited for beyond it.
+            auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(application.shutdownTimeoutS());
+            while (!finished.load() && std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            if (!finished.load())
+            {
+                static char const message[] =
+                    "{\"level\":\"error\",\"event\":\"shutdown_timeout\",\"details\":\"graceful shutdown exceeded SHUTDOWN_TIMEOUT_S\"}\n";
+                [[maybe_unused]] auto const written = ::write(STDOUT_FILENO, message, sizeof(message) - 1);
+                std::_Exit(code);
             }
         });
     auto const rc = application.run();
+    finished.store(true);
     if (signalThread.joinable())
     {
         // Wake the signal thread if we stopped for another reason.

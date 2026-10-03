@@ -2,6 +2,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <memory>
@@ -41,7 +42,10 @@ namespace mxlgw::app
     /// Exit codes (§14.4).
     inline constexpr int exitOk = 0;
     inline constexpr int exitRuntime = 1;
-    inline constexpr int exitConfig = 78;
+    inline constexpr int exitTempFail = 75; // EX_TEMPFAIL: a listening port cannot be bound
+    inline constexpr int exitConfig = 78;   // EX_CONFIG
+    inline constexpr int exitSigint = 130;  // 128 + SIGINT
+    inline constexpr int exitSigterm = 143; // 128 + SIGTERM
 
     /// The gateway process: configuration, domains, media backend, groups, NMOS node and the
     /// HTTP routes on one port (§3.1). run() blocks until stop()/a signal and returns the exit code.
@@ -57,10 +61,16 @@ namespace mxlgw::app
         /// Starts everything; returns 0 on success or the exit code to terminate with.
         int start();
         void stop(int exitCode = exitOk);
+        /// SIGTERM/SIGINT (§14.4): graceful shutdown, exit 128 + signal, own domains removed with mxl.cleanup_on_exit.
+        void terminate(int signal);
         void shutdown();
         bool stopping() const { return _stopRequested.load(); }
+        int exitCode() const { return _exitCode.load(); }
+        /// node.shutdown_timeout_s of the loaded configuration (10 before it is loaded).
+        int shutdownTimeoutS() const { return _shutdownTimeoutS.load(); }
         group::GroupManager* groups() { return _groups.get(); }
         nmosnode::Node* node() { return _node.get(); }
+        nmosnode::Node* st2110Node() { return _st2110Node.get(); }
         ops::Router const& router() const { return _router; }
 
         // Services
@@ -84,6 +94,9 @@ namespace mxlgw::app
 
     private:
         int bootstrapDomains(config::Config const& cfg);
+        int startHttp(config::Config const& cfg);
+        void deregister(std::chrono::steady_clock::time_point deadline);
+        void cleanupDomains();
         void onActivation(nmosnode::Activation const& activation);
         std::string checkMxlFlow(util::Uuid const& essenceUid, std::optional<util::Uuid> const& domainId, util::Uuid const& flowId);
         void housekeeping();
@@ -97,7 +110,10 @@ namespace mxlgw::app
         std::unique_ptr<config::ConfigStore> _store;
         bool _setupMode = false;
         std::atomic<bool> _stopRequested{false};
+        std::atomic<bool> _signalled{false};
         std::atomic<int> _exitCode{exitOk};
+        std::atomic<int> _shutdownTimeoutS{10};
+        std::string _hostAddress;
         std::mutex _stopMutex;
         std::condition_variable _stopCv;
 
@@ -115,8 +131,9 @@ namespace mxlgw::app
         std::unique_ptr<ConnectionState> _connections;
         std::unique_ptr<ControlQueue> _control;
         ops::Router _router;
-        std::unique_ptr<nmosnode::Node> _node;
-        std::unique_ptr<nmosnode::HttpServer> _http;
+        std::unique_ptr<nmosnode::Node> _node;       // MXL node
+        std::unique_ptr<nmosnode::Node> _st2110Node; // ST 2110 node (node.st2110.enabled)
+        std::unique_ptr<nmosnode::HttpServer> _http; // setup mode, or the gateway routes on node.web_port
 
         mutable std::mutex _cacheMutex;
         std::vector<ops::ConfiguredDomainUsage> _domainUsage;

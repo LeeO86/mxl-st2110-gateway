@@ -95,6 +95,33 @@ TEST_CASE("ipv4")
     CHECK_FALSE(util::sameSubnet(*util::parseIpv4("10.1.1.21"), *util::parseIpv4("10.1.2.1"), *util::parseIpv4("255.255.255.0")));
 }
 
+TEST_CASE("host address detection (G5)")
+{
+    auto const routes = std::string("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                                    "cni0\t0000F40A\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+                                    "eth1\t00000000\t0102A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n"
+                                    "eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n");
+    CHECK(util::defaultRouteInterface(routes) == std::string("eth0"));
+    CHECK_FALSE(util::defaultRouteInterface("Iface\tDestination\n"));
+
+    std::vector<util::InterfaceAddress> const addresses{{"lo", "127.0.0.1"}, {"docker0", "172.17.0.1"}, {"eth0", "192.168.1.20"}, {"eth1", "169.254.3.3"}};
+    CHECK(util::pickHostAddress(addresses, std::string("eth0")) == std::string("192.168.1.20"));
+    CHECK(util::pickHostAddress(addresses, std::nullopt) == std::string("172.17.0.1"));        // first non-loopback
+    CHECK(util::pickHostAddress(addresses, std::string("eth1")) == std::string("172.17.0.1")); // link-local is skipped
+    CHECK_FALSE(util::pickHostAddress({{"lo", "127.0.0.1"}}, std::nullopt));
+
+    CHECK(util::isAnnounceable(*util::parseIpv4("10.0.0.1")));
+    CHECK_FALSE(util::isAnnounceable(*util::parseIpv4("0.0.0.0")));
+    CHECK_FALSE(util::isAnnounceable(*util::parseIpv4("127.1.2.3")));
+    CHECK_FALSE(util::isAnnounceable(*util::parseIpv4("224.0.0.251")));
+    auto const live = util::defaultHostAddress();
+    if (live)
+    {
+        CHECK(util::isAnnounceable(*util::parseIpv4(*live)));
+    }
+    CHECK_FALSE(util::allowedCpus().empty());
+}
+
 TEST_CASE("atomic write, mtime, fs inspection")
 {
     testutil::TempDir dir;

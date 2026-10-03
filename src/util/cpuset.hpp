@@ -17,4 +17,7 @@ namespace mxlgw::util
 
     /// CPUs present on this machine (/sys/devices/system/cpu/present); empty if unknown.
     std::set<int> presentCpus();
+
+    /// CPUs this process may run on (sched_getaffinity; the cgroup cpuset in a Kubernetes pod); empty if unknown.
+    std::set<int> allowedCpus();
 }

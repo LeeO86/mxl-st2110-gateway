@@ -107,10 +107,19 @@ TEST_CASE("readiness reasons (§10)")
     CHECK_FALSE(evaluateReadiness(in).ready);
     in.clockOffsetNs.reset();
 
+    // G7: registration counts only for a configured registry, per node.
     in.nmosRegistered = false;
-    CHECK(evaluateReadiness(in).reasons == std::vector<std::string>{"nmos_not_registered"});
-    in.registryAbsentIntended = true;
     CHECK(evaluateReadiness(in).ready);
+    in.registryConfigured = true;
+    CHECK(evaluateReadiness(in).reasons == std::vector<std::string>{"nmos_not_registered"});
+    in.nmosRegistered = true;
+    in.st2110RegistryConfigured = true;
+    CHECK(evaluateReadiness(in).reasons == std::vector<std::string>{"st2110_nmos_not_registered"});
+    in.st2110Registered = true;
+    CHECK(evaluateReadiness(in).ready);
+    in.shuttingDown = true;
+    CHECK(evaluateReadiness(in).reasons == std::vector<std::string>{"shutting_down"});
+    in.shuttingDown = false;
 
     ReadinessInputs setup;
     setup.setupMode = true;

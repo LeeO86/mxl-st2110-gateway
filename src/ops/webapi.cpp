@@ -245,7 +245,15 @@ namespace mxlgw::ops
                       return validationFailed(result.errors);
                   }
                   services.markRestartRequired("import");
-                  return HttpResponse::json({{"restart_required", true}, {"keep_ids", keepIds}, {"etag", services.store().snapshot().etag}});
+                  // ?restart=true: restore and apply in one call (graceful exit 0, the orchestrator restarts the container).
+                  bool const restart = req.queryParam("restart") == "true";
+                  if (restart)
+                  {
+                      services.requestRestart();
+                  }
+                  return HttpResponse::json(
+                      {{"restart_required", !restart}, {"restarting", restart}, {"keep_ids", keepIds}, {"etag", services.store().snapshot().etag}},
+                      restart ? 202 : 200);
               });
         r.add("POST", "/api/config/validate",
               [&services](HttpRequest const& req)

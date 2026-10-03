@@ -4,6 +4,8 @@
 #include <doctest/doctest.h>
 
 #include <chrono>
+#include <csignal>
+#include <filesystem>
 #include <thread>
 
 #include "app/application.hpp"
@@ -178,8 +180,103 @@ TEST_CASE("running gateway: bootstrap, live groups, domains and metrics")
 
     CHECK(call(gw, "POST", "/api/restart").status == 202);
     CHECK(gw.stopping());
+    CHECK(gw.exitCode() == app::exitOk);
     gw.shutdown();
 
     // §8.4: nothing of ours is left in the domain after a clean stop.
     CHECK(util::readFile(root.file("main/domain_def.json")).has_value());
+}
+
+TEST_CASE("NMOS_SEED: seed-derived domain id, nothing written back; /api/v1 aliases (G3, G10)")
+{
+    testutil::TempDir root;
+    if (!root.tmpfs())
+    {
+        MESSAGE("skipped: no tmpfs for the MXL domain (set MXLGW_TEST_TMPFS)");
+        return;
+    }
+    testutil::TempDir configDir(false);
+    auto const path = configDir.file("gateway.json");
+    auto cfg = testutil::sampleConfig(root.file("main"));
+    cfg["mxl"]["scan_path"] = root.path();
+    cfg["node"].erase("id");
+    cfg["node"]["log_level"] = "warn";
+    testutil::writeFile(path, cfg.dump(2));
+    auto const before = *util::readFile(path);
+
+    app::Application gw(options(path, {{"NMOS_SEED", "prod1-gw"}}));
+    REQUIRE(gw.start() == app::exitOk);
+    auto const ns = config::seedNamespaceOf("prod1-gw");
+    auto const def = json::parse(*util::readFile(root.file("main/domain_def.json")));
+    CHECK(def["id"] == util::uuidV5(ns, "mxl-domain:main").toString());
+    CHECK(*util::readFile(path) == before); // neither a node id nor a domain id written back
+
+    auto const status = body(call(gw, "GET", "/api/v1/status"));
+    CHECK(status["node"]["id"] == util::uuidV5(ns, "node").toString());
+    CHECK(status["node"]["st2110"]["id"] == util::uuidV5(ns, "st2110-node").toString());
+    CHECK(status["node"]["seeded"] == true);
+    CHECK(call(gw, "GET", "/api/v1/config/export").body == before);
+    ops::HttpRequest unknown;
+    unknown.method = "GET";
+    unknown.path = "/api/v1/nonexistent";
+    CHECK_FALSE(gw.router().dispatch(unknown).has_value()); // nmos-cpp's finally handler answers 404
+    gw.shutdown();
+}
+
+TEST_CASE("SIGTERM: exit 143, own domain removed with MXL_CLEANUP_ON_EXIT (G8)")
+{
+    testutil::TempDir root;
+    if (!root.tmpfs())
+    {
+        MESSAGE("skipped: no tmpfs for the MXL domain (set MXLGW_TEST_TMPFS)");
+        return;
+    }
+    testutil::TempDir configDir(false);
+    auto const path = configDir.file("gateway.json");
+    auto cfg = testutil::sampleConfig(root.file("gw"));
+    cfg["mxl"]["scan_path"] = root.path();
+    cfg["node"]["log_level"] = "warn";
+    testutil::writeFile(path, cfg.dump(2));
+    testutil::writeFile(root.file("other/domain_def.json"),
+                        R"({"id": "b2b2b2b2-0000-4000-8000-00000000b002", "label": "other", "description": "", "tags": {}})");
+
+    SUBCASE("cleanup enabled")
+    {
+        app::Application gw(options(path, {{"MXL_CLEANUP_ON_EXIT", "true"}, {"SHUTDOWN_TIMEOUT_S", "5"}}));
+        REQUIRE(gw.start() == app::exitOk);
+        CHECK(gw.shutdownTimeoutS() == 5);
+        CHECK(util::readFile(root.file("gw/domain_def.json")).has_value());
+        gw.terminate(SIGTERM);
+        CHECK(body(call(gw, "GET", "/readyz"))["reasons"].back() == "shutting_down");
+        gw.shutdown();
+        CHECK(gw.exitCode() == app::exitSigterm);
+        CHECK_FALSE(std::filesystem::exists(root.file("gw")));
+        CHECK(std::filesystem::exists(root.file("other/domain_def.json"))); // never another function's domain
+    }
+    SUBCASE("cleanup enabled, but domain_def.json was replaced by someone else")
+    {
+        app::Application gw(options(path, {{"MXL_CLEANUP_ON_EXIT", "true"}}));
+        REQUIRE(gw.start() == app::exitOk);
+        testutil::writeFile(root.file("gw/domain_def.json"), R"({"id": "c3c3c3c3-0000-4000-8000-00000000c003", "label": "x", "description": "", "tags": {}})");
+        gw.terminate(SIGINT);
+        gw.shutdown();
+        CHECK(gw.exitCode() == app::exitSigint);
+        CHECK(std::filesystem::exists(root.file("gw/domain_def.json")));
+    }
+    SUBCASE("cleanup disabled (default) or not signal-initiated")
+    {
+        {
+            app::Application gw(options(path));
+            REQUIRE(gw.start() == app::exitOk);
+            gw.terminate(SIGTERM);
+            gw.shutdown();
+            CHECK(std::filesystem::exists(root.file("gw/domain_def.json")));
+        }
+        app::Application gw(options(path, {{"MXL_CLEANUP_ON_EXIT", "true"}}));
+        REQUIRE(gw.start() == app::exitOk);
+        CHECK(call(gw, "POST", "/api/restart").status == 202);
+        gw.shutdown();
+        CHECK(gw.exitCode() == app::exitOk);
+        CHECK(std::filesystem::exists(root.file("gw/domain_def.json")));
+    }
 }
