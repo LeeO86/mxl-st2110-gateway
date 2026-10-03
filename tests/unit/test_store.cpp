@@ -31,6 +31,19 @@ TEST_CASE("missing file creates the minimal configuration with a node id")
     CHECK(again.snapshot().config.node.id == s.config.node.id);
 }
 
+TEST_CASE("NMOS_SEED: no node id is generated or written back")
+{
+    testutil::TempDir dir;
+    config::ConfigStore store(dir.file("config/gateway.json"), testutil::envFrom({{"NMOS_SEED", "prod1-gw"}}));
+    CHECK(store.load() == config::ConfigStore::LoadResult::CreatedMinimal);
+    auto const s = store.snapshot();
+    CHECK_FALSE(s.config.node.id);
+    CHECK(s.config.mxlNodeId() == util::uuidV5(config::seedNamespaceOf("prod1-gw"), "node"));
+    auto const onDisk = json::parse(*util::readFile(dir.file("config/gateway.json")));
+    CHECK((!onDisk["node"].contains("id") || onDisk["node"]["id"].is_null()));
+    CHECK_FALSE(onDisk["node"].contains("seed")); // environment values are never written into the file
+}
+
 TEST_CASE("invalid file is rejected and not rewritten")
 {
     testutil::TempDir dir;

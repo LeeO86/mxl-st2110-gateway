@@ -3,6 +3,12 @@
 
 #include <filesystem>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include "config/config.hpp"
 #include "helpers.hpp"
 #include "ops/preflight.hpp"
 #include "util/fs.hpp"
@@ -171,6 +177,31 @@ TEST_CASE("preflight: kernel and mock backends, ports, domains on tmpfs")
     CHECK(find(mrr, "http-port")->level == ops::CheckLevel::Info);
     CHECK(std::string(ops::toName(ops::CheckLevel::Info)) == "info");
     CHECK(ops::effectiveCapabilities("/nonexistent") == 0);
+}
+
+TEST_CASE("a port in use is a warning: the listener exits 75 (G6)")
+{
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    REQUIRE(fd >= 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    REQUIRE(::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+    REQUIRE(::listen(fd, 1) == 0);
+    socklen_t len = sizeof(addr);
+    ::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len);
+    auto c = config::parseAndValidate(testutil::sampleConfig()).config.value();
+    c.node.httpPort = 30000;
+    c.node.st2110.httpPort = ntohs(addr.sin_port);
+    ops::PreflightEnv env;
+    env.sysRoot = "/nonexistent";
+    auto const r = ops::runPreflight(c, env);
+    ::close(fd);
+    auto const* port = find(r, "http-port");
+    REQUIRE(port != nullptr);
+    CHECK(port->level == ops::CheckLevel::Warn);
+    CHECK(port->message.find("node.st2110.http_port") != std::string::npos);
+    CHECK(port->message.find("exit 75") != std::string::npos);
 }
 
 TEST_CASE("README has a section for every preflight check family")

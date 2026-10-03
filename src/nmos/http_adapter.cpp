@@ -29,9 +29,12 @@ namespace mxlgw::nmosnode
                     return;
                 }
                 auto const level = message.level();
-                auto const lvl = level >= slog::severities::error     ? log::Level::Error
-                                 : level >= slog::severities::warning ? log::Level::Warn
-                                                                      : log::Level::Debug;
+                auto lvl = level >= slog::severities::error ? log::Level::Error : level >= slog::severities::warning ? log::Level::Warn : log::Level::Debug;
+                // nmos-cpp reports this on every discovery round, also with DNS-SD off and a static registry.
+                if (message.str().rfind("Did not discover a suitable Registration API via DNS-SD", 0) == 0)
+                {
+                    lvl = log::Level::Debug;
+                }
                 log::write(lvl, "external_log", {{"component", "nmos"}, {"message", message.str()}});
             }
 

@@ -105,14 +105,16 @@ namespace mxlgw::mxlbridge
             result.description = existing->description;
             if (domain.id && *domain.id != existing->id)
             {
-                log::warn("domain_id_mismatch", {{"domain", domain.name},
-                                                 {"path", domain.path},
-                                                 {"config_id", domain.id->toString()},
-                                                 {"domain_def_id", existing->id.toString()},
-                                                 {"from_environment", options.idFromEnvironment}});
+                // G2: an error, but domain_def.json is never overwritten; its id stays the domain's identity.
+                log::error("domain_id_mismatch", {{"domain", domain.name},
+                                                  {"path", domain.path},
+                                                  {"config_id", domain.id->toString()},
+                                                  {"domain_def_id", existing->id.toString()},
+                                                  {"from_environment_or_seed", options.idNotPersisted},
+                                                  {"details", "domain_def.json is kept; the gateway uses its id"}});
                 result.warnings.emplace_back("domain_id_mismatch");
             }
-            if (!options.idFromEnvironment && (!domain.id || *domain.id != existing->id))
+            if (!options.idNotPersisted && (!domain.id || *domain.id != existing->id))
             {
                 result.writeBackId = existing->id;
             }
@@ -132,7 +134,7 @@ namespace mxlgw::mxlbridge
                                      {{"domain", domain.name}, {"path", defPath}, {"error", ex.what()}});
             }
             result.domainDefCreated = true;
-            if (!domain.id && !options.idFromEnvironment)
+            if (!domain.id && !options.idNotPersisted)
             {
                 result.writeBackId = result.id;
             }

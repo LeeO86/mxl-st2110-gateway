@@ -11,7 +11,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 | C1 | `node.http_port` 8080 collides with mxl-decklink under host networking | Keep 8080; solve co-location at deployment level (env override, Compose port mapping, reverse proxy) | `MXLGW_HTTP_PORT` alias; `node.public_address` / `public_port` feed nmos-cpp's `proxy_map`; preflight warns about sibling ports; fabrics examples use 8090 |
 | C2 | Environment variables were bootstrap-only | Precedence **env > file > default** for every scalar of `node`, `nic`, `ptp`, `mxl` (mxl-decklink model) | Env-set keys are read-only in the UI, rejected by `/api` with a per-field error, never written back (also not generated ids) |
 | C3 | BCP-007-03 says reject an inaccessible `mxl_domain_id`; mxl-fabrics-agent `MIRROR_MODE=on-demand` creates the mirror only after activation | Accept the unknown domain, log `mxl_domain_unknown` (rate-limited), wait | Deliberate deviation from BCP-007-03 (R11); the receiver's `mxl_domain_id` constraint is `{}`; BCP-007-03-01 does not exercise it; documented in `docs/conformance.md` |
-| C4 | Fixed 500 ms polling for missing flows | Backoff 500 ms → 5 s, ±10 % jitter, while `master_enable` | `util::Backoff`; `mxlgw_mxl_flow_not_found_total` counts attempts |
+| C4 | Fixed 500 ms polling for missing flows | Backoff 500 ms → 5 s, ±10 % jitter, while `master_enable` | `util::Backoff`; `mxl_st2110_gateway_mxl_flow_not_found_total` counts attempts |
 | C5 / Q8 | Flow id only from the essence uid kept the id across format changes | Flow id = UUIDv5(essence uid, `"flow:" + canonical format`) | A format edit mints a new flow; NMOS is updated before the new writer commits (§7.3) |
 | C6 | Config id vs. existing `domain_def.json` | `domain_def.json` wins; the adopted id is written back to the config | `domain_id_mismatch` warning, then write-back; skipped when the id comes from the environment |
 | C7 | Host MXL root path | `/Volumes/mxl` like the siblings; each container maps it to its own path | Identity always comes from `domain_def.json`, never from a path |
@@ -66,7 +66,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Consequence: tests need `sudo` for `ip`/`nsenter`; documented in `tests/integration/lib.sh`.
 
 ### 2026-10-01 — Loopback test: bad audio blocks only when MTL's own counters explain them
-- Context: on the kernel-socket backend one MTL scheduler issues ~200 000 `sendto` calls per second for the two video legs and reads the legs' sockets one after the other. On a loaded 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`, counted in `mxlgw_tx_late_frames_total`), or loses a packet on both legs (its "unrecovered (lost on both)" statistic), which `mxl-verify` sees as a bad audio block. The kernel backend has no pacing guarantees (§17.2, R8).
+- Context: on the kernel-socket backend one MTL scheduler issues ~200 000 `sendto` calls per second for the two video legs and reads the legs' sockets one after the other. On a loaded 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`, counted in `mxl_st2110_gateway_tx_late_frames_total`), or loses a packet on both legs (its "unrecovered (lost on both)" statistic), which `mxl-verify` sees as a bad audio block. The kernel backend has no pacing guarantees (§17.2, R8).
 - Decision: `loopback.sh` accepts bad audio blocks only if late audio frames plus twice the both-legs-lost audio packets of the same window cover them (one lost 1 ms packet can touch two verify blocks); video, ANC, offsets and A/V alignment must always be exact.
 - Consequence: the test stays strict about the gateway's data path while tolerating the test backend's scheduling; on DPDK hardware late frames and unrecovered packets must be zero (`docs/performance.md`).
 - Addendum: the same rule covers video — invalid video grains (the ingest marks frames with lost packets invalid) are accepted only up to the incomplete, dropped and late video frames the gateways counted in the window; bars, frame counters and timecode must be exact. The rule lives in `tests/integration/lib.sh` (`verify_media`) and is used by `loopback.sh` and `late-flow.sh`.
@@ -98,8 +98,8 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Addendum (first GitHub run): on AppArmor hosts (Ubuntu runners) dbus-daemon refuses D-Bus clients confined by Docker's `docker-default` profile, which has no D-Bus rules; nmos-cpp reports `DNSServiceBrowse reported error: -65553` (`kDNSServiceErr_Refused`). The Compose files run the gateway with `security_opt: ["apparmor=unconfined"]`, the Kubernetes manifests with `appArmorProfile: {type: Unconfined}`, the nmos-testing script likewise when AppArmor is enabled. The container stays unprivileged with only `IPC_LOCK` and `SYS_NICE`; a custom AppArmor profile allowing `dbus send … peer=(name=org.freedesktop.Avahi)` is the stricter alternative. The `DNSServiceCreateConnection … -65544` error logged at start comes from nmos-cpp's address-record registration, which Avahi's compatibility layer does not support; it is harmless.
 
 ### 2026-10-01 — PTP series only when MTL runs PTP
-- Context: with `ptp.mode = external` or the kernel backend MTL has no PTP instance; exporting `mxlgw_ptp_locked 0` showed a red "UNLOCKED".
-- Decision: all `mxlgw_ptp_*` series are absent in that case; the dashboard shows "external / no MTL PTP".
+- Context: with `ptp.mode = external` or the kernel backend MTL has no PTP instance; exporting `mxl_st2110_gateway_ptp_locked 0` showed a red "UNLOCKED".
+- Decision: all `mxl_st2110_gateway_ptp_*` series are absent in that case; the dashboard shows "external / no MTL PTP".
 - Consequence: alert rules should use `absent()` only together with the configured mode.
 
 ### 2026-10-01 — Imports are blocked after a hand edit
@@ -113,6 +113,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Consequence: drop both when nmos-cpp fixes its package.
 
 ### 2026-10-01 — Single-port HTTP with nmos-cpp
+- Superseded in part on 2026-10-03: the ST 2110 node has its own port and `node.web_port` can move the gateway routes to a separate listener; without `web_port` the routes stay on the MXL node's port as described here.
 - Context: §10 wants every route on `node.http_port`.
 - Decision: mount the gateway router on nmos-cpp's node listener (`server.api_routers[{{}, node_port}]`) after removing nmos-cpp's catch-all handler, then re-add it (VERIFIED in `src/nmos/http_adapter.hpp`). Setup mode uses a bare cpprest listener with the same router.
 - Consequence: `/x-nmos/…` stays nmos-cpp's; the gateway routes never shadow it.
@@ -125,7 +126,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 ### 2026-10-01 — Pins only in the Dockerfile and `ci.yaml`
 - Context: AGENTS.md hard rule.
 - Decision: CMake reports the pins it is given (`-DMXLGW_PIN_*`, passed by the Dockerfile build stage) and defaults to `unknown`; `nmos-testing.sh` reads `NMOS_TESTING_REF` from `ci.yaml`; `container.yaml` uses the Dockerfile defaults; a CI step compares both files.
-- Consequence: a local CMake build reports `unknown` pins in `mxlgw_build_info` (MXL's own version is read at runtime).
+- Consequence: a local CMake build reports `unknown` pins in `mxl_st2110_gateway_build_info` (MXL's own version is read at runtime).
 
 ### 2026-10-01 — MXL's own log output
 - Context: §13 redirects MTL and DPDK logs into the gateway's JSON stream. MXL v1.1.0 logs through its private spdlog instance.
@@ -136,6 +137,66 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Context: nmos-cpp is built once with gcc in the deps stage; libFuzzer coverage comes only from instrumented code.
 - Decision: `fuzz-sdp` instruments the gateway code and sanitizes the whole process; nmos-cpp's parser runs uninstrumented (crashes and aborts are still found, coverage guidance is weaker).
 - Consequence: acceptable for §18 ("never crashes"); a dedicated nmos-cpp fuzz build would need a second nmos-cpp compilation.
+
+### 2026-10-03 — Platform guideline G1–G14: two NMOS nodes in one process
+- Context: the platform's MXL registry must not hold the gateway's ST 2110 resources (RTP Senders/Receivers), but a single nmos-cpp node registers everything in its model with one registry.
+- Decision: the process runs two nmos-cpp nodes. The **MXL node** (`node.http_port` = `NMOS_PORT`) holds the Sources/Flows/MXL Senders of ingest groups and the MXL Receivers of egress groups and registers with `node.registry`. The **ST 2110 node** (`node.st2110.http_port`, default `NMOS_PORT + 1`) holds the RTP Receivers of ingest groups and the Sources/Flows/RTP Senders of egress groups, with its own `node.st2110.registry` (none by default) and `node.st2110.enabled` (default true). Ids: MXL node = `node.id` or UUIDv5(seed namespace, `"node"`); ST 2110 node = UUIDv5(MXL node id, `"st2110-node"`) or UUIDv5(seed namespace, `"st2110-node"`); each node has its own device, UUIDv5(node id, `"device"`).
+- Consequence: an extra listening port (inside the platform's `P`/`P+1` reservation); controllers find RTP resources on the ST 2110 node. Each device now holds either the Receiver or the Sender of an essence, so the BCP-002-01 hints are `<group>:<Role> <n>` again for both (resolves O-5). nmos-testing runs IS-04/IS-05 against both nodes.
+
+### 2026-10-03 — Standard environment names, aliases and conflicts
+- Context: G1 requires the platform's names; deployed configurations use the `MXLGW_*` names.
+- Decision: the platform names are canonical (`NMOS_*`, `MXL_*`, `WEB_PORT`, `SHUTDOWN_TIMEOUT_S`), the old names stay as aliases. Two variables of one setting with different values are a configuration error (exit 78) instead of "canonical wins".
+- Consequence: no silent precedence between an old deployment variable and a new platform variable.
+
+### 2026-10-03 — IP literals only, default host address
+- Context: G5: hrefs, `api.endpoints`, IS-05 hrefs and SDP must carry IP literals from `NMOS_HOST_ADDRESS`, default "the first non-loopback IPv4". With host networking on a Kubernetes node the first interface is often a CNI bridge.
+- Decision: `node.host_address` (aliases `MXLGW_NODE_HOST_ADDRESS`, `MXLGW_NODE_PUBLIC_ADDRESS`, file key `public_address`) must be an announceable IPv4 literal (no hostname, `0.0.0.0`, `127/8`, link-local, multicast). Default: the deprecated `management_addresses[0]` if set, else the IPv4 of the default-route interface, else the first non-loopback, non-link-local IPv4 (`src/util/net.cpp`). nmos-cpp runs with `href_mode = 2` (addresses) and `host_addresses` = the host address (plus deprecated management addresses). The SDP origin is the media port IP (nmos-cpp `get_origin_address`).
+- Consequence: a deployed `public_address` hostname now fails with exit 78 (listed in the CHANGELOG); the default-route rule is a refinement of "first non-loopback" (open question O-7).
+
+### 2026-10-03 — DNS-SD off by default
+- Context: G4: `NMOS_DNS_SD` default false; off disables browsing and mDNS; no Avahi/D-Bus.
+- Decision: `node.registry.dns_sd` (default null = true only for the deprecated `mode: "dns-sd"`). Off: nmos-cpp `pri` = `highest_pri` = `lowest_pri` = `no_priority` (VERIFIED in `src/nmos/node.cpp`); nmos-cpp connects to the DNS-SD daemon lazily, so nothing touches D-Bus. `node.registry.port` defaults to 3210; the query address/port are reported only (the gateway does not query).
+- Consequence: a configuration without `registry` no longer waits for DNS-SD. The minimal configuration and the examples no longer contain `mode: "dns-sd"`; files that do keep DNS-SD.
+
+### 2026-10-03 — Readiness and registration
+- Context: G7: `/readyz` 200 only when serving and, with a registry configured, registered.
+- Decision: registration is required per node when its registry is configured (`dns_sd` or an address); reasons `nmos_not_registered` (MXL node) and `st2110_nmos_not_registered`. `shutting_down` while stopping.
+- Consequence: a node without a registry (peer to peer) is ready; before, the default DNS-SD made every gateway without a registry permanently not ready.
+
+### 2026-10-03 — Seed-derived ids
+- Context: G3: `NMOS_SEED` → UUIDv5 for every id and the default output domain id.
+- Decision: seed namespace = UUIDv5(URL namespace, `"urn:x-mxl-st2110-gateway:seed:" + seed`). Essence id namespace = UUIDv5(seed namespace, essence `uid`) instead of the `uid` (all §7.3 derivations unchanged on top of it). Domain id without a configured one = UUIDv5(seed namespace, `"mxl-domain:" + name`). With a seed nothing is generated or written back (`node.id` is ignored with the warning `node_id_ignored`).
+- Consequence: the same production seed and configuration give the same ids on any host; another seed gives other ids. Without a seed nothing changes.
+
+### 2026-10-03 — Domain id mismatch
+- Context: G2: an existing `domain_def.json` with another id must be an error and never be overwritten; §8.3 (owner decision C6) let the file win with a warning and wrote its id back.
+- Decision: `domain_id_mismatch` is logged as an **error**, the file is kept and its id used; the write-back of C6 stays for ids that are neither from the environment nor from the seed.
+- Consequence: the gateway still starts (the domain's identity is its file); the error is visible on every start while the id comes from the environment or the seed.
+
+### 2026-10-03 — Shutdown, deregistration and cleanup
+- Context: G8: SIGTERM → stop media and release MXL, deregister, optionally remove only the own output domain, exit 143 within `SHUTDOWN_TIMEOUT_S` (default 10).
+- Decision: order: control thread stopped, groups removed (MTL sessions stopped, writers/readers released), every node resource erased (children first, the node last) so nmos-cpp's registration thread sends the DELETEs, waiting at most min(3 s, timeout/2) for the node's own DELETE, listeners closed, MXL instances and MTL released, then with `mxl.cleanup_on_exit` the configured domains removed — only if their `domain_def.json` carries the gateway's id, no other process holds a writer lock on a flow, the directory holds no nested domain and it is not the MXL root. A watchdog in `main.cpp` exits after `SHUTDOWN_TIMEOUT_S`. Exit 143 (SIGTERM) / 130 (SIGINT); `/api/restart` and import `?restart=true` still exit 0 and never remove domains.
+- Consequence: a rolling update with cleanup enabled re-creates the domain (same id) on start; readers in other functions see the flows disappear during the restart.
+
+### 2026-10-03 — Exit 75 for listeners
+- Context: G6: a port that cannot be bound → exit 75.
+- Decision: `nmosnode::ListenError` from the MXL node, the ST 2110 node and the web/setup listener → `EX_TEMPFAIL` (75). Other runtime failures keep exit 1.
+- Consequence: orchestrators can tell port collisions from configuration errors (78).
+
+### 2026-10-03 — Image user and labels
+- Context: G11: uid 1000 (root only where hardware needs it), OCI labels incl. `io.dmf.mxl.revision`.
+- Decision: `USER 1000:1000` (the base image's `ubuntu` user), `/config` owned by 1000. DPDK deployments run as `0:1000` because VFIO group device nodes are root-owned; group 1000 plus `umask 002` keep MXL files writable for the uid-1000 media functions. `MXL_REVISION` is a pin next to `MXL_REF` (Dockerfile + `ci.yaml`), checked against the cloned commit, and becomes `io.dmf.mxl.revision`; `VCS_REF` → `org.opencontainers.image.revision`.
+- Consequence: setup mode and the mock backend run as uid 1000 (smoke and lifecycle tests); the kernel-backend tests run as `0:1000` (hugetlbfs).
+
+### 2026-10-03 — CPUs from the affinity
+- Context: platform scan: `nic.lcores`/`app_cpus` fixed in the configuration instead of following the kubelet cpuset.
+- Decision: dpdk backend with `nic.lcores` unset: the first `nic.lcore_count` (default 4) CPUs of `sched_getaffinity`, keeping at least one for the gateway's threads; `nic.app_cpus` unset: the rest. kernel/mock backends keep MTL's own choice.
+- Consequence: no NUMA preference for derived lcores (set `nic.lcores` explicitly for that).
+
+### 2026-10-03 — Release v1.0.0 before the hardware acceptance
+- Context: Phase 9 ties `v1.0.0` to the §19 hardware acceptance; the owner asked to release `v1.0.0` once G1–G14 are met.
+- Decision: the owner's request wins; the open hardware items stay listed in `docs/acceptance.md` (O-4).
+- Consequence: `v1.0.0` is a stable configuration/API/metrics contract; hardware findings are fixed in `1.x` releases.
 
 ## Dependencies
 
@@ -157,6 +218,12 @@ All other dependencies are the pinned ones of §2 (MTL, DPDK, MXL, nmos-cpp and 
 |---|---|---|
 | O-1 | Q14: should a malformed SDP also be a 400 (it is a client error) instead of nmos-cpp's 500? | 500 kept (nmos-cpp behaviour); format mismatch is 400 |
 | O-2 | §15.2: does `CAP_IPC_LOCK` alone lift `RLIMIT_MEMLOCK` enough for vfio DMA pinning on the target containerd, or does the runtime need a memlock ulimit? (**VERIFY** on the cluster) | Manifests rely on `IPC_LOCK`; the entrypoint warns when memlock is not unlimited |
-| O-3 | §12.1 names (`mxlgw_*_ns`) are a public interface, but Phase 6 asks that `/metrics` "passes `promtool check metrics`", whose lint rejects abbreviated units. Rename to base units (`_seconds`) before v1.0? | Names kept as specified; `check-metrics.sh` tolerates only that finding |
+| O-3 | §12.1 names (`mxl_st2110_gateway_*_ns`) are a public interface, but Phase 6 asks that `/metrics` "passes `promtool check metrics`", whose lint rejects abbreviated units. Rename to base units (`_seconds`) before v1.0? | Names kept as specified; `check-metrics.sh` tolerates only that finding |
 | O-4 | `docs/acceptance.md` §19 items 3–6, 10–12 and 14 need the E810 hosts, a grandmaster and the operator's controller (Q12: manual) | Templates in `docs/acceptance.md` / `docs/performance.md` |
-| O-5 | §7.2 gives Senders and Receivers of an essence the same group-hint role, which IS-04-01 rejects. Which role naming does the owner prefer for Receivers? | `<Role> <n> Input` for Receivers; Senders/Flows/Sources unchanged |
+| O-5 | §7.2 gives Senders and Receivers of an essence the same group-hint role, which IS-04-01 rejects. Which role naming does the owner prefer for Receivers? | Resolved 2026-10-03 by the two NMOS nodes: each device holds either the Receiver or the Sender of an essence, so both use `<group>:<Role> <n>` |
+| O-6 | Should the ST 2110 node register with the MXL node's registry when no ST 2110 registry is configured? | No: it runs peer to peer unless `node.st2110.registry` is set (the platform forbids ST 2110 resources in the MXL registry) |
+| O-7 | G5 says "default the first non-loopback IPv4"; on Kubernetes nodes the first interface is often a CNI bridge | Default-route interface first, then the first non-loopback, non-link-local address |
+| O-8 | Is a domain id mismatch (G2 "log an error") fatal? | Not fatal: error logged, `domain_def.json` kept and its id used |
+| O-9 | Should `MXL_CLEANUP_ON_EXIT` also apply to `/api/restart` and import restarts? | No: only SIGTERM/SIGINT |
+| O-10 | Can DPDK run as uid 1000 (VFIO device ownership from the security context, memlock without `CAP_IPC_LOCK`)? Untested without hardware | Examples run the gateway as `0:1000` |
+| O-11 | Should `_ns` metric names move to base units before the v1.0 contract (O-3)? | Kept; a rename would be a 2.0 change |

@@ -11,6 +11,7 @@
 #include "nmos/http_adapter.hpp"
 #include "nmos/node_api.hpp"
 #include "util/logging.hpp"
+#include "util/net.hpp"
 
 namespace mxlgw::nmosnode
 {
@@ -49,8 +50,21 @@ namespace mxlgw::nmosnode
 
             void start() override
             {
-                _server->open().wait();
+                try
+                {
+                    _server->open().wait();
+                }
+                catch (std::exception const& ex)
+                {
+                    throw ListenError(_port, ex.what());
+                }
                 _open = true;
+                // nmos::server::open_listeners() swallows listener errors (see node.cpp).
+                if (!util::processListensOn(_port))
+                {
+                    stop();
+                    throw ListenError(_port, "the port is in use or cannot be bound");
+                }
                 log::info("http_server_started", {{"port", _port}});
             }
 

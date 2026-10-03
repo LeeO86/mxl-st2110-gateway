@@ -10,7 +10,7 @@
 # timecode ANC continuity, A/V alignment within one audio block, RTP timestamp = grain time + the
 # 2-grain output delay, a second 8-channel audio essence, the IS-05 path (SDP from the egress Sender
 # into the ingest Receiver), and leg-R loss that leaves the output intact while
-# mxlgw_rx_leg_seq_lost_total{leg="r"} grows. Needs root (sudo), docker and hugepages.
+# mxl_st2110_gateway_rx_leg_seq_lost_total{leg="r"} grows. Needs root (sudo), docker and hugepages.
 source "$(dirname "$0")/lib.sh"
 
 IMAGE="${1:?usage: loopback.sh <image>}"
@@ -24,8 +24,11 @@ SRC_V=55555555-5555-4555-8555-000000000001
 SRC_A1=55555555-5555-4555-8555-000000000002
 SRC_ANC=55555555-5555-4555-8555-000000000003
 SRC_A2=55555555-5555-4555-8555-000000000004
+# MXL node / ST 2110 node of each gateway (§7.1)
 GWE=http://127.0.0.1:18181
+GWE2110=http://127.0.0.1:18191
 GWI=http://192.168.79.2:18182
+GWI2110=http://192.168.79.2:18192
 
 ensure_hugepages 1024
 make_mxl_root "$WORK/mxl" 3g
@@ -52,7 +55,7 @@ gateway_config() { # <label> <port> <if-p> <ip-p> <if-r> <ip-r> <lcores> <group>
     cat <<EOF
 {
   "schema_version": 1,
-  "node": {"label": "$1", "http_port": $2, "registry": {"mode": "static", "address": "127.0.0.1", "port": 9}},
+  "node": {"label": "$1", "http_port": $2, "st2110": {"http_port": $(($2 + 10))}},
   "nic": {"backend": "kernel", "lcores": "$7", "port_pairs": [{"name": "media",
           "primary":   {"name": "media-p", "ifname": "$3", "ip": "$4", "netmask": "255.255.255.0"},
           "redundant": {"name": "media-r", "ifname": "$5", "ip": "$6", "netmask": "255.255.255.0"}}]},
@@ -85,8 +88,8 @@ for e in V A1 A2 ANC; do
     rid=$(nmos_id "$GWE" receivers "PGM $e")
     patch_staged "$GWE" receivers "$rid" "{\"master_enable\": true, \"activation\": {\"mode\": \"activate_immediate\"},
         \"transport_params\": [{\"mxl_domain_id\": \"$DOMAIN_ID\", \"mxl_flow_id\": \"${SRC[$e]}\"}]}"
-    sid=$(nmos_id "$GWE" senders "PGM $e")
-    patch_staged "$GWE" senders "$sid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
+    sid=$(nmos_id "$GWE2110" senders "PGM $e")
+    patch_staged "$GWE2110" senders "$sid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
 done
 for e in V A1 A2 ANC; do
     wait_until 30 "egress PGM $e running" essence_state_is "$GWE" "PGM $e" running
@@ -94,13 +97,13 @@ done
 
 log "connecting the ingest Receivers with the egress Senders' SDP files"
 for e in V A1 A2 ANC; do
-    sid=$(nmos_id "$GWE" senders "PGM $e")
-    sdp=$(curl -fsS "$GWE/x-nmos/connection/v1.2/single/senders/$sid/transportfile")
+    sid=$(nmos_id "$GWE2110" senders "PGM $e")
+    sdp=$(curl -fsS "$GWE2110/x-nmos/connection/v1.2/single/senders/$sid/transportfile")
     grep -q "a=group:DUP" <<<"$sdp" || fail "egress SDP of PGM $e has no DUP group"
-    rid=$(nmos_id "$GWI" receivers "LOOP $e")
+    rid=$(nmos_id "$GWI2110" receivers "LOOP $e")
     body=$(python3 -c 'import json,sys; print(json.dumps({"sender_id": sys.argv[1], "master_enable": True,
         "activation": {"mode": "activate_immediate"}, "transport_file": {"data": sys.argv[2], "type": "application/sdp"}}))' "$sid" "$sdp")
-    patch_staged "$GWI" receivers "$rid" "$body"
+    patch_staged "$GWI2110" receivers "$rid" "$body"
     msid=$(nmos_id "$GWI" senders "LOOP $e")
     patch_staged "$GWI" senders "$msid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
 done
@@ -123,9 +126,13 @@ done
 ACCT_EGRESS="$GWE"
 ACCT_INGEST="$GWI"
 ACCT_INGEST_CONTAINER="$IT_PREFIX-ingest"
-ACCT_AUDIO_TX=('mxlgw_tx_late_frames_total{essence="PGM A1"}' 'mxlgw_tx_late_frames_total{essence="PGM A2"}')
-ACCT_VIDEO_TX=('mxlgw_tx_late_frames_total{essence="PGM V"}')
-ACCT_VIDEO_RX=('mxlgw_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxlgw_rx_frames_total{essence="LOOP V",result="dropped"}')
+ACCT_AUDIO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM A1"}' 'mxl_st2110_gateway_tx_late_frames_total{essence="PGM A2"}')
+ACCT_VIDEO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM V"}')
+ACCT_VIDEO_RX=('mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="dropped"}')
+ACCT_AUDIO_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM A1"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM A1"}'
+    'mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM A2"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM A2"}')
+ACCT_VIDEO_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM V"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM V"}')
+ACCT_ANC_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM ANC"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM ANC"}')
 verify() { # <report.json> <mxl-verify arguments...>
     local report="$1"
     shift
@@ -141,7 +148,7 @@ verify "$IT_ARTIFACTS/loopback-verify-a2.json" --audio-flow "$LOOP_A2" --rate 25
 pass "loopback media verified"
 
 log "dropping 5 % of leg R"
-lost_before=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
+lost_before=$(metric "$GWI" 'mxl_st2110_gateway_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
 # MTL's kernel backend receives with UDP sockets, so a netfilter rule in the ingest namespace drops
 # packets before they reach it (nft numgen: xt_statistic is not available on every kernel).
 in_netns "$IT_PREFIX-ns" nft add table inet mxlit
@@ -151,9 +158,9 @@ sleep 3
 verify "$IT_ARTIFACTS/loopback-verify-leg-loss.json" --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
     --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms 10000 --expect-offset-grains 2 ||
     { cat "$IT_ARTIFACTS/loopback-verify-leg-loss.json" >&2; fail "output not intact with leg R loss"; }
-lost_after=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
+lost_after=$(metric "$GWI" 'mxl_st2110_gateway_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
 python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) + 100 else 1)" "${lost_before:-0}" "${lost_after:-0}" ||
-    fail "mxlgw_rx_leg_seq_lost_total{leg=\"r\"} did not grow ($lost_before -> $lost_after)"
+    fail "mxl_st2110_gateway_rx_leg_seq_lost_total{leg=\"r\"} did not grow ($lost_before -> $lost_after)"
 in_netns "$IT_PREFIX-ns" nft delete table inet mxlit
 pass "leg R loss: output intact, leg r lost $lost_before -> $lost_after"
 

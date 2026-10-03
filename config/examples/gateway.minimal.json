@@ -5,8 +5,6 @@
     "label": "mxl-st2110-gateway",
     "description": "ST 2110 <-> MXL gateway",
     "http_port": 8080,
-    "management_addresses": [],
-    "registry": { "mode": "dns-sd" },
     "resume_connections": true,
     "log_level": "info"
   },

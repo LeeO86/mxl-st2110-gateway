@@ -9,7 +9,7 @@
 
 namespace mxlgw::group
 {
-    /// Essence states (§12.1 `mxlgw_essence_state`, §5.8).
+    /// Essence states (§12.1 `mxl_st2110_gateway_essence_state`, §5.8).
     enum class EssenceState
     {
         Idle,

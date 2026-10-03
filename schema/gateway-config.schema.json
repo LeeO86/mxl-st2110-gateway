@@ -102,12 +102,23 @@
       "properties": {
         "id": {
           "$ref": "#/$defs/uuidOrNull",
-          "description": "Node seed id; generated on first start and written back."
+          "description": "MXL node id when node.seed is not set; generated on first start and written back. Ignored when node.seed is set.",
+          "default": null
+        },
+        "seed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Seed for every NMOS id (nodes, devices, sources, flows, senders, receivers) and the default ids of configured MXL domains (UUIDv5, §7.3). Seed-derived ids are never written back.",
+          "default": null
         },
         "label": {
           "type": "string",
           "maxLength": 128,
-          "description": "Node and Device label (IS-04).",
+          "description": "MXL node label; also the prefix of the device labels (IS-04).",
           "default": "mxl-st2110-gateway"
         },
         "description": {
@@ -116,22 +127,56 @@
           "description": "Node and Device description (IS-04).",
           "default": "ST 2110 <-> MXL gateway"
         },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "IS-04 tags added to both nodes and their devices (JSON object of string arrays). Senders and Receivers keep their BCP-002-01 group hints.",
+          "default": {}
+        },
         "http_port": {
           "$ref": "#/$defs/port",
-          "description": "The single HTTP port (NMOS, UI, API, metrics, health).",
+          "description": "Port of the MXL node's IS-04 Node API and IS-05 Connection API; also serves the UI, /api, /metrics and health unless node.web_port is set.",
           "default": 8080
         },
-        "public_address": {
+        "web_port": {
           "anyOf": [
             {
-              "type": "string",
-              "minLength": 1
+              "$ref": "#/$defs/port"
             },
             {
               "type": "null"
             }
           ],
-          "description": "Address advertised in NMOS hrefs (reverse proxy).",
+          "description": "Separate port for the admin UI, /api, /metrics and health; null = node.http_port.",
+          "default": null
+        },
+        "host_address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "IPv4 literal announced in NMOS hrefs and api.endpoints; null = IPv4 of the default-route interface, else the first non-loopback IPv4. Never a hostname, 0.0.0.0 or 127.x.",
+          "default": null
+        },
+        "public_address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Deprecated alias of node.host_address.",
           "default": null
         },
         "public_port": {
@@ -151,30 +196,32 @@
           "items": {
             "$ref": "#/$defs/ipv4"
           },
-          "description": "Management IPs; empty = all non-DPDK interfaces.",
+          "description": "Deprecated: additional IPv4 addresses announced in api.endpoints; empty = only node.host_address.",
           "default": []
         },
         "registry": {
+          "$ref": "#/$defs/registry",
+          "description": "Registry of the MXL node (the platform's MXL registry)."
+        },
+        "st2110": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "mode": {
-              "enum": [
-                "dns-sd",
-                "static"
-              ],
-              "description": "dns-sd: discover the registry via DNS-SD; static: use address and port.",
-              "default": "dns-sd"
+            "enabled": {
+              "type": "boolean",
+              "description": "Run the ST 2110 node (RTP Receivers of ingest groups, RTP Senders of egress groups). false = RTP connections only from the group defaults.",
+              "default": true
             },
-            "address": {
+            "label": {
               "type": [
                 "string",
                 "null"
               ],
-              "description": "Registry host for mode static.",
+              "maxLength": 128,
+              "description": "ST 2110 node and device label; null = node.label + \" ST 2110\".",
               "default": null
             },
-            "port": {
+            "http_port": {
               "anyOf": [
                 {
                   "$ref": "#/$defs/port"
@@ -183,11 +230,27 @@
                   "type": "null"
                 }
               ],
-              "description": "Registry port for mode static.",
+              "description": "Port of the ST 2110 node's IS-04 Node API and IS-05 Connection API; null = node.http_port + 1.",
               "default": null
+            },
+            "host_address": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ipv4"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "IPv4 literal announced by the ST 2110 node; null = the MXL node's host address.",
+              "default": null
+            },
+            "registry": {
+              "$ref": "#/$defs/registry",
+              "description": "Registry of the ST 2110 node (the facility's ST 2110 registry); none by default, so the ST 2110 node never registers with the MXL registry."
             }
           },
-          "description": "NMOS registry discovery."
+          "description": "Second NMOS node for the ST 2110 side (§7.1)."
         },
         "tls": {
           "type": "object",
@@ -232,6 +295,74 @@
           ],
           "description": "Gateway log level (MTL/DPDK messages are mapped onto it).",
           "default": "info"
+        },
+        "shutdown_timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "description": "SIGTERM: upper bound for the graceful shutdown (media stop, MXL release, NMOS deregistration, domain cleanup); the process exits 143 at the latest after this time.",
+          "default": 10
+        }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dns_sd": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Discover the registry with DNS-SD and advertise the node with mDNS (needs Avahi). null = true only if the deprecated mode is \"dns-sd\".",
+          "default": null
+        },
+        "mode": {
+          "enum": [
+            "dns-sd",
+            "static"
+          ],
+          "description": "Deprecated: \"dns-sd\" = dns_sd true, \"static\" = dns_sd false with address and port."
+        },
+        "address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Registration API host (IPv4 or DNS name); null = no static registry.",
+          "default": null
+        },
+        "port": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/port"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Registration API port; null = 3210.",
+          "default": null
+        },
+        "query_address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Query API host (reported in /api/nmos; the gateway does not query); null = registry address.",
+          "default": null
+        },
+        "query_port": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/port"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Query API port; null = registry port + 1.",
+          "default": null
         }
       }
     },
@@ -316,15 +447,22 @@
             "string",
             "null"
           ],
-          "description": "MTL lcores as a CPU list (e.g. \"4-9\"); disjoint from app_cpus.",
+          "description": "MTL lcores as a CPU list (e.g. \"4-9\"); disjoint from app_cpus. null = dpdk backend: the first nic.lcore_count CPUs of the process's CPU affinity (Kubernetes cpuset); kernel/mock: MTL's choice.",
           "default": null
+        },
+        "lcore_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128,
+          "description": "Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend).",
+          "default": 4
         },
         "app_cpus": {
           "type": [
             "string",
             "null"
           ],
-          "description": "CPU list for the gateway worker threads (optional).",
+          "description": "CPU list for the gateway worker threads; null = dpdk backend: the CPUs of the affinity not used as lcores.",
           "default": null
         },
         "hugepage_socket": {
@@ -503,8 +641,13 @@
           "items": {
             "$ref": "#/$defs/domain"
           },
-          "description": "Configured domains: the only domains the gateway writes to.",
+          "description": "Configured domains: the only domains the gateway writes to. The first one is the output domain of MXL_OUTPUT_DOMAIN_*.",
           "default": []
+        },
+        "cleanup_on_exit": {
+          "type": "boolean",
+          "description": "On SIGTERM/SIGINT remove the directories of the configured domains after the MXL writers are released (only if their domain_def.json carries the gateway's id and no other process writes a flow there).",
+          "default": false
         }
       }
     },

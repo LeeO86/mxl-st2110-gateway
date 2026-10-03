@@ -43,13 +43,13 @@ Every **VERIFY** item touched in a phase MUST be resolved in that phase: confirm
 - Video ingest (§6.1) with v210 conversion into the grain (resolve R1) and video egress with user timestamp/pacing.
 - Kernel-backend loopback test for video (`tests/integration/loopback.sh`, video only).
 
-**Accept:** CI loopback video: frame counter continuous for 60 s, no unconverted RFC 4175 in grains (verify pixel values of the colour bars); unit test of the patch API via a stub; on hardware (record in `docs/acceptance.md`): PTP lock on E810 PF, GM identity shown, `mxlgw_clock_mtl_minus_host_tai_ns` within 10 µs with a correctly configured host.
+**Accept:** CI loopback video: frame counter continuous for 60 s, no unconverted RFC 4175 in grains (verify pixel values of the colour bars); unit test of the patch API via a stub; on hardware (record in `docs/acceptance.md`): PTP lock on E810 PF, GM identity shown, `mxl_st2110_gateway_clock_mtl_minus_host_tai_ns` within 10 µs with a correctly configured host.
 
 ## Phase 4 — Audio, ANC, ST 2022-7, egress sync
 
 - Audio ingest/egress (§6.2), ANC ingest/egress (§6.3), egress sync groups and `output_delay` (§5.7), redundancy on both directions (§4.3), `update_source`/`update_destination` paths (§7.5).
 
-**Accept:** CI loopback full group (1 V + 2 A × 8 ch + 1 ANC): tone frequency/level exact, timecode continuous, A/V alignment within ±1 audio block; leg-loss simulation on the kernel backend (drop leg R) keeps output intact and increments `mxlgw_rx_leg_seq_lost_total{leg="r"}`.
+**Accept:** CI loopback full group (1 V + 2 A × 8 ch + 1 ANC): tone frequency/level exact, timecode continuous, A/V alignment within ±1 audio block; leg-loss simulation on the kernel backend (drop leg R) keeps output intact and increments `mxl_st2110_gateway_rx_leg_seq_lost_total{leg="r"}`.
 
 ## Phase 5 — NMOS
 
@@ -82,3 +82,80 @@ Every **VERIFY** item touched in a phase MUST be resolved in that phase: confirm
 - Execute §19 acceptance criteria on E810 2×25G and 2×100G with the operator's PTP and NMOS environment; measure §18 capacity targets; record in `docs/acceptance.md` and `docs/performance.md`; fix findings.
 
 **Accept:** all §19 items pass → tag `v1.0.0`.
+
+---
+
+## Platform guideline G1–G14 (MXL PoC platform, v1.0.0 contract)
+
+Audit of `main` at `bf66966` against the platform guideline, before the v1.0.0 work. Status: **met**, **gap** or **N/A**. Evidence is `file:line` at that commit.
+
+| # | Requirement | Status | Evidence (bf66966) | Planned change |
+|---|---|---|---|---|
+| G1 | env > file > defaults; unknown env ignored; invalid value → exit 78 with a clear message | met | `src/config/env.cpp:242-287` (only listed variables are read), `env.cpp:256-259`, `src/app/application.cpp:226-231` | alias conflicts (canonical and alias set to different values) become exit 78 instead of "canonical wins" |
+| G1 | every setting in one table (README or SPEC) | gap | `docs/configuration.md` has one table per section, none in README/SPEC | generated single settings table in README (`tools/gen_config_docs.py`) |
+| G1 | own state only under one configurable dir (default `/config`) | met | `src/app/application.cpp:30-33` (`state/` beside the config file), `src/config/store.cpp:186-199`, `MXLGW_CONFIG` | document |
+| G1 | secrets never logged | met | no secrets in the configuration; TLS key is a file path (`schema/gateway-config.schema.json:209-216`) | document |
+| G2 | `MXL_DOMAIN_SCAN_PATH` (default `/Volumes/mxl`) | met | `src/config/env.cpp:80` (alias), `src/config/config.hpp:183` | make it the canonical name |
+| G2 | `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`; create the domain if missing | gap | only `MXLGW_MXL_DOMAIN_<NAME>_*` for domains already in the file (`env.cpp:307-327`); creation `src/mxlbridge/bootstrap.cpp:92-98` | map to `mxl.domains[0]` (created as `main` when the file has none) |
+| G2 | existing `domain_def.json` with another id → error, not overwritten | gap | `bootstrap.cpp:106-114` logs a **warning** | log `domain_id_mismatch` as error; never overwrite |
+| G2 | never write into another function's domain; never rewrite domain files on every start | met | `bootstrap.cpp:67-90` (mirror refusal), `bootstrap.cpp:100-140`, `142-173` (create only if missing) | — |
+| G2 | `history_duration` configurable | met | `schema/gateway-config.schema.json:458-467`, `env.cpp:324` | add `MXL_OUTPUT_DOMAIN_HISTORY_DURATION_NS` |
+| G3 | `NMOS_SEED` → UUIDv5 for node, device, sources, flows, senders, receivers, default output domain id | gap | node id from `node.id` (`src/nmos/node.cpp:190-191`), essence ids from config uids (`src/nmos/ids.cpp:8-16`), domain id generated (`bootstrap.cpp:122`) | `node.seed`: seed namespace for every id, no write-back of seed-derived ids |
+| G3 | `NMOS_LABEL` = node label and device label prefix | gap | `MXLGW_NODE_LABEL` only (`env.cpp:57`), `node.cpp:536-539` | `NMOS_LABEL` canonical, `MXLGW_NODE_LABEL` alias |
+| G3 | `NMOS_TAGS` JSON object on node and device; BCP-002 group hints kept | gap | group hints `node.cpp:106-113`; no node/device tags | `node.tags` (`NMOS_TAGS`) |
+| G4 | `NMOS_REGISTRY_ADDRESS`/`_PORT`, `NMOS_QUERY_ADDRESS` (default registry address), `NMOS_QUERY_PORT` (default port + 1) | gap | `MXLGW_NODE_REGISTRY_*` (`env.cpp:65-67`), static only with `mode: static` (`node.cpp:462-467`) | standard names canonical, query settings reported in `/api/nmos` |
+| G4 | `NMOS_DNS_SD` default false; off = no browse, no mDNS; no Avahi/D-Bus needed | gap | default `dns-sd` (`config.hpp:192`); `pri`/`highest_pri` never set (`node.cpp:420-479`); Avahi mounts in `docker/docker-compose.yaml:36-39`, `deploy/k8s/deployment.yaml:57-61,80-81,100-108` | `node.registry.dns_sd` (default false, legacy `mode` maps onto it); off → `pri` = `highest_pri` = `no_priority`; drop the Avahi mounts |
+| G5 | announce IP literals only, from `NMOS_HOST_ADDRESS`, default first non-loopback IPv4; old settings as aliases | gap | `node.cpp:438-452`: empty management addresses → nmos-cpp announces every interface address (CNI included); `public_address` may be a hostname (`schema:124-136`); `href_mode` not set | `node.host_address` (IPv4 literal, validated), `href_mode` = addresses, `public_address`/`MXLGW_NODE_PUBLIC_ADDRESS` as aliases |
+| G6 | every listening port configurable by env, no hard-coded ports, two instances per host | met | single port `node.http_port` (`env.cpp:59`), optional APIs disabled (`node.cpp:431-437`) | add `NMOS_PORT`, `WEB_PORT` (optional separate UI/API port) and the ST 2110 node port |
+| G6 | port cannot be bound → exit 75 | gap | `application.cpp:366-370` returns 1 | exit 75 (`EX_TEMPFAIL`) for every listener |
+| G7 | `/livez`; `/readyz` 200 only when serving and, with a registry configured, registered | gap | `src/ops/webapi.cpp:159-165`; `src/ops/health.cpp:51` requires registration whenever NMOS runs, also without a registry | registration required only for a configured registry (per node) |
+| G7 | `/metrics` with prefix `mxl_st2110_gateway_` | gap | prefix `mxlgw_` (`src/ops/metrics_export.cpp`) | rename (code, docs, dashboard, tests) |
+| G8 | SIGTERM → stop media and release MXL, deregister, optional own-domain cleanup (`MXL_CLEANUP_ON_EXIT`), exit 143 within `SHUTDOWN_TIMEOUT_S` (default 10) | gap | `src/main.cpp:65-86` exits 0; `application.cpp:409-449` sets `model.shutdown` only (no DELETE); no cleanup; no timeout | ordered shutdown, resources erased before shutdown (DELETEs), cleanup of configured domains, watchdog, exit 143 (SIGINT 130) |
+| G9 | Senders report active `mxl_domain_id`/`mxl_flow_id`; Receivers take a staged PATCH; `master_enable=false` stops reading; connection survives restart (SHOULD) | met | `node.cpp:757-783`, `787-829`, `594-623` (`resume_connections`); BCP-007-03-01 in CI (`tests/integration/nmos-testing.sh`) | restart persistence covered by the new lifecycle test |
+| G10 | `GET /api/v1/config/export`, `POST /api/v1/config/import` restore the configuration; secrets omitted unless requested | gap | `/api/config/export|import` only (`webapi.cpp:222-249`); no secrets in the file | `/api/v1/*` aliases of every `/api` route; import `?restart=true`; document "no secrets" |
+| G11 | CI pushes `ghcr.io/leeo86/mxl-st2110-gateway`: main → `git-<sha7>` + `nightly-dev`; `vX.Y.Z` → `X.Y.Z`, `X.Y`, `X` | met | `.github/workflows/container.yaml:57-72` (also `latest` on releases) | — |
+| G11 | runtime uid 1000 (root only where hardware needs it, documented) | gap | no `USER` in `docker/Dockerfile:158-204` | `USER 1000:1000`; DPDK deployments run as root (VFIO), documented |
+| G11 | OCI labels `source`, `revision`, `licenses`, `io.dmf.mxl.revision` | gap | `Dockerfile:196-200` (no source/revision outside CI, no `io.dmf.mxl.revision`) | build args `VCS_REF`, `MXL_REVISION` (pinned, verified against the clone) |
+| G11 | tags never moved; examples reference existing tags only | gap | manifests use the moving `nightly-dev` (`deploy/k8s/deployment.yaml:28,37`) | reference `:1.0.0` |
+| G12 | k8s example: host network allowed, standard env names, probes `/livez` `/readyz`, `terminationGracePeriodSeconds` > `SHUTDOWN_TIMEOUT_S`, MXL root hostPath, writable `/config`, no `hostIPC`, minimal capabilities | gap | `deployment.yaml:23,25,64-75,77-108`; legacy env names, AppArmor unconfined and D-Bus/Avahi mounts | standard env, no Avahi/AppArmor, `SHUTDOWN_TIMEOUT_S` |
+| G13 | README settings table, ports, exit codes 0/75/78/143, API list, platform section; CHANGELOG 1.0.0; SPEC matches code | gap | README has none of these sections | write them |
+| G14 | unit tests for config and new behaviour; integration test start → ready → SIGTERM → deregistered, own domain removed; CI green | gap | `tests/unit/test_env.cpp`, `test_config.cpp`; no lifecycle test | unit tests + `tests/integration/lifecycle.sh` with a mock registry |
+| — | ST 2110-side NMOS resources must not register with the platform's MXL registry | gap | one nmos-cpp node holds RTP and MXL resources (`node.cpp:625-856`) | two nodes in one process: MXL node (platform registry) and ST 2110 node (own port, own optional registry) |
+| — | `nic.lcores`/`app_cpus` from the kubelet cpuset | gap | fixed in the config (`src/mtl/mtl_backend.cpp:412-416`) | dpdk backend: empty `nic.lcores` → first `nic.lcore_count` CPUs of `sched_getaffinity`, `app_cpus` = the rest |
+
+### Result after the v1.0.0 work (branch `cursor/platform-v1-fa5c`)
+
+Every requirement is **met** (none N/A). Evidence at the final commit of the branch; tests in brackets.
+
+| # | Requirement | Status | Evidence |
+|---|---|---|---|
+| G1 | env > file > defaults, unknown ignored, invalid → 78 | met | `src/config/env.cpp:292` (only listed variables), `env.cpp:333` (alias conflict), `src/app/application.cpp:212-242` (78) [`test_env.cpp` "aliases…", "unknown variables are ignored", `smoke.sh` conflict → 78] |
+| G1 | every setting in one table | met | `README.md:154` "Settings" (generated, `tools/gen_config_docs.py --check` in CI) |
+| G1 | own state under one configurable dir | met | `src/app/application.cpp:33` (`state/` beside `MXLGW_CONFIG`), README "config volume" |
+| G1 | secrets never logged | met | no secrets in the schema (TLS = paths); README "Configuration" |
+| G2 | `MXL_DOMAIN_SCAN_PATH` | met | `src/config/env.cpp:102` |
+| G2 | `MXL_OUTPUT_DOMAIN_DIR`/`_ID`, created if missing | met | `src/config/env.cpp:374`, `src/mxlbridge/bootstrap.cpp:92-98` [`test_env.cpp` "output domain variables", `lifecycle.sh`] |
+| G2 | other id in `domain_def.json` → error, not overwritten | met | `src/mxlbridge/bootstrap.cpp:109` [`test_bootstrap.cpp`] |
+| G2 | never another function's domain, no rewrite on start | met | `bootstrap.cpp:67-90`, `:100-176`; cleanup guards `src/app/application.cpp:598` [`test_application.cpp` "SIGTERM…", `lifecycle.sh` sibling domain] |
+| G2 | `history_duration` configurable | met | `schema/gateway-config.schema.json:596`, `src/config/env.cpp:437` |
+| G3 | `NMOS_SEED` → UUIDv5 for every id and the output domain id | met | `src/config/config.cpp:655`, `:673`, `src/nmos/ids.cpp:31`, `src/app/application.cpp:159` [`test_config.cpp` "node.seed…", `test_store.cpp`, `test_application.cpp`, `lifecycle.sh` ids from Python `uuid5`] |
+| G3 | `NMOS_LABEL`, `NMOS_TAGS`, group hints | met | `src/config/env.cpp:63-67`, `src/nmos/node.cpp:652-656` [`lifecycle.sh` label/tags/hints in the registry] |
+| G4 | registry/query settings | met | `src/nmos/node.cpp:572`, `:460` (query reported) [`test_config.cpp` "registry…"] |
+| G4 | `NMOS_DNS_SD` default false, no browse/mDNS/Avahi | met | `src/nmos/node.cpp:566` (`no_priority`) [`lifecycle.sh` without D-Bus, log check] |
+| G5 | IP literals only, `NMOS_HOST_ADDRESS`, default | met | `src/nmos/node.cpp:549` (`href_mode` 2), `src/config/config.cpp:944`, `src/util/net.cpp:160`, `src/app/application.cpp:405` [`test_config.cpp` "host address…", `test_util.cpp`, `lifecycle.sh` href/endpoints] |
+| G6 | ports by env, two instances | met | `NMOS_PORT`/`WEB_PORT`/`MXLGW_NODE_ST2110_HTTP_PORT` in `src/config/env.cpp` [`lifecycle.sh` second instance] |
+| G6 | bind failure → 75 | met | `src/nmos/node.cpp:268`, `src/nmos/http_server.cpp:63`, `src/app/application.cpp:478` [`lifecycle.sh` taken port → 75, `test_preflight.cpp`] |
+| G7 | `/livez`, `/readyz` with registry rule | met | `src/ops/health.cpp:51`, `:61` [`test_ops.cpp`, `lifecycle.sh` ready after registration] |
+| G7 | `/metrics` prefix `mxl_st2110_gateway_` | met | `src/ops/metrics_export.cpp:212` (all names) [`check-metrics.sh`, `test_app_core.cpp`] |
+| G8 | SIGTERM: media stop, MXL release, deregister, cleanup, 143 within timeout | met | `src/app/application.cpp:534`, `:559`, `:598`, `src/nmos/node.cpp:283`, `src/main.cpp:89-94` [`test_application.cpp` "SIGTERM…", `lifecycle.sh` 6 DELETEs, node last, domain removed, exit 143] |
+| G9 | IS-05/BCP-007-03 behaviour, restart persistence | met | BCP-007-03-01 zero failures (`docs/conformance.md`) [`lifecycle.sh` restart] |
+| G10 | `/api/v1/config/export|import` | met | `src/ops/http.cpp:91`, `src/ops/webapi.cpp:248` [`test_application.cpp` "/api/v1", `lifecycle.sh`] |
+| G11 | GHCR tags | met | `.github/workflows/container.yaml:57-72` |
+| G11 | uid 1000, root only for DPDK (documented) | met | `docker/Dockerfile:205`, README "Users and permissions" [`lifecycle.sh`, `smoke.sh` as uid 1000] |
+| G11 | OCI labels + `io.dmf.mxl.revision` | met | `docker/Dockerfile:216`, `:55` (verified clone) [`lifecycle.sh` label check] |
+| G11 | tags never moved, examples on existing tags | met | manifests use `:1.0.0` (published by the `v1.0.0` tag) |
+| G12 | k8s example | met | `deploy/k8s/deployment.yaml:28`, `:48` (standard env), probes, hostPath, PVC, no `hostIPC`, `IPC_LOCK`+`SYS_NICE` [kubeconform in CI] |
+| G13 | docs | met | `README.md:100` (platform), `:272` (exit codes), `:284` (users), "Admin UI and REST API" (API v1), port table; `CHANGELOG.md` 1.0.0; SPECIFICATION.md 1.3 |
+| G14 | unit + lifecycle integration test, CI green | met | `tests/integration/lifecycle.sh:180`, `.github/workflows/ci.yaml:177` |
+| — | ST 2110 node not in the MXL registry | met | `src/nmos/node.cpp:771`, `src/app/application.cpp:456` [`lifecycle.sh` registry holds MXL resources only] |
+| — | CPUs from the cpuset | met | `src/config/config.cpp:715`, `src/app/application.cpp:321` [`test_config.cpp` "CPU placement…"] |

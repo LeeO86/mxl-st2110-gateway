@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 
 #include "cpprest/host_utils.h"
 #include "nmos/activation_mode.h"
@@ -22,6 +23,7 @@
 #include "nmos/interlace_mode.h"
 #include "nmos/is04_versions.h"
 #include "nmos/log_model.h"
+#include "nmos/mdns.h"
 #include "nmos/media_type.h"
 #include "nmos/model.h"
 #include "nmos/mxl.h"
@@ -48,6 +50,7 @@
 #include "nmos/node_api.hpp"
 #include "nmos/sdp_parse.hpp"
 #include "util/logging.hpp"
+#include "util/net.hpp"
 
 namespace mxlgw::nmosnode
 {
@@ -112,11 +115,19 @@ namespace mxlgw::nmosnode
             r.data[U("tags")][U("urn:x-nmos:tag:grouphint/v1.0")] = value_of({value::string(us(hint))});
         }
 
-        /// BCP-002-01 roles must be unique within a group across Senders and Receivers (IS-04-01 test_23); an
-        /// essence's Receiver and Sender would otherwise share "<Role> <n>" (docs/decisions.md, open question O-5).
-        std::string receiverHint(std::string const& hint)
+        value tagsOf(config::Tags const& tags)
         {
-            return hint + " Input";
+            value t = value::object();
+            for (auto const& [key, values] : tags)
+            {
+                value list = value::array();
+                for (auto const& v : values)
+                {
+                    web::json::push_back(list, value::string(us(v)));
+                }
+                t[us(key)] = list;
+            }
+            return t;
         }
 
         void label(nmos::resource& r, std::string const& l, std::string const& d)
@@ -168,6 +179,11 @@ namespace mxlgw::nmosnode
         }
     }
 
+    char const* toName(Side side)
+    {
+        return side == Side::Mxl ? "mxl" : "st2110";
+    }
+
     /// One Sender or Receiver of ours.
     struct ResourceRef
     {
@@ -187,8 +203,9 @@ namespace mxlgw::nmosnode
             : _setup(std::move(setup))
             , _callbacks(std::move(callbacks))
         {
-            _nodeId = us(_setup.config.node.id->toString());
-            _deviceId = us(ids::deviceId(*_setup.config.node.id).toString());
+            auto const nodeId = mxl() ? _setup.config.mxlNodeId() : _setup.config.st2110NodeId();
+            _nodeId = us(nodeId.toString());
+            _deviceId = us(ids::deviceId(nodeId).toString());
             for (auto const& d : _setup.domains)
             {
                 _domainIds[d.name] = d.id;
@@ -197,6 +214,8 @@ namespace mxlgw::nmosnode
         }
 
         ~NodeImpl() override { stop(); }
+
+        Side side() const override { return _setup.side; }
 
         void start() override
         {
@@ -216,7 +235,7 @@ namespace mxlgw::nmosnode
             _server.emplace(nmos::experimental::make_node_server(_model, implementation, _logModel, nmosGate()));
             if (_setup.routes != nullptr)
             {
-                // §7.1: all gateway routes on the node's single listener.
+                // §7.1: the gateway routes on the MXL node's listener (node.web_port unset).
                 auto& api = _server->api_routers[{{}, nmos::fields::node_port(_model.settings)}];
                 mountGatewayRoutes(api, *_setup.routes, _model.settings, nmosGate(), true);
             }
@@ -239,15 +258,67 @@ namespace mxlgw::nmosnode
             }
             catch (std::exception const& ex)
             {
+                // nmos::server::open() already stopped its threads (server.cpp:20-24).
                 _server.reset();
-                throw std::runtime_error(std::string("cannot open the HTTP listener on port ") + std::to_string(_setup.config.node.httpPort) + ": " +
-                                         ex.what());
+                throw ListenError(httpPort(), ex.what());
             }
             _open = true;
-            log::info("nmos_node_started", {{"node_id", _nodeId},
+            // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/server.cpp:68 open_listeners() swallows listener
+            // errors (pplx::observe_exceptions), so a port in use or a privileged port opens "successfully".
+            if (!util::processListensOn(httpPort()))
+            {
+                stop();
+                throw ListenError(httpPort(), "the port is in use or cannot be bound");
+            }
+            auto const& registry = this->registry();
+            log::info("nmos_node_started", {{"node", toName(_setup.side)},
+                                            {"node_id", _nodeId},
                                             {"device_id", _deviceId},
-                                            {"http_port", _setup.config.node.httpPort},
-                                            {"registry", _setup.config.node.registry.mode == config::RegistryMode::DnsSd ? "dns-sd" : "static"}});
+                                            {"http_port", httpPort()},
+                                            {"host_address", _setup.hostAddress},
+                                            {"dns_sd", registry.dnsSd},
+                                            {"registry", registry.address.empty() ? std::string() : registry.address + ":" + std::to_string(registry.port)}});
+        }
+
+        bool deregister(std::chrono::milliseconds timeout) override
+        {
+            if (!_server)
+            {
+                return true;
+            }
+            {
+                // Children first, the node last: nmos-cpp's registration thread sends one DELETE per removed
+                // resource, sequentially, and ends registered operation with the node's own DELETE.
+                auto lock = _model.write_lock();
+                for (auto const* type : {&nmos::types::sender, &nmos::types::receiver, &nmos::types::flow, &nmos::types::source, &nmos::types::device})
+                {
+                    std::vector<nmos::id> ids;
+                    for (auto const& r : _model.node_resources)
+                    {
+                        if (r.type == *type && r.has_data())
+                        {
+                            ids.push_back(r.id);
+                        }
+                    }
+                    for (auto const& id : ids)
+                    {
+                        nmos::erase_resource(_model.node_resources, id);
+                    }
+                }
+                nmos::erase_resource(_model.node_resources, _nodeId);
+                _model.connection_resources.clear();
+                _refs.clear();
+                _groups.clear();
+                _model.notify();
+            }
+            auto const deadline = std::chrono::steady_clock::now() + timeout;
+            while (_registered.load() && std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            bool const done = !_registered.load();
+            log::info("nmos_deregistered", {{"node", toName(_setup.side)}, {"node_id", _nodeId}, {"complete", done}});
+            return done;
         }
 
         void stop() override
@@ -366,14 +437,27 @@ namespace mxlgw::nmosnode
         njson status() const override
         {
             njson j;
+            auto const& reg = registry();
+            j["node"] = toName(_setup.side);
             j["node_id"] = _nodeId;
             j["device_id"] = _deviceId;
+            j["label"] = nodeLabel();
+            j["http_port"] = httpPort();
+            j["host_address"] = _setup.hostAddress;
+            j["href"] = std::string(_setup.config.node.tls.enabled ? "https://" : "http://") + _setup.hostAddress + ":" +
+                        std::to_string(mxl() && _setup.config.node.publicPort ? *_setup.config.node.publicPort : httpPort()) + "/";
             j["registered"] = _registered.load();
             {
                 std::lock_guard const lock{_statusMutex};
                 j["registration_uri"] = _registrationUri;
             }
-            j["registry_mode"] = _setup.config.node.registry.mode == config::RegistryMode::DnsSd ? "dns-sd" : "static";
+            j["registry_mode"] = reg.dnsSd ? "dns-sd" : reg.address.empty() ? "none" : "static";
+            j["registry"] = {{"configured", reg.configured()},
+                             {"dns_sd", reg.dnsSd},
+                             {"address", reg.address.empty() ? njson() : njson(reg.address)},
+                             {"port", reg.port},
+                             {"query_address", reg.effectiveQueryAddress().empty() ? njson() : njson(reg.effectiveQueryAddress())},
+                             {"query_port", reg.effectiveQueryPort()}};
             njson senders = njson::array();
             njson receivers = njson::array();
             auto lock = _model.read_lock();
@@ -388,6 +472,7 @@ namespace mxlgw::nmosnode
                 }
                 njson e;
                 e["id"] = id;
+                e["node"] = toName(_setup.side);
                 e["label"] = jsonText(r->data, U("label"));
                 e["transport"] = jsonText(r->data, U("transport"));
                 e["essence_uid"] = ref.essenceUid.toString();
@@ -417,12 +502,17 @@ namespace mxlgw::nmosnode
         }
 
     private:
+        bool mxl() const { return _setup.side == Side::Mxl; }
+        int httpPort() const { return mxl() ? _setup.config.node.httpPort : _setup.config.node.st2110HttpPort(); }
+        std::string nodeLabel() const { return mxl() ? _setup.config.node.label : _setup.config.node.st2110Label(); }
+        config::Registry const& registry() const { return mxl() ? _setup.config.node.registry : _setup.config.node.st2110.registry; }
+
         void buildSettings()
         {
             auto const& n = _setup.config.node;
             value s = value::object();
-            s[U("http_port")] = n.httpPort;
-            s[U("label")] = value::string(us(n.label));
+            s[U("http_port")] = httpPort();
+            s[U("label")] = value::string(us(nodeLabel()));
             s[U("description")] = value::string(us(n.description));
             s[U("seed_id")] = value::string(_nodeId);
             s[U("logging_level")] = log::enabled(log::Level::Trace) ? slog::severities::more_info : log::enabled(log::Level::Debug) ? 0 : 10;
@@ -435,22 +525,29 @@ namespace mxlgw::nmosnode
             {
                 s[us(key)] = -1;
             }
-            std::vector<std::string> addresses = n.managementAddresses;
-            if (n.publicAddress)
+            // G5: hrefs and api.endpoints carry IP literals only: the resolved host address (plus the deprecated
+            // management addresses on the MXL node), never the host name (href_mode 2 = addresses).
+            // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/settings.cpp:451-478 get_host/get_hosts use host_address(es) in href_mode 2.
+            std::vector<std::string> addresses{_setup.hostAddress};
+            if (mxl())
             {
-                addresses = {*n.publicAddress};
-            }
-            if (!addresses.empty())
-            {
-                s[U("host_address")] = value::string(us(addresses.front()));
-                value arr = value::array();
-                for (auto const& a : addresses)
+                for (auto const& a : n.managementAddresses)
                 {
-                    web::json::push_back(arr, value::string(us(a)));
+                    if (a != _setup.hostAddress)
+                    {
+                        addresses.push_back(a);
+                    }
                 }
-                s[U("host_addresses")] = arr;
             }
-            if (n.publicPort)
+            s[U("host_address")] = value::string(us(_setup.hostAddress));
+            value arr = value::array();
+            for (auto const& a : addresses)
+            {
+                web::json::push_back(arr, value::string(us(a)));
+            }
+            s[U("host_addresses")] = arr;
+            s[U("href_mode")] = 2;
+            if (mxl() && n.publicPort)
             {
                 // C1: advertise the proxy/mapped port, listen on http_port.
                 for (auto const* key : {"http_port", "node_port", "connection_port", "manifest_port"})
@@ -459,10 +556,21 @@ namespace mxlgw::nmosnode
                 }
                 s[U("proxy_map")] = value_of({value_of({{U("client_port"), *n.publicPort}, {U("server_port"), n.httpPort}})});
             }
-            if (n.registry.mode == config::RegistryMode::Static && !n.registry.address.empty())
+            auto const& reg = registry();
+            if (!reg.dnsSd)
             {
-                s[U("registry_address")] = value::string(us(n.registry.address));
-                s[U("registration_port")] = n.registry.port;
+                // G4: no DNS-SD browsing and no mDNS advertisement, so neither Avahi nor D-Bus is needed.
+                // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/node_behaviour.cpp:230-236 (no advertisement for
+                // pri == no_priority), :267-276 (no browse for highest_pri == no_priority, registry_address fallback);
+                // mdns/service_advertiser_impl.cpp:95 connects to the daemon lazily.
+                s[U("pri")] = nmos::service_priorities::no_priority;
+                s[U("highest_pri")] = nmos::service_priorities::no_priority;
+                s[U("lowest_pri")] = nmos::service_priorities::no_priority;
+            }
+            if (!reg.address.empty())
+            {
+                s[U("registry_address")] = value::string(us(reg.address));
+                s[U("registration_port")] = reg.port;
                 s[U("registry_version")] = value::string(U("v1.3"));
             }
             if (n.tls.enabled)
@@ -503,6 +611,7 @@ namespace mxlgw::nmosnode
             return names;
         }
 
+        /// Media port IP of a leg: configured, else the address the backend reports (kernel backend: the interface's IP).
         std::string portIp(int leg) const
         {
             auto const& pairs = _setup.config.nic.portPairs;
@@ -510,19 +619,25 @@ namespace mxlgw::nmosnode
             {
                 return {};
             }
-            if (leg == 1 && pairs.front().redundant)
+            std::string ip = leg == 1 && pairs.front().redundant ? pairs.front().redundant->ip : leg == 0 ? pairs.front().primary.ip : std::string();
+            auto const index = static_cast<std::size_t>(leg);
+            if (ip.empty() && index < _setup.interfaces.size() && !_setup.interfaces[index].addresses.empty())
             {
-                return pairs.front().redundant->ip;
+                ip = _setup.interfaces[index].addresses.front();
             }
-            return pairs.front().primary.ip;
+            return ip;
         }
 
         void buildNode()
         {
             std::map<utility::string_t, nmos::node_interface> interfaces;
-            for (auto const& i : _setup.interfaces)
+            if (!mxl())
             {
-                interfaces[us(i.name)] = nmos::node_interface{us(nmosMac(i.chassisMac)), us(nmosMac(i.mac)), us(i.name), {}, {}};
+                // Media ports carry the ST 2110 streams (interface_bindings of the RTP Senders/Receivers, §4.5).
+                for (auto const& i : _setup.interfaces)
+                {
+                    interfaces[us(i.name)] = nmos::node_interface{us(nmosMac(i.chassisMac)), us(nmosMac(i.mac)), us(i.name), {}, {}};
+                }
             }
             // The management interface(s) from the kernel keep href/api.endpoints consistent (§4.5).
             for (auto const& [name, iface] : nmos::experimental::node_interfaces(nmos::get_host_interfaces(_model.settings)))
@@ -533,10 +648,12 @@ namespace mxlgw::nmosnode
                 }
             }
             auto node = nmos::make_node(_nodeId, clocks(), nmos::make_node_interfaces(interfaces), _model.settings);
-            label(node, _setup.config.node.label, _setup.config.node.description);
+            label(node, nodeLabel(), _setup.config.node.description);
+            node.data[U("tags")] = tagsOf(_setup.config.node.tags);
             nmos::insert_resource(_model.node_resources, std::move(node));
             auto device = nmos::make_device(_deviceId, _nodeId, {}, {}, _model.settings);
-            label(device, _setup.config.node.label, "mxl-st2110-gateway " + _setup.gatewayVersion);
+            label(device, nodeLabel(), "mxl-st2110-gateway " + _setup.gatewayVersion + (mxl() ? " (MXL)" : " (ST 2110)"));
+            device.data[U("tags")] = tagsOf(_setup.config.node.tags);
             nmos::insert_resource(_model.node_resources, std::move(device));
         }
 
@@ -648,7 +765,35 @@ namespace mxlgw::nmosnode
                               : type == config::EssenceType::Anc ? g.anc.at(index).format.rate
                                                                  : util::Rational{g.audio.at(index).format.sampleRate, 1};
 
-            // ---- Source + Flow
+            bool const ingest = g.direction == config::Direction::Ingest;
+            // MXL node: Source + MXL Flow + MXL Sender (ingest), MXL Receiver (egress).
+            // ST 2110 node: RTP Receiver (ingest), Source + ST 2110 Flow + RTP Sender (egress).
+            if (ingest == mxl())
+            {
+                insertSourceAndFlow(g, type, index, label_, role, hint, sourceId, flowId, rate);
+            }
+            if (ingest && !mxl())
+            {
+                insertRtpReceiver(g, type, index, *common, label_, role, hint, receiverId, redundant, keep);
+            }
+            else if (ingest)
+            {
+                insertMxlSender(g, type, index, *common, label_, role, hint, senderId, flowId, keep);
+            }
+            else if (mxl())
+            {
+                insertMxlReceiver(g, type, index, *common, label_, role, hint, receiverId, keep);
+            }
+            else
+            {
+                insertRtpSender(g, type, index, *common, label_, role, hint, senderId, flowId, redundant, keep);
+            }
+            (void)payloadType;
+        }
+
+        void insertSourceAndFlow(config::Group const& g, config::EssenceType type, std::size_t index, std::string const& label_, std::string const& role,
+                                 std::string const& hint, nmos::id const& sourceId, nmos::id const& flowId, util::Rational rate)
+        {
             nmos::resource source;
             if (type == config::EssenceType::Video)
             {
@@ -675,7 +820,7 @@ namespace mxlgw::nmosnode
             if (g.direction == config::Direction::Ingest)
             {
                 // §7.2: the IS-04 Flow body IS the MXL flow descriptor (flow_def.json).
-                auto def = group::flowDefinition(*_setup.config.node.id, g, type, index, nmos::make_version());
+                auto def = group::flowDefinition(_setup.config.mxlNodeId(), g, type, index, nmos::make_version());
                 flow = nmos::resource{nmos::is04_versions::v1_3, nmos::types::flow, toWeb(def), false};
             }
             else if (type == config::EssenceType::Video)
@@ -700,10 +845,13 @@ namespace mxlgw::nmosnode
             tag(flow, hint);
             nmos::insert_resource(_model.node_resources, std::move(source));
             nmos::insert_resource(_model.node_resources, std::move(flow));
+        }
 
-            if (g.direction == config::Direction::Ingest)
+        void insertRtpReceiver(config::Group const& g, config::EssenceType type, std::size_t index, config::EssenceCommon const& common,
+                               std::string const& label_, std::string const& role, std::string const& hint, nmos::id const& receiverId, bool redundant,
+                               std::map<nmos::id, std::pair<value, value>> const& keep)
+        {
             {
-                // ---- ST 2110 Receiver
                 nmos::resource receiver;
                 if (type == config::EssenceType::Video)
                 {
@@ -735,7 +883,7 @@ namespace mxlgw::nmosnode
                             captureSet({{nmos::caps::format::grain_rate, nmos::make_caps_rational_constraint({rationalOf(g.anc.at(index).format.rate)})}}));
                 }
                 label(receiver, label_, g.label + " " + role + " ST 2110 receiver");
-                tag(receiver, receiverHint(hint));
+                tag(receiver, hint);
                 auto rconn = nmos::make_connection_rtp_receiver(receiverId, redundant);
                 for (int leg = 0; leg < (redundant ? 2 : 1); ++leg)
                 {
@@ -747,14 +895,20 @@ namespace mxlgw::nmosnode
                 }
                 if (!restoreSaved(rconn, keep))
                 {
-                    njson legs = app::defaultRtpReceiverParams(*common, redundant);
-                    stageInitial(rconn, value::boolean(!common->legs.empty()), toWeb(legs));
+                    njson legs = app::defaultRtpReceiverParams(common, redundant);
+                    stageInitial(rconn, value::boolean(!common.legs.empty()), toWeb(legs));
                 }
                 nmos::insert_resource(_model.node_resources, std::move(receiver));
                 nmos::insert_resource(_model.connection_resources, std::move(rconn));
-                _refs[receiverId] = {g.uid, common->uid, type, g.direction, index, false, true};
+                _refs[receiverId] = {g.uid, common.uid, type, g.direction, index, false, true};
+            }
+        }
 
-                // ---- MXL Sender
+        void insertMxlSender(config::Group const& g, config::EssenceType type, std::size_t index, config::EssenceCommon const& common,
+                             std::string const& label_, std::string const& role, std::string const& hint, nmos::id const& senderId, nmos::id const& flowId,
+                             std::map<nmos::id, std::pair<value, value>> const& keep)
+        {
+            {
                 auto sender = nmos::make_sender(senderId, flowId, nmos::transports::mxl, _deviceId, {}, {}, _model.settings);
                 label(sender, label_, g.label + " " + role + " MXL sender");
                 tag(sender, hint);
@@ -780,11 +934,15 @@ namespace mxlgw::nmosnode
                 }
                 nmos::insert_resource(_model.node_resources, std::move(sender));
                 nmos::insert_resource(_model.connection_resources, std::move(sconn));
-                _refs[senderId] = {g.uid, common->uid, type, g.direction, index, true, false};
+                _refs[senderId] = {g.uid, common.uid, type, g.direction, index, true, false};
             }
-            else
+        }
+
+        void insertMxlReceiver(config::Group const& g, config::EssenceType type, std::size_t index, config::EssenceCommon const& common,
+                               std::string const& label_, std::string const& role, std::string const& hint, nmos::id const& receiverId,
+                               std::map<nmos::id, std::pair<value, value>> const& keep)
+        {
             {
-                // ---- MXL Receiver
                 nmos::resource receiver;
                 if (type == config::EssenceType::Video)
                 {
@@ -817,7 +975,7 @@ namespace mxlgw::nmosnode
                                                    nmos::make_caps_rational_constraint({rationalOf(g.anc.at(index).format.grainRate())})}}));
                 }
                 label(receiver, label_, g.label + " " + role + " MXL receiver");
-                tag(receiver, receiverHint(hint));
+                tag(receiver, hint);
                 // C3: mxl_domain_id unconstrained so a domain that does not exist yet can be staged.
                 auto rconn = nmos::make_connection_mxl_receiver(receiverId, {});
                 if (!restoreSaved(rconn, keep))
@@ -826,9 +984,15 @@ namespace mxlgw::nmosnode
                 }
                 nmos::insert_resource(_model.node_resources, std::move(receiver));
                 nmos::insert_resource(_model.connection_resources, std::move(rconn));
-                _refs[receiverId] = {g.uid, common->uid, type, g.direction, index, false, false};
+                _refs[receiverId] = {g.uid, common.uid, type, g.direction, index, false, false};
+            }
+        }
 
-                // ---- ST 2110 Sender
+        void insertRtpSender(config::Group const& g, config::EssenceType type, std::size_t index, config::EssenceCommon const& common,
+                             std::string const& label_, std::string const& role, std::string const& hint, nmos::id const& senderId, nmos::id const& flowId,
+                             bool redundant, std::map<nmos::id, std::pair<value, value>> const& keep)
+        {
+            {
                 auto const manifest = nmos::experimental::make_manifest_api_manifest(senderId, _model.settings);
                 auto sender =
                     nmos::make_sender(senderId, flowId, nmos::transports::rtp, _deviceId, manifest.to_string(), mediaInterfaces(redundant), _model.settings);
@@ -845,14 +1009,13 @@ namespace mxlgw::nmosnode
                 }
                 if (!restoreSaved(sconn, keep))
                 {
-                    auto const legs = app::defaultRtpSenderParams(*common, redundant, _setup.config.nic.portPairs.front());
-                    stageInitial(sconn, value::boolean(!common->legs.empty()), toWeb(legs));
+                    auto const legs = app::defaultRtpSenderParams(common, redundant, _setup.config.nic.portPairs.front());
+                    stageInitial(sconn, value::boolean(!common.legs.empty()), toWeb(legs));
                 }
                 nmos::insert_resource(_model.node_resources, std::move(sender));
                 nmos::insert_resource(_model.connection_resources, std::move(sconn));
-                _refs[senderId] = {g.uid, common->uid, type, g.direction, index, true, true};
+                _refs[senderId] = {g.uid, common.uid, type, g.direction, index, true, true};
             }
-            (void)payloadType;
         }
 
         void insertGroup(config::Group const& g, std::map<nmos::id, std::pair<value, value>> const& keep)
@@ -1230,7 +1393,7 @@ namespace mxlgw::nmosnode
             }
             if (_registered.exchange(now) != now)
             {
-                log::info(now ? "nmos_registered" : "nmos_unregistered", {{"registration_uri", uri.to_string()}});
+                log::info(now ? "nmos_registered" : "nmos_unregistered", {{"node", toName(_setup.side)}, {"registration_uri", uri.to_string()}});
             }
         }
 

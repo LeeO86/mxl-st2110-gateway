@@ -108,14 +108,23 @@ async function loadLogs() {
     <div class="grid fields">
       <Field :draft="draft" pointer="/node/label" label="Label" :provenance="prov" :errors="errors" />
       <Field :draft="draft" pointer="/node/description" label="Description" :provenance="prov" :errors="errors" />
-      <Field :draft="draft" pointer="/node/http_port" label="HTTP port" type="number" :provenance="prov" :errors="errors" />
-      <Field :draft="draft" pointer="/node/public_address" label="Public address" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/seed" label="Id seed" placeholder="(node id)" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/http_port" label="NMOS port (MXL node)" type="number" :provenance="prov" :errors="errors" />
+      <Field :draft="draft" pointer="/node/web_port" label="Web port" type="number" placeholder="(NMOS port)" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/host_address" label="Host address (IPv4)" placeholder="(detected)" :provenance="prov" :errors="errors" nullable />
       <Field :draft="draft" pointer="/node/public_port" label="Public port" type="number" :provenance="prov" :errors="errors" nullable />
-      <Field :draft="draft" pointer="/node/management_addresses" label="Management addresses" type="list" :provenance="prov" :errors="errors" />
-      <Field :draft="draft" pointer="/node/registry/mode" label="Registry" type="select" :options="['dns-sd', 'static']" :provenance="prov" :errors="errors" />
-      <Field :draft="draft" pointer="/node/registry/address" label="Registry address" :provenance="prov" :errors="errors" />
-      <Field :draft="draft" pointer="/node/registry/port" label="Registry port" type="number" :provenance="prov" :errors="errors" />
+      <Field :draft="draft" pointer="/node/registry/dns_sd" label="DNS-SD" type="bool" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/registry/address" label="Registry address" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/registry/port" label="Registry port" type="number" placeholder="3210" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/registry/query_address" label="Query address" placeholder="(registry address)" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/registry/query_port" label="Query port" type="number" placeholder="(registry port + 1)" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/st2110/enabled" label="ST 2110 node" type="bool" :provenance="prov" :errors="errors" />
+      <Field :draft="draft" pointer="/node/st2110/http_port" label="ST 2110 node port" type="number" placeholder="(NMOS port + 1)" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/st2110/registry/dns_sd" label="ST 2110 DNS-SD" type="bool" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/st2110/registry/address" label="ST 2110 registry address" :provenance="prov" :errors="errors" nullable />
+      <Field :draft="draft" pointer="/node/st2110/registry/port" label="ST 2110 registry port" type="number" placeholder="3210" :provenance="prov" :errors="errors" nullable />
       <Field :draft="draft" pointer="/node/resume_connections" label="Resume connections" type="bool" :provenance="prov" :errors="errors" />
+      <Field :draft="draft" pointer="/node/shutdown_timeout_s" label="Shutdown timeout (s)" type="number" placeholder="10" :provenance="prov" :errors="errors" />
       <Field :draft="draft" pointer="/node/log_level" label="Log level" type="select" :options="['trace', 'debug', 'info', 'warn', 'error']" :provenance="prov" :errors="errors" />
     </div>
     <div class="actions">

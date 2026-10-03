@@ -35,7 +35,7 @@ namespace mxlgw::ops
         std::vector<group::GroupSnapshot> groups;
         std::optional<mxlbridge::ScanResult> scan;
         std::vector<ConfiguredDomainUsage> domains;
-        bool nmosRegistered = false;
+        std::map<std::string, bool> nmosRegistered; // running NMOS node ("mxl", "st2110") -> registered
         std::map<ActivationKey, std::uint64_t> activations;
     };
 

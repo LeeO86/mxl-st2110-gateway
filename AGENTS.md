@@ -31,15 +31,21 @@ Instructions for coding agents (Claude Code) working on `mxl-st2110-gateway`.
 - MXL tests in a container need a large tmpfs: `--tmpfs /mnt/mxltest:size=2g -e MXLGW_TEST_TMPFS=/mnt/mxltest` (the 64 MiB `/dev/shm` is too small for video flows).
 - DNS-SD tests need avahi-daemon on the host and the container mounts `/run/dbus` + `/run/avahi-daemon`; without systemd start `dbus-daemon --system --fork` and `avahi-daemon -D` first (`tests/integration/nmos-testing.sh` does this).
 - If `vm.nr_hugepages` does not reach the target, memory is fragmented: drop caches and `sysctl vm.compact_memory=1`, then retry.
+- The image runs as uid 1000: config directories mounted into test containers must be writable for it; the kernel-backend tests run the gateway as `--user 0:1000` (hugetlbfs). Run `clang-format` in the deps container with `--user "$(id -u):$(id -g)"`, otherwise it leaves root-owned files in the workspace.
+- nmos-cpp swallows listener errors; the gateway checks its listening sockets after opening (exit 75). Two NMOS nodes per gateway: `NMOS_PORT` (MXL) and `NMOS_PORT + 1` (ST 2110).
 
 ## Commands (fill in as they come into existence)
 
 ```bash
-docker build --target build -t mxlgw-build .        # compile + unit tests
-docker build -t mxlgw:dev .                         # runtime image
-tests/integration/loopback.sh mxlgw:dev             # kernel-backend media loopback
-tests/integration/nmos-testing.sh mxlgw:dev         # AMWA suites
-python3 monitoring/tools/gen_dashboard.py --check   # dashboard up to date
+docker build --target build -f docker/Dockerfile -t mxlgw-build .   # compile + unit tests
+docker build -f docker/Dockerfile -t mxlgw:dev .                    # runtime image
+tests/integration/smoke.sh mxlgw:dev                                # container smoke test (uid 1000)
+tests/integration/lifecycle.sh mxlgw:dev                            # platform lifecycle: mock registry, SIGTERM, cleanup
+tests/integration/loopback.sh mxlgw:dev                             # kernel-backend media loopback
+tests/integration/late-flow.sh mxlgw:dev                            # receiver before its flow, mirror domain
+tests/integration/nmos-testing.sh mxlgw:dev                         # AMWA suites (both NMOS nodes)
+python3 monitoring/tools/gen_dashboard.py --check                   # dashboard up to date
+python3 tools/gen_config_docs.py --check                            # docs/configuration.md + README settings table
 ```
 
 ## Conventions

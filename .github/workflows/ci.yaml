@@ -19,6 +19,7 @@ env:
   MTL_REF: v26.09
   DPDK_VER: "26.07"
   MXL_REF: v1.1.0
+  MXL_REVISION: 8f3f1096e804bfb822eb959cdf2fc23199a7d15d # commit of MXL_REF (image label io.dmf.mxl.revision)
   NMOS_CPP_REF: fe303849527394b03bdedc8f161f377fe458bb62
   ICE_VER: 2.6.7
   ICE_DMID: "923747"
@@ -39,7 +40,7 @@ jobs:
       - name: Pins in sync with docker/Dockerfile
         run: |
           fail=0
-          for v in MTL_REF DPDK_VER MXL_REF NMOS_CPP_REF ICE_VER ICE_DMID; do
+          for v in MTL_REF DPDK_VER MXL_REF MXL_REVISION NMOS_CPP_REF ICE_VER ICE_DMID; do
             docker_value=$(sed -n "s/^ARG $v=//p" docker/Dockerfile)
             if [ "$docker_value" != "${!v}" ]; then
               echo "::error file=docker/Dockerfile::$v is '$docker_value' in docker/Dockerfile but '${!v}' in ci.yaml"
@@ -127,10 +128,12 @@ jobs:
             MTL_REF=${{ env.MTL_REF }}
             DPDK_VER=${{ env.DPDK_VER }}
             MXL_REF=${{ env.MXL_REF }}
+            MXL_REVISION=${{ env.MXL_REVISION }}
             NMOS_CPP_REF=${{ env.NMOS_CPP_REF }}
             ICE_VER=${{ env.ICE_VER }}
             ICE_DMID=${{ env.ICE_DMID }}
             MXLGW_VERSION=0.0.0-dev+${{ github.sha }}
+            VCS_REF=${{ github.sha }}
           cache-from: type=gha,scope=mxlgw
           cache-to: type=gha,scope=mxlgw,mode=max
       - name: Export image
@@ -157,6 +160,7 @@ jobs:
             MTL_REF=${{ env.MTL_REF }}
             DPDK_VER=${{ env.DPDK_VER }}
             MXL_REF=${{ env.MXL_REF }}
+            MXL_REVISION=${{ env.MXL_REVISION }}
             NMOS_CPP_REF=${{ env.NMOS_CPP_REF }}
             ICE_VER=${{ env.ICE_VER }}
             ICE_DMID=${{ env.ICE_DMID }}
@@ -170,7 +174,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: [smoke, loopback, late-flow, nmos-testing]
+        test: [smoke, lifecycle, loopback, late-flow, nmos-testing]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

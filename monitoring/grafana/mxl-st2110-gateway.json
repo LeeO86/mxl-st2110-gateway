@@ -96,7 +96,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ready{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_ready{instance=~\"$instance\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -174,7 +174,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_restart_required{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_restart_required{instance=~\"$instance\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -253,7 +253,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_locked{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_ptp_locked{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -331,8 +331,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_nmos_registered{instance=~\"$instance\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "mxl_st2110_gateway_nmos_registered{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} {{node}}",
           "range": true,
           "refId": "A"
         }
@@ -409,7 +409,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"\"}",
+          "expr": "mxl_st2110_gateway_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -471,7 +471,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (instance) (mxlgw_essence_state{instance=~\"$instance\", state=\"running\"})",
+          "expr": "sum by (instance) (mxl_st2110_gateway_essence_state{instance=~\"$instance\", state=\"running\"})",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -519,7 +519,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_info{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_ptp_info{instance=~\"$instance\"}",
           "legendFormat": "",
           "range": false,
           "refId": "A",
@@ -613,7 +613,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_build_info{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_build_info{instance=~\"$instance\"}",
           "legendFormat": "",
           "range": false,
           "refId": "A",
@@ -739,7 +739,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"\"}",
+          "expr": "mxl_st2110_gateway_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -750,7 +750,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"min\"}",
+          "expr": "mxl_st2110_gateway_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"min\"}",
           "legendFormat": "{{instance}} min 60 s",
           "range": true,
           "refId": "B"
@@ -761,7 +761,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"max\"}",
+          "expr": "mxl_st2110_gateway_clock_mtl_minus_host_tai_ns{instance=~\"$instance\", stat=\"max\"}",
           "legendFormat": "{{instance}} max 60 s",
           "range": true,
           "refId": "C"
@@ -838,7 +838,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_offset_ns{instance=~\"$instance\", stat=\"\"}",
+          "expr": "mxl_st2110_gateway_ptp_offset_ns{instance=~\"$instance\", stat=\"\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -849,7 +849,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_offset_ns{instance=~\"$instance\", stat=\"min\"}",
+          "expr": "mxl_st2110_gateway_ptp_offset_ns{instance=~\"$instance\", stat=\"min\"}",
           "legendFormat": "{{instance}} {{port}} min 60 s",
           "range": true,
           "refId": "B"
@@ -860,7 +860,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_offset_ns{instance=~\"$instance\", stat=\"max\"}",
+          "expr": "mxl_st2110_gateway_ptp_offset_ns{instance=~\"$instance\", stat=\"max\"}",
           "legendFormat": "{{instance}} {{port}} max 60 s",
           "range": true,
           "refId": "C"
@@ -924,7 +924,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_path_delay_ns{instance=~\"$instance\", stat=\"\"}",
+          "expr": "mxl_st2110_gateway_ptp_path_delay_ns{instance=~\"$instance\", stat=\"\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -935,7 +935,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_path_delay_ns{instance=~\"$instance\", stat=\"min\"}",
+          "expr": "mxl_st2110_gateway_ptp_path_delay_ns{instance=~\"$instance\", stat=\"min\"}",
           "legendFormat": "{{instance}} {{port}} min 60 s",
           "range": true,
           "refId": "B"
@@ -946,7 +946,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_path_delay_ns{instance=~\"$instance\", stat=\"max\"}",
+          "expr": "mxl_st2110_gateway_ptp_path_delay_ns{instance=~\"$instance\", stat=\"max\"}",
           "legendFormat": "{{instance}} {{port}} max 60 s",
           "range": true,
           "refId": "C"
@@ -1032,7 +1032,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_locked{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_ptp_locked{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -1118,7 +1118,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_selected{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_ptp_selected{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -1183,7 +1183,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(mxlgw_ptp_gm_changes_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "increase(mxl_st2110_gateway_ptp_gm_changes_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}} GM changes",
           "range": true,
           "refId": "A"
@@ -1194,7 +1194,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(mxlgw_ptp_selection_changes_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "increase(mxl_st2110_gateway_ptp_selection_changes_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} selection changes",
           "range": true,
           "refId": "B"
@@ -1259,7 +1259,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_ptp_sync_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_ptp_sync_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -1324,7 +1324,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_ptp_errors_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_ptp_errors_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}} {{kind}}",
           "range": true,
           "refId": "A"
@@ -1388,7 +1388,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ptp_utc_offset_seconds{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_ptp_utc_offset_seconds{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -1487,7 +1487,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_nic_link_up{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_nic_link_up{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -1535,7 +1535,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_nic_info{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_nic_info{instance=~\"$instance\"}",
           "legendFormat": "",
           "range": false,
           "refId": "A",
@@ -1644,7 +1644,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_nic_rx_bytes_total{instance=~\"$instance\"}[$__rate_interval]) * 8",
+          "expr": "rate(mxl_st2110_gateway_nic_rx_bytes_total{instance=~\"$instance\"}[$__rate_interval]) * 8",
           "legendFormat": "{{instance}} {{port}} rx",
           "range": true,
           "refId": "A"
@@ -1655,7 +1655,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_nic_tx_bytes_total{instance=~\"$instance\"}[$__rate_interval]) * 8",
+          "expr": "rate(mxl_st2110_gateway_nic_tx_bytes_total{instance=~\"$instance\"}[$__rate_interval]) * 8",
           "legendFormat": "{{instance}} {{port}} tx",
           "range": true,
           "refId": "B"
@@ -1720,7 +1720,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_nic_rx_packets_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_nic_rx_packets_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}} rx",
           "range": true,
           "refId": "A"
@@ -1731,7 +1731,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_nic_tx_packets_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_nic_tx_packets_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}} tx",
           "range": true,
           "refId": "B"
@@ -1812,7 +1812,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_nic_rx_errors_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_nic_rx_errors_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}} errors",
           "range": true,
           "refId": "A"
@@ -1823,7 +1823,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_nic_rx_missed_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_nic_rx_missed_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{port}} missed",
           "range": true,
           "refId": "B"
@@ -1885,7 +1885,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_nic_link_speed_mbps{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_nic_link_speed_mbps{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{port}}",
           "range": true,
           "refId": "A"
@@ -1963,7 +1963,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_rx_frames_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_rx_frames_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} {{result}}",
           "range": true,
           "refId": "A"
@@ -2044,7 +2044,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_rx_leg_seq_lost_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_rx_leg_seq_lost_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} leg {{leg}}",
           "range": true,
           "refId": "A"
@@ -2109,7 +2109,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_rx_leg_packets_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_rx_leg_packets_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} leg {{leg}}",
           "range": true,
           "refId": "A"
@@ -2120,7 +2120,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_rx_packets_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_rx_packets_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} merged",
           "range": true,
           "refId": "B"
@@ -2184,7 +2184,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_ingest_origin_age_ns{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}",
+          "expr": "mxl_st2110_gateway_ingest_origin_age_ns{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -2249,7 +2249,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_grains_written_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_grains_written_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} grains",
           "range": true,
           "refId": "A"
@@ -2260,7 +2260,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_samples_written_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_samples_written_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} samples",
           "range": true,
           "refId": "B"
@@ -2271,7 +2271,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_write_errors_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_write_errors_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} errors",
           "range": true,
           "refId": "C"
@@ -2365,7 +2365,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_tx_late_frames_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_tx_late_frames_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -2445,7 +2445,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_egress_lead_ns{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}",
+          "expr": "mxl_st2110_gateway_egress_lead_ns{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -2510,7 +2510,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_tx_frames_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_tx_frames_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -2574,7 +2574,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_mxl_read_lag_grains{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}",
+          "expr": "mxl_st2110_gateway_mxl_read_lag_grains{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -2639,7 +2639,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_flow_not_found_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_flow_not_found_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -2704,7 +2704,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_read_timeouts_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_read_timeouts_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} no data",
           "range": true,
           "refId": "A"
@@ -2715,7 +2715,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_grains_invalid_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_grains_invalid_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} invalid",
           "range": true,
           "refId": "B"
@@ -2726,7 +2726,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_late_reads_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_late_reads_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} late",
           "range": true,
           "refId": "C"
@@ -2823,7 +2823,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_essence_state{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\"} == 1",
+          "expr": "mxl_st2110_gateway_essence_state{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\"} == 1",
           "legendFormat": "",
           "range": false,
           "refId": "A",
@@ -2950,7 +2950,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_mxl_reader_info{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\"}",
+          "expr": "mxl_st2110_gateway_mxl_reader_info{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\"}",
           "legendFormat": "",
           "range": false,
           "refId": "A",
@@ -3064,7 +3064,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxlgw_mxl_grains_read_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_mxl_grains_read_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"egress\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}}",
           "range": true,
           "refId": "A"
@@ -3129,7 +3129,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (state) (mxlgw_essence_state{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\"})",
+          "expr": "sum by (state) (mxl_st2110_gateway_essence_state{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\"})",
           "legendFormat": "{{state}}",
           "range": true,
           "refId": "A"
@@ -3228,8 +3228,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_nmos_registered{instance=~\"$instance\"}",
-          "legendFormat": "{{instance}}",
+          "expr": "mxl_st2110_gateway_nmos_registered{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} {{node}}",
           "range": true,
           "refId": "A"
         }
@@ -3293,7 +3293,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "increase(mxlgw_nmos_activations_total{instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "increase(mxl_st2110_gateway_nmos_activations_total{instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} {{kind}} {{transport}} {{result}}",
           "range": true,
           "refId": "A"
@@ -3371,7 +3371,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_mxl_domain_bytes{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_mxl_domain_bytes{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{domain}} {{kind}}",
           "range": true,
           "refId": "A"
@@ -3436,7 +3436,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_mxl_domain_flows{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_mxl_domain_flows{instance=~\"$instance\"}",
           "legendFormat": "{{instance}} {{domain}}",
           "range": true,
           "refId": "A"
@@ -3498,7 +3498,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "mxlgw_mxl_discovered_domains{instance=~\"$instance\"}",
+          "expr": "mxl_st2110_gateway_mxl_discovered_domains{instance=~\"$instance\"}",
           "legendFormat": "{{kind}}",
           "range": true,
           "refId": "A"
@@ -3544,7 +3544,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(mxlgw_build_info, instance)",
+        "definition": "label_values(mxl_st2110_gateway_build_info, instance)",
         "hide": 0,
         "includeAll": true,
         "label": "Instance",
@@ -3553,7 +3553,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(mxlgw_build_info, instance)",
+          "query": "label_values(mxl_st2110_gateway_build_info, instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -3568,7 +3568,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(mxlgw_essence_state{instance=~\"$instance\"}, group)",
+        "definition": "label_values(mxl_st2110_gateway_essence_state{instance=~\"$instance\"}, group)",
         "hide": 0,
         "includeAll": true,
         "label": "Group",
@@ -3577,7 +3577,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(mxlgw_essence_state{instance=~\"$instance\"}, group)",
+          "query": "label_values(mxl_st2110_gateway_essence_state{instance=~\"$instance\"}, group)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -3592,7 +3592,7 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "definition": "label_values(mxlgw_essence_state{instance=~\"$instance\", group=~\"$group\"}, essence)",
+        "definition": "label_values(mxl_st2110_gateway_essence_state{instance=~\"$instance\", group=~\"$group\"}, essence)",
         "hide": 0,
         "includeAll": true,
         "label": "Essence",
@@ -3601,7 +3601,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(mxlgw_essence_state{instance=~\"$instance\", group=~\"$group\"}, essence)",
+          "query": "label_values(mxl_st2110_gateway_essence_state{instance=~\"$instance\", group=~\"$group\"}, essence)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "util/cpuset.hpp"
 
+#include <sched.h>
+
 #include "util/fs.hpp"
 #include "util/strings.hpp"
 
@@ -90,5 +92,24 @@ namespace mxlgw::util
         }
         auto const parsed = parseCpuList(trim(*text));
         return parsed ? *parsed : std::set<int>{};
+    }
+
+    std::set<int> allowedCpus()
+    {
+        std::set<int> out;
+        cpu_set_t set;
+        CPU_ZERO(&set);
+        if (::sched_getaffinity(0, sizeof(set), &set) != 0)
+        {
+            return out;
+        }
+        for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
+        {
+            if (CPU_ISSET(cpu, &set))
+            {
+                out.insert(cpu);
+            }
+        }
+        return out;
     }
 }

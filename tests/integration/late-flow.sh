@@ -19,8 +19,11 @@ MIRROR_ID=a1a1a1a1-0000-4000-8000-00000000a001
 FLOW_V=66666666-6666-4666-8666-000000000001
 FLOW_A=66666666-6666-4666-8666-000000000002
 FLOW_ANC=66666666-6666-4666-8666-000000000003
+# MXL node / ST 2110 node of each gateway (§7.1)
 GWE=http://127.0.0.1:18183
+GWE2110=http://127.0.0.1:18193
 GWI=http://192.168.81.2:18184
+GWI2110=http://192.168.81.2:18194
 
 ensure_hugepages 1024
 make_mxl_root "$WORK/mxl" 2g
@@ -44,7 +47,7 @@ config() { # <label> <port> <ifname> <ip> <lcores> <group> <direction> <multicas
     cat <<EOF
 {
   "schema_version": 1,
-  "node": {"label": "$1", "http_port": $2, "registry": {"mode": "static", "address": "127.0.0.1", "port": 9}},
+  "node": {"label": "$1", "http_port": $2, "st2110": {"http_port": $(($2 + 10))}},
   "nic": {"backend": "kernel", "lcores": "$5", "port_pairs": [{"name": "media",
           "primary": {"name": "media-p", "ifname": "$3", "ip": "$4", "netmask": "255.255.255.0"}}]},
   "ptp": {"mode": "external", "require_lock": false},
@@ -72,22 +75,22 @@ for e in V A ANC; do
     rid=$(nmos_id "$GWE" receivers "PGM $e")
     patch_staged "$GWE" receivers "$rid" "{\"master_enable\": true, \"activation\": {\"mode\": \"activate_immediate\"},
         \"transport_params\": [{\"mxl_domain_id\": \"$MIRROR_ID\", \"mxl_flow_id\": \"${FLOW[$e]}\"}]}"
-    sid=$(nmos_id "$GWE" senders "PGM $e")
-    patch_staged "$GWE" senders "$sid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
-    sdp=$(curl -fsS "$GWE/x-nmos/connection/v1.2/single/senders/$sid/transportfile")
+    sid=$(nmos_id "$GWE2110" senders "PGM $e")
+    patch_staged "$GWE2110" senders "$sid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
+    sdp=$(curl -fsS "$GWE2110/x-nmos/connection/v1.2/single/senders/$sid/transportfile")
     body=$(python3 -c 'import json,sys; print(json.dumps({"sender_id": sys.argv[1], "master_enable": True,
         "activation": {"mode": "activate_immediate"}, "transport_file": {"data": sys.argv[2], "type": "application/sdp"}}))' "$sid" "$sdp")
-    patch_staged "$GWI" receivers "$(nmos_id "$GWI" receivers "LOOP $e")" "$body"
+    patch_staged "$GWI2110" receivers "$(nmos_id "$GWI2110" receivers "LOOP $e")" "$body"
     patch_staged "$GWI" senders "$(nmos_id "$GWI" senders "LOOP $e")" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
 done
 for e in V A ANC; do
     wait_until 10 "PGM $e waiting_for_flow" essence_state_is "$GWE" "PGM $e" waiting_for_flow
 done
-nf1=$(metric "$GWE" 'mxlgw_mxl_flow_not_found_total{essence="PGM V"}')
+nf1=$(metric "$GWE" 'mxl_st2110_gateway_mxl_flow_not_found_total{essence="PGM V"}')
 sleep 10
-nf2=$(metric "$GWE" 'mxlgw_mxl_flow_not_found_total{essence="PGM V"}')
+nf2=$(metric "$GWE" 'mxl_st2110_gateway_mxl_flow_not_found_total{essence="PGM V"}')
 python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) else 1)" "${nf1:-0}" "${nf2:-0}" ||
-    fail "mxlgw_mxl_flow_not_found_total did not grow ($nf1 -> $nf2)"
+    fail "mxl_st2110_gateway_mxl_flow_not_found_total did not grow ($nf1 -> $nf2)"
 essence_state_is "$GWE" "PGM V" waiting_for_flow || fail "PGM V left waiting_for_flow without a flow"
 pass "waiting for the flow (flow-not-found $nf1 -> $nf2)"
 ready_before=$(readyz_reasons "$GWE")
@@ -102,7 +105,7 @@ writer
 for e in V A ANC; do
     wait_until 20 "PGM $e running" essence_state_is "$GWE" "PGM $e" running
 done
-[[ "$(metric "$GWE" 'mxlgw_mxl_reader_info{essence="PGM V",domain_kind="mirror"}')" == "1" ]] || fail "mxlgw_mxl_reader_info does not show the mirror domain"
+[[ "$(metric "$GWE" 'mxl_st2110_gateway_mxl_reader_info{essence="PGM V",domain_kind="mirror"}')" == "1" ]] || fail "mxl_st2110_gateway_mxl_reader_info does not show the mirror domain"
 for e in V A ANC; do
     wait_until 30 "LOOP $e running" essence_state_is "$GWI" "LOOP $e" running
 done
@@ -111,9 +114,12 @@ mkdir -p "$IT_ARTIFACTS"
 ACCT_EGRESS="$GWE"
 ACCT_INGEST="$GWI"
 ACCT_INGEST_CONTAINER="$IT_PREFIX-lf-ingest"
-ACCT_AUDIO_TX=('mxlgw_tx_late_frames_total{essence="PGM A"}')
-ACCT_VIDEO_TX=('mxlgw_tx_late_frames_total{essence="PGM V"}')
-ACCT_VIDEO_RX=('mxlgw_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxlgw_rx_frames_total{essence="LOOP V",result="dropped"}')
+ACCT_AUDIO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM A"}')
+ACCT_VIDEO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM V"}')
+ACCT_VIDEO_RX=('mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="dropped"}')
+ACCT_AUDIO_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM A"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM A"}')
+ACCT_VIDEO_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM V"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM V"}')
+ACCT_ANC_GAPS=('mxl_st2110_gateway_mxl_read_timeouts_total{essence="PGM ANC"}' 'mxl_st2110_gateway_mxl_late_reads_total{essence="PGM ANC"}')
 verify_media "$IMAGE" "$WORK/mxl" "$IT_ARTIFACTS/late-flow-verify.json" --domain "/Volumes/mxl/local-IT-LF-INGEST" \
     --video-flow "$(essence_field "$GWI" "LOOP V" flow_id)" --audio-flow "$(essence_field "$GWI" "LOOP A" flow_id)" \
     --anc-flow "$(essence_field "$GWI" "LOOP ANC" flow_id)" --width 1920 --height 1080 --rate 25/1 --channels 2 --duration-ms 5000 ||

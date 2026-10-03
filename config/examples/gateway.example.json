@@ -4,14 +4,21 @@
     "id": "c0f1a2b3-4c5d-4e6f-8a9b-0c1d2e3f4a5b",
     "label": "GW-STUDIO1-A",
     "description": "ST 2110 <-> MXL gateway",
+    "tags": { "urn:x-nmos:tag:location/v1.0": ["Studio 1"] },
     "http_port": 8080,
-    "public_address": null,
+    "web_port": null,
+    "host_address": "10.10.0.21",
     "public_port": null,
-    "management_addresses": ["10.10.0.21"],
-    "registry": { "mode": "dns-sd" },
+    "registry": { "dns_sd": false, "address": "10.10.0.5", "port": 3210 },
+    "st2110": {
+      "enabled": true,
+      "http_port": 8081,
+      "registry": { "dns_sd": false, "address": "10.20.0.5", "port": 3210 }
+    },
     "tls": { "enabled": false },
     "resume_connections": true,
-    "log_level": "info"
+    "log_level": "info",
+    "shutdown_timeout_s": 10
   },
   "nic": {
     "backend": "dpdk",

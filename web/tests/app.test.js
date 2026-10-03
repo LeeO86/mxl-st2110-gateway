@@ -77,6 +77,46 @@ describe("App shell", () => {
     expect(location.hash).toBe("#groups");
     expect(w.find("nav button.active").text()).toBe("Groups");
   });
+
+  it("shows the MXL and the ST 2110 node with their own addresses and registries", async () => {
+    const node = (side, port, registry, registered) => ({
+      node: side,
+      node_id: `${side}-id`,
+      device_id: `${side}-dev`,
+      label: side === "mxl" ? "GW" : "GW ST 2110",
+      href: `http://10.0.0.7:${port}/`,
+      registered,
+      registration_uri: registered ? "http://10.0.0.2:3210/x-nmos/registration/v1.3" : "",
+      registry,
+    });
+    const mxl = node("mxl", 3212, { configured: true, dns_sd: false, address: "10.0.0.2", port: 3210, query_address: "10.0.0.2", query_port: 3211 }, true);
+    const st2110 = node("st2110", 3213, { configured: false, dns_sd: false, address: null, port: 3210 }, false);
+    const nmos = {
+      ...mxl,
+      enabled: true,
+      nodes: [mxl, st2110],
+      senders: [{ id: "s1", node: "mxl", label: "CAM 1 V", transport: "urn:x-nmos:transport:mxl", tags: {}, active: { master_enable: true, transport_params: [] } }],
+      receivers: [{ id: "r1", node: "st2110", label: "CAM 1 V", transport: "urn:x-nmos:transport:rtp", tags: {}, active: { master_enable: true, transport_params: [] } }],
+    };
+    const status = structuredClone(statusFixture);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path) => (path === "/api/nmos" ? jsonResponse(200, nmos) : jsonResponse(200, status))),
+    );
+    location.hash = "#nmos";
+    const w = await mountApp();
+    await flushPromises();
+    const text = w.text();
+    expect(text).toContain("MXL node");
+    expect(text).toContain("ST 2110 node");
+    expect(text).toContain("10.0.0.2:3210 (query 10.0.0.2:3211)");
+    expect(text).toContain("none (peer to peer)");
+    expect(text).toContain("no registry");
+    const links = w.findAll("a").map((a) => a.attributes("href"));
+    expect(links).toContain("http://10.0.0.7:3212/x-nmos/node/v1.3/self");
+    expect(links).toContain("http://10.0.0.7:3213/x-nmos/connection/v1.2/single/");
+    expect(text).not.toMatch(/undefined|NaN|\[object Object\]/);
+  });
 });
 
 describe("useConfig", () => {

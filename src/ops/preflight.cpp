@@ -366,11 +366,28 @@ namespace mxlgw::ops
             }
         }
 
-        // Ports (§15.4).
+        // Ports (§15.4). A port in use is only a warning here: the listener itself then exits 75 (§14.4).
         static std::set<int> const siblings = {8095, 3212, 3213, 3232, 3233};
-        if (env.checkPortInUse && portInUse(c.node.httpPort))
+        std::vector<std::pair<std::string, int>> ports{{"node.http_port", c.node.httpPort}};
+        if (c.node.effectiveWebPort() != c.node.httpPort)
         {
-            push(out, "http-port", CheckLevel::Fail, "node.http_port " + std::to_string(c.node.httpPort) + " is already in use");
+            ports.emplace_back("node.web_port", c.node.effectiveWebPort());
+        }
+        if (c.node.st2110.enabled)
+        {
+            ports.emplace_back("node.st2110.http_port", c.node.st2110HttpPort());
+        }
+        std::string inUse;
+        for (auto const& [name, port] : ports)
+        {
+            if (env.checkPortInUse && portInUse(port))
+            {
+                inUse += (inUse.empty() ? "" : ", ") + name + " " + std::to_string(port);
+            }
+        }
+        if (!inUse.empty())
+        {
+            push(out, "http-port", CheckLevel::Warn, inUse + " already in use: the gateway will exit 75");
         }
         else if (siblings.count(c.node.httpPort) != 0 || (c.node.httpPort >= 23500 && c.node.httpPort <= 23599))
         {

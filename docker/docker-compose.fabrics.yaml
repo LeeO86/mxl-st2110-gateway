@@ -13,15 +13,15 @@
 #   host A: cp ../config/examples/gateway.fabrics-host-a.json config/gateway.json
 #   host B: cp ../config/examples/gateway.fabrics-host-b.json config/gateway.json
 x-gateway: &gateway
-  image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev}
+  image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.0}
   restart: unless-stopped
   init: true
   network_mode: host
   stop_grace_period: 15s
+  user: "0:1000" # root for DPDK's VFIO device nodes, group 1000 shared with the other media functions
   ulimits:
     memlock: { soft: -1, hard: -1 }
   cap_add: [IPC_LOCK, SYS_NICE]
-  security_opt: ["apparmor=unconfined"] # DNS-SD via the host's D-Bus on AppArmor hosts
   devices:
     - /dev/vfio:/dev/vfio
   volumes:
@@ -30,10 +30,8 @@ x-gateway: &gateway
     - type: bind
       source: /Volumes/mxl
       target: /Volumes/mxl
-    - /run/dbus:/run/dbus # DNS-SD through the host's avahi-daemon
-    - /run/avahi-daemon:/run/avahi-daemon
   healthcheck:
-    # The fabrics-host-* examples use node.http_port 8090 so mxl-decklink can keep 8080 (§15.4).
+    # The fabrics-host-* examples use node.http_port 8090 (ST 2110 node 8091) so mxl-decklink can keep 8080 (§15.4).
     test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/livez"]
     interval: 10s
     timeout: 3s
@@ -66,7 +64,8 @@ services:
     profiles: [host-a]
     container_name: mxl-st2110-gateway
     environment:
-      MXLGW_CONFIG: /config/gateway.json
+      NMOS_SEED: demo-gateway-a
+      SHUTDOWN_TIMEOUT_S: "10"
 
   agent-a:
     <<: *agent
@@ -97,4 +96,5 @@ services:
     container_name: mxl-st2110-gateway
     # gateway.fabrics-host-b.json reads mirror flows 2 grains behind the writer (§5.7).
     environment:
-      MXLGW_CONFIG: /config/gateway.json
+      NMOS_SEED: demo-gateway-b
+      SHUTDOWN_TIMEOUT_S: "10"

@@ -5,7 +5,7 @@
     "label": "GW-HOST-B",
     "description": "Host B: MXL (mirror domain of host A) -> ST 2110",
     "http_port": 8090,
-    "registry": { "mode": "dns-sd" },
+    "registry": { "dns_sd": false, "address": "10.10.0.5", "port": 3210 },
     "resume_connections": true
   },
   "nic": {
