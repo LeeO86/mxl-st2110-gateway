@@ -8,8 +8,9 @@
 # announced over multicast DNS-SD (owner decision Q13: no registry container). The gateway uses the
 # MTL kernel-socket backend on a local veth pair (§7.7) and node.registry.dns_sd /
 # node.st2110.registry.dns_sd = true through the host's avahi-daemon (D-Bus socket mounted into the
-# container); DNS-SD stays supported although the platform default is off. Any "Fail" fails the run;
-# JSON results go to $IT_ARTIFACTS.
+# container); DNS-SD stays supported although the platform default is off. The suites run in two
+# phases, each with only the node under test registering (the tool's mock registry must see one node).
+# Any "Fail" fails the run; JSON results go to $IT_ARTIFACTS.
 source "$(dirname "$0")/lib.sh"
 
 IMAGE="${1:?usage: nmos-testing.sh <image>}"
@@ -74,11 +75,13 @@ EOF
 
 # ---- the gateway: kernel backend, real MXL domain, one ingest and one egress group
 HOST_IP="${NMOS_TEST_HOST_IP:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}"
-cat >"$WORK/config/gateway.json" <<EOF
+# Only the node under test registers (DNS-SD): nmos-testing's mock registry must not see the other node.
+gateway_config() { # <MXL node dns_sd> <ST 2110 node dns_sd>
+    cat <<EOF
 {
   "schema_version": 1,
-  "node": {"label": "IT-NMOS", "http_port": $PORT, "host_address": "$HOST_IP", "registry": {"dns_sd": true},
-           "st2110": {"registry": {"dns_sd": true}}},
+  "node": {"label": "IT-NMOS", "http_port": $PORT, "host_address": "$HOST_IP", "registry": {"dns_sd": $1},
+           "st2110": {"registry": {"dns_sd": $2}}},
   "nic": {"backend": "kernel", "lcores": "1", "port_pairs": [{"name": "media",
           "primary":   {"name": "media-p", "ifname": "mxlit6", "ip": "192.168.82.1", "netmask": "255.255.255.0"},
           "redundant": {"name": "media-r", "ifname": "mxlit7", "ip": "192.168.83.1", "netmask": "255.255.255.0"}}]},
@@ -98,15 +101,24 @@ cat >"$WORK/config/gateway.json" <<EOF
   ]
 }
 EOF
+}
 # dbus-daemon refuses AppArmor-confined clients whose profile has no D-Bus rules (docker-default),
 # which nmos-cpp reports as DNSServiceBrowse error -65553 (kDNSServiceErr_Refused).
 aa_opts=()
 if [[ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" == "Y" ]]; then
     aa_opts=(--security-opt apparmor=unconfined)
 fi
-start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon "${aa_opts[@]}"
-wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
-wait_until 30 "ST 2110 node" http_ok "http://127.0.0.1:$PORT2/x-nmos/node/v1.3/self"
+run_gateway() { # <MXL node dns_sd> <ST 2110 node dns_sd>
+    if docker inspect "$IT_PREFIX-nmos" >/dev/null 2>&1; then
+        docker stop -t 15 "$IT_PREFIX-nmos" >/dev/null
+        docker logs "$IT_PREFIX-nmos" >"$IT_ARTIFACTS/$IT_PREFIX-nmos-$3.log" 2>&1 || true
+    fi
+    # the gateway runs as root and rewrites the file (generated uids)
+    gateway_config "$1" "$2" | as_root tee "$WORK/config/gateway.json" >/dev/null
+    start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon "${aa_opts[@]}"
+    wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
+    wait_until 30 "ST 2110 node" http_ok "http://127.0.0.1:$PORT2/x-nmos/node/v1.3/self"
+}
 
 run_suite() { # <tag> <suite> <args...>
     local tag="$1" suite="$2"
@@ -139,11 +151,13 @@ EOF
 
 FAILED_SUITES=()
 # MXL node: IS-04, IS-05 v1.2 (MXL transport only exists in v1.2) and BCP-007-03.
+run_gateway true false mxl
 run_suite IS-04-01-mxl IS-04-01 --host "$HOST_IP" --port "$PORT" --version v1.3
 run_suite IS-05-01-v1.2-mxl IS-05-01 --host "$HOST_IP" --port "$PORT" --version v1.2
 run_suite IS-05-02-mxl IS-05-02 --host "$HOST_IP" "$HOST_IP" --port "$PORT" "$PORT" --version v1.3 v1.2
 run_suite BCP-007-03-01 BCP-007-03-01 --host "$HOST_IP" "$HOST_IP" --port "$PORT" "$PORT" --version v1.3 v1.2
 # ST 2110 node: IS-04, IS-05 v1.1 and v1.2.
+run_gateway false true st2110
 run_suite IS-04-01-st2110 IS-04-01 --host "$HOST_IP" --port "$PORT2" --version v1.3
 run_suite IS-05-01-v1.1-st2110 IS-05-01 --host "$HOST_IP" --port "$PORT2" --version v1.1
 run_suite IS-05-01-v1.2-st2110 IS-05-01 --host "$HOST_IP" --port "$PORT2" --version v1.2
