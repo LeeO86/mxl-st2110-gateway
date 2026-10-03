@@ -122,3 +122,40 @@ Audit of `main` at `bf66966` against the platform guideline, before the v1.0.0 w
 | G14 | unit tests for config and new behaviour; integration test start → ready → SIGTERM → deregistered, own domain removed; CI green | gap | `tests/unit/test_env.cpp`, `test_config.cpp`; no lifecycle test | unit tests + `tests/integration/lifecycle.sh` with a mock registry |
 | — | ST 2110-side NMOS resources must not register with the platform's MXL registry | gap | one nmos-cpp node holds RTP and MXL resources (`node.cpp:625-856`) | two nodes in one process: MXL node (platform registry) and ST 2110 node (own port, own optional registry) |
 | — | `nic.lcores`/`app_cpus` from the kubelet cpuset | gap | fixed in the config (`src/mtl/mtl_backend.cpp:412-416`) | dpdk backend: empty `nic.lcores` → first `nic.lcore_count` CPUs of `sched_getaffinity`, `app_cpus` = the rest |
+
+### Result after the v1.0.0 work (branch `cursor/platform-v1-fa5c`)
+
+Every requirement is **met** (none N/A). Evidence at the final commit of the branch; tests in brackets.
+
+| # | Requirement | Status | Evidence |
+|---|---|---|---|
+| G1 | env > file > defaults, unknown ignored, invalid → 78 | met | `src/config/env.cpp:292` (only listed variables), `env.cpp:333` (alias conflict), `src/app/application.cpp:212-242` (78) [`test_env.cpp` "aliases…", "unknown variables are ignored", `smoke.sh` conflict → 78] |
+| G1 | every setting in one table | met | `README.md:154` "Settings" (generated, `tools/gen_config_docs.py --check` in CI) |
+| G1 | own state under one configurable dir | met | `src/app/application.cpp:33` (`state/` beside `MXLGW_CONFIG`), README "config volume" |
+| G1 | secrets never logged | met | no secrets in the schema (TLS = paths); README "Configuration" |
+| G2 | `MXL_DOMAIN_SCAN_PATH` | met | `src/config/env.cpp:102` |
+| G2 | `MXL_OUTPUT_DOMAIN_DIR`/`_ID`, created if missing | met | `src/config/env.cpp:374`, `src/mxlbridge/bootstrap.cpp:92-98` [`test_env.cpp` "output domain variables", `lifecycle.sh`] |
+| G2 | other id in `domain_def.json` → error, not overwritten | met | `src/mxlbridge/bootstrap.cpp:109` [`test_bootstrap.cpp`] |
+| G2 | never another function's domain, no rewrite on start | met | `bootstrap.cpp:67-90`, `:100-176`; cleanup guards `src/app/application.cpp:598` [`test_application.cpp` "SIGTERM…", `lifecycle.sh` sibling domain] |
+| G2 | `history_duration` configurable | met | `schema/gateway-config.schema.json:596`, `src/config/env.cpp:437` |
+| G3 | `NMOS_SEED` → UUIDv5 for every id and the output domain id | met | `src/config/config.cpp:655`, `:673`, `src/nmos/ids.cpp:31`, `src/app/application.cpp:159` [`test_config.cpp` "node.seed…", `test_store.cpp`, `test_application.cpp`, `lifecycle.sh` ids from Python `uuid5`] |
+| G3 | `NMOS_LABEL`, `NMOS_TAGS`, group hints | met | `src/config/env.cpp:63-67`, `src/nmos/node.cpp:652-656` [`lifecycle.sh` label/tags/hints in the registry] |
+| G4 | registry/query settings | met | `src/nmos/node.cpp:572`, `:460` (query reported) [`test_config.cpp` "registry…"] |
+| G4 | `NMOS_DNS_SD` default false, no browse/mDNS/Avahi | met | `src/nmos/node.cpp:566` (`no_priority`) [`lifecycle.sh` without D-Bus, log check] |
+| G5 | IP literals only, `NMOS_HOST_ADDRESS`, default | met | `src/nmos/node.cpp:549` (`href_mode` 2), `src/config/config.cpp:944`, `src/util/net.cpp:160`, `src/app/application.cpp:405` [`test_config.cpp` "host address…", `test_util.cpp`, `lifecycle.sh` href/endpoints] |
+| G6 | ports by env, two instances | met | `NMOS_PORT`/`WEB_PORT`/`MXLGW_NODE_ST2110_HTTP_PORT` in `src/config/env.cpp` [`lifecycle.sh` second instance] |
+| G6 | bind failure → 75 | met | `src/nmos/node.cpp:268`, `src/nmos/http_server.cpp:63`, `src/app/application.cpp:478` [`lifecycle.sh` taken port → 75, `test_preflight.cpp`] |
+| G7 | `/livez`, `/readyz` with registry rule | met | `src/ops/health.cpp:51`, `:61` [`test_ops.cpp`, `lifecycle.sh` ready after registration] |
+| G7 | `/metrics` prefix `mxl_st2110_gateway_` | met | `src/ops/metrics_export.cpp:212` (all names) [`check-metrics.sh`, `test_app_core.cpp`] |
+| G8 | SIGTERM: media stop, MXL release, deregister, cleanup, 143 within timeout | met | `src/app/application.cpp:534`, `:559`, `:598`, `src/nmos/node.cpp:283`, `src/main.cpp:89-94` [`test_application.cpp` "SIGTERM…", `lifecycle.sh` 6 DELETEs, node last, domain removed, exit 143] |
+| G9 | IS-05/BCP-007-03 behaviour, restart persistence | met | BCP-007-03-01 zero failures (`docs/conformance.md`) [`lifecycle.sh` restart] |
+| G10 | `/api/v1/config/export|import` | met | `src/ops/http.cpp:91`, `src/ops/webapi.cpp:248` [`test_application.cpp` "/api/v1", `lifecycle.sh`] |
+| G11 | GHCR tags | met | `.github/workflows/container.yaml:57-72` |
+| G11 | uid 1000, root only for DPDK (documented) | met | `docker/Dockerfile:205`, README "Users and permissions" [`lifecycle.sh`, `smoke.sh` as uid 1000] |
+| G11 | OCI labels + `io.dmf.mxl.revision` | met | `docker/Dockerfile:216`, `:55` (verified clone) [`lifecycle.sh` label check] |
+| G11 | tags never moved, examples on existing tags | met | manifests use `:1.0.0` (published by the `v1.0.0` tag) |
+| G12 | k8s example | met | `deploy/k8s/deployment.yaml:28`, `:48` (standard env), probes, hostPath, PVC, no `hostIPC`, `IPC_LOCK`+`SYS_NICE` [kubeconform in CI] |
+| G13 | docs | met | `README.md:100` (platform), `:272` (exit codes), `:284` (users), "Admin UI and REST API" (API v1), port table; `CHANGELOG.md` 1.0.0; SPECIFICATION.md 1.3 |
+| G14 | unit + lifecycle integration test, CI green | met | `tests/integration/lifecycle.sh:180`, `.github/workflows/ci.yaml:177` |
+| — | ST 2110 node not in the MXL registry | met | `src/nmos/node.cpp:771`, `src/app/application.cpp:456` [`lifecycle.sh` registry holds MXL resources only] |
+| — | CPUs from the cpuset | met | `src/config/config.cpp:715`, `src/app/application.cpp:321` [`test_config.cpp` "CPU placement…"] |
