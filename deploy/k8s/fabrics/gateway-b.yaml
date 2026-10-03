@@ -25,14 +25,10 @@ data:
         "label": "GW-HOST-B",
         "description": "Host B: MXL (mirror domain of host A) -> ST 2110",
         "http_port": 8090,
-        "registry": {
-          "mode": "dns-sd"
-        },
         "resume_connections": true
       },
       "nic": {
         "backend": "dpdk",
-        "lcores": "4-7",
         "port_pairs": [
           {
             "name": "media",
@@ -148,24 +144,35 @@ spec:
         kubernetes.io/hostname: node-b
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      terminationGracePeriodSeconds: 15
+      terminationGracePeriodSeconds: 15 # > SHUTDOWN_TIMEOUT_S
+      securityContext:
+        supplementalGroups: [1000]
+        fsGroup: 1000
       initContainers:
         - name: seed-config
-          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
+          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.0
           command: ["/bin/sh", "-c", "[ -e /config/gateway.json ] || cp /seed/gateway.json /config/gateway.json"]
           securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
           volumeMounts:
             - { name: config, mountPath: /config }
             - { name: seed, mountPath: /seed, readOnly: true }
       containers:
         - name: gateway
-          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
-          imagePullPolicy: Always
+          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.0
           env:
-            - { name: MXLGW_CONFIG, value: /config/gateway.json }
+            - { name: NMOS_SEED, value: "demo-gateway-b" }
+            - name: NMOS_HOST_ADDRESS
+              valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+            # The NMOS registry both hosts and the mxl-fabrics-agents use (no DNS-SD).
+            - { name: NMOS_REGISTRY_ADDRESS, value: "10.10.0.5" }
+            - { name: NMOS_REGISTRY_PORT, value: "3210" }
+            - { name: SHUTDOWN_TIMEOUT_S, value: "10" }
           ports:
             - { name: http, containerPort: 8090, protocol: TCP }
+            - { name: nmos-st2110, containerPort: 8091, protocol: TCP }
           resources:
             requests:
               cpu: "12"
@@ -180,13 +187,11 @@ spec:
               intel.com/e810_media_p: "1"
               intel.com/e810_media_r: "1"
           securityContext:
+            # Root for DPDK's VFIO device nodes, group 1000 shared with the other media functions (deploy/k8s/README.md).
+            runAsUser: 0
+            runAsGroup: 1000
             privileged: false
             allowPrivilegeEscalation: false
-            # DNS-SD through the node's avahi-daemon: dbus-daemon refuses AppArmor-confined clients
-            # (Kubernetes >= 1.30; older: annotation container.apparmor.security.beta.kubernetes.io/gateway: unconfined).
-            # Not needed with node.registry.mode = "static".
-            appArmorProfile:
-              type: Unconfined
             capabilities:
               add: [IPC_LOCK, SYS_NICE]
           startupProbe:
@@ -205,8 +210,6 @@ spec:
             - { name: config, mountPath: /config }
             - { name: hugepages, mountPath: /dev/hugepages }
             - { name: mxl, mountPath: /Volumes/mxl }
-            - { name: dbus, mountPath: /run/dbus }
-            - { name: avahi, mountPath: /run/avahi-daemon }
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -222,15 +225,6 @@ spec:
           hostPath:
             path: /Volumes/mxl
             type: Directory
-        # DNS-SD through the node's avahi-daemon (not needed with node.registry.mode = "static").
-        - name: dbus
-          hostPath:
-            path: /run/dbus
-            type: DirectoryOrCreate
-        - name: avahi
-          hostPath:
-            path: /run/avahi-daemon
-            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
@@ -244,3 +238,4 @@ spec:
     app.kubernetes.io/name: mxl-st2110-gateway-b
   ports:
     - { name: http, port: 8090, targetPort: http, protocol: TCP }
+    - { name: nmos-st2110, port: 8091, targetPort: nmos-st2110, protocol: TCP }

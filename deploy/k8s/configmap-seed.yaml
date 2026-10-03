@@ -1,5 +1,6 @@
 # First-start configuration, copied to /config/gateway.json by the init container only if the file
-# does not exist yet (the gateway owns the file afterwards, §9.1). Edit through the admin UI.
+# does not exist yet (the gateway owns the file afterwards, §9.1). Identity, ports, registry and the output
+# domain come from the pod's environment (deployment.yaml); groups are created in the admin UI.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,16 +11,11 @@ data:
     {
       "schema_version": 1,
       "node": {
-        "label": "GW-K8S",
         "description": "ST 2110 <-> MXL gateway",
-        "http_port": 8080,
-        "registry": { "mode": "dns-sd" },
         "resume_connections": true
       },
       "nic": {
         "backend": "dpdk",
-        "lcores": "4-7",
-        "app_cpus": "8-11",
         "port_pairs": [
           {
             "name": "media",
@@ -29,9 +25,5 @@ data:
         ]
       },
       "ptp": { "mode": "builtin", "domain": 127, "require_lock": true },
-      "mxl": {
-        "scan_path": "/Volumes/mxl",
-        "domains": [ { "name": "main", "path": "/Volumes/mxl/main", "label": "main" } ]
-      },
       "groups": []
     }

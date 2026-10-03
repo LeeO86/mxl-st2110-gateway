@@ -20,30 +20,54 @@ spec:
     spec:
       nodeSelector:
         mxl.example.net/st2110-gateway: "true" # label the node that has the E810
-      hostNetwork: true # DNS-SD and NMOS on the management network; media ports are DPDK-owned
+      # Host network: the media NIC is owned by DPDK (not a CNI interface) and both NMOS nodes announce the
+      # node's management address; a pod network works too (NMOS_HOST_ADDRESS = an address the registry and
+      # controllers reach, Service for NMOS_PORT and NMOS_PORT + 1).
+      hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      terminationGracePeriodSeconds: 15
+      terminationGracePeriodSeconds: 15 # > SHUTDOWN_TIMEOUT_S (10)
+      securityContext:
+        supplementalGroups: [1000]
+        fsGroup: 1000
       initContainers:
         - name: seed-config
-          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
+          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.0
           command: ["/bin/sh", "-c", "[ -e /config/gateway.json ] || cp /seed/gateway.json /config/gateway.json"]
           securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
           volumeMounts:
             - { name: config, mountPath: /config }
             - { name: seed, mountPath: /seed, readOnly: true }
       containers:
         - name: gateway
-          image: ghcr.io/leeo86/mxl-st2110-gateway:nightly-dev
-          imagePullPolicy: Always
+          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.0
           env:
-            - { name: MXLGW_CONFIG, value: /config/gateway.json }
-            # Any scalar setting can come from the pod spec (§9.1), e.g.:
-            # - { name: MXLGW_NODE_LABEL, valueFrom: { fieldRef: { fieldPath: spec.nodeName } } }
+            # Identity: every NMOS id (and the output domain id) derives from the seed.
+            - { name: NMOS_SEED, value: "prod1-st2110-gateway" }
+            - { name: NMOS_LABEL, value: "PROD1 ST2110 GW" }
+            - { name: NMOS_TAGS, value: '{"urn:x-platform:production":["prod1"]}' }
+            # IPv4 literal announced in NMOS hrefs; with host networking the node's address.
+            - name: NMOS_HOST_ADDRESS
+              valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+            # One static registry (the platform's MXL registry); no DNS-SD, no Avahi/D-Bus mounts.
+            - { name: NMOS_REGISTRY_ADDRESS, value: "10.10.0.5" }
+            - { name: NMOS_REGISTRY_PORT, value: "3210" }
+            - { name: NMOS_DNS_SD, value: "false" }
+            # MXL node (NMOS, UI, API, metrics, health); the ST 2110 node listens on NMOS_PORT + 1.
+            - { name: NMOS_PORT, value: "8080" }
+            - { name: MXL_DOMAIN_SCAN_PATH, value: /Volumes/mxl }
+            - { name: MXL_OUTPUT_DOMAIN_DIR, value: /Volumes/mxl/prod1-st2110-gateway }
+            - { name: MXL_CLEANUP_ON_EXIT, value: "false" }
+            - { name: SHUTDOWN_TIMEOUT_S, value: "10" }
+            # Any other scalar setting can come from the pod spec too (README "Settings"), e.g. MXLGW_NIC_LCORE_COUNT.
           ports:
             - { name: http, containerPort: 8080, protocol: TCP }
+            - { name: nmos-st2110, containerPort: 8081, protocol: TCP }
           resources:
-            # Guaranteed QoS: requests = limits, integer CPUs (static CPU manager policy for lcore pinning).
+            # Guaranteed QoS: requests = limits, integer CPUs. With the static CPU manager policy the pod's
+            # cpuset holds exclusive CPUs; the gateway takes MTL lcores and worker CPUs from it (nic.lcores unset).
             requests: &resources
               cpu: "12"
               memory: 8Gi
@@ -52,13 +76,12 @@ spec:
               intel.com/e810_media_r: "1"
             limits: *resources
           securityContext:
+            # Root because DPDK opens the VFIO group device nodes, which are root-owned on most hosts (README
+            # "Users and permissions"); group 1000 keeps the MXL files shared with the uid-1000 media functions.
+            runAsUser: 0
+            runAsGroup: 1000
             privileged: false
             allowPrivilegeEscalation: false
-            # DNS-SD through the node's avahi-daemon: dbus-daemon refuses AppArmor-confined clients
-            # (Kubernetes >= 1.30; older: annotation container.apparmor.security.beta.kubernetes.io/gateway: unconfined).
-            # Not needed with node.registry.mode = "static".
-            appArmorProfile:
-              type: Unconfined
             capabilities:
               add: [IPC_LOCK, SYS_NICE] # + SYS_TIME only for ptp.mode=builtin_phc2sys
           startupProbe:
@@ -77,8 +100,6 @@ spec:
             - { name: config, mountPath: /config }
             - { name: hugepages, mountPath: /dev/hugepages }
             - { name: mxl, mountPath: /Volumes/mxl }
-            - { name: dbus, mountPath: /run/dbus }
-            - { name: avahi, mountPath: /run/avahi-daemon }
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -90,19 +111,10 @@ spec:
           emptyDir:
             medium: HugePages-1Gi
         # The node's MXL root tmpfs, shared with other media functions and the mxl-fabrics-agent
-        # DaemonSet on this node (§8.5). The configured domain /Volumes/mxl/main is created by the
-        # gateway's bootstrap (§8.3). Alternative when all MXL consumers are containers of this pod:
+        # DaemonSet on this node (§8.5). The output domain is created by the gateway's bootstrap (§8.3).
+        # Alternative when all MXL consumers are containers of this pod:
         #   emptyDir: { medium: Memory, sizeLimit: 4Gi }   (not shared across pods)
         - name: mxl
           hostPath:
             path: /Volumes/mxl
             type: Directory
-        # DNS-SD through the node's avahi-daemon (not needed with node.registry.mode = "static").
-        - name: dbus
-          hostPath:
-            path: /run/dbus
-            type: DirectoryOrCreate
-        - name: avahi
-          hostPath:
-            path: /run/avahi-daemon
-            type: DirectoryOrCreate

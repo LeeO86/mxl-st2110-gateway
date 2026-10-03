@@ -1,4 +1,5 @@
-# Scrape target and in-cluster access to the UI/API. With hostNetwork the endpoints are the node IP.
+# Scrape target and in-cluster access to the UI/API (MXL node) and the ST 2110 node.
+# With hostNetwork the endpoints are the node IP.
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,3 +12,4 @@ spec:
     app.kubernetes.io/name: mxl-st2110-gateway
   ports:
     - { name: http, port: 8080, targetPort: http, protocol: TCP }
+    - { name: nmos-st2110, port: 8081, targetPort: nmos-st2110, protocol: TCP }
