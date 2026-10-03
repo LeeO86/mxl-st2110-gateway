@@ -10,6 +10,7 @@
 #include <thread>
 
 #include <pthread.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "app/application.hpp"
@@ -31,6 +32,9 @@ namespace
 int main(int argc, char** argv)
 {
     using namespace mxlgw;
+    // Domains, flows and grains created here must stay writable for the other media functions of the same
+    // group (uid/gid 1000 on the platform): MXL creates its files with the process umask (§14.2).
+    ::umask(002);
     app::Options options;
     if (auto const* env = std::getenv("MXLGW_CONFIG"); env != nullptr && *env != '\0')
     {
