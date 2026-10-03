@@ -143,7 +143,9 @@ pass "ST 2110 node $ST2110_ID on :$ST2110_PORT with the RTP Senders/Receivers, n
 [[ "$(json "$BASE/api/v1/status" 'j["node"]["id"]')" == "$NODE_ID" ]] || fail "/api/v1/status"
 curl -fsS "$BASE/api/v1/config/export" | python3 -c 'import json,sys; j=json.load(sys.stdin); assert "seed" not in j["node"] if "node" in j else True' ||
     fail "environment values leaked into the exported file"
-if docker logs "$GW" 2>&1 | grep -qi "DNSService\|avahi\|dbus"; then
+# Grep a saved copy: `docker logs | grep -q` fails under pipefail when grep exits early (SIGPIPE, 141).
+docker logs "$GW" >"$WORK/gateway.log" 2>&1
+if grep -qi "DNSService\|avahi\|dbus" "$WORK/gateway.log"; then
     fail "DNS-SD/D-Bus activity although NMOS_DNS_SD=false"
 fi
 pass "seed-derived output domain $DOMAIN_ID, metric prefix, /api/v1, no D-Bus/Avahi"
@@ -197,6 +199,7 @@ print(f"{len(log)} DELETEs", file=sys.stderr)
 PY
 [[ ! -e "$WORK/mxl/$SEED" ]] || fail "own output domain not removed (MXL_CLEANUP_ON_EXIT=true)"
 [[ -s "$WORK/mxl/other-function/domain_def.json" ]] || fail "another function's domain was touched"
-docker logs "$GW" 2>&1 | grep -q '"event":"nmos_deregistered"' || fail "no nmos_deregistered log event"
+docker logs "$GW" >"$WORK/gateway.log" 2>&1
+grep -q '"event":"nmos_deregistered"' "$WORK/gateway.log" || fail "no nmos_deregistered log event"
 pass "SIGTERM: exit 143 in ${elapsed}s, every resource DELETEd (node last), own domain removed, sibling domain kept"
 pass "lifecycle"
