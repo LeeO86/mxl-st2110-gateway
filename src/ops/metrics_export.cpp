@@ -103,17 +103,21 @@ namespace mxlgw::ops
             auto const l = essenceLabels(e);
             for (auto const s : group::allEssenceStates)
             {
-                out.gauge("mxl_st2110_gateway_essence_state", "1 for the current essence state", with(l, "state", group::toName(s)), e.state.state == s ? 1 : 0);
+                out.gauge("mxl_st2110_gateway_essence_state", "1 for the current essence state", with(l, "state", group::toName(s)),
+                          e.state.state == s ? 1 : 0);
             }
             if (e.direction == config::Direction::Ingest)
             {
                 out.counter("mxl_st2110_gateway_rx_frames_total", "Frames received by result", with(l, "result", "complete"), d(e.rx.framesComplete));
                 out.counter("mxl_st2110_gateway_rx_frames_total", "Frames received by result", with(l, "result", "incomplete"), d(e.rx.framesIncomplete));
-                out.counter("mxl_st2110_gateway_rx_frames_total", "Frames received by result", with(l, "result", "dropped"), d(e.rx.framesDropped + e.framesDropped));
+                out.counter("mxl_st2110_gateway_rx_frames_total", "Frames received by result", with(l, "result", "dropped"),
+                            d(e.rx.framesDropped + e.framesDropped));
                 for (std::size_t leg = 0; leg < 2; ++leg)
                 {
-                    out.counter("mxl_st2110_gateway_rx_leg_packets_total", "Packets received per ST 2022-7 leg", with(l, "leg", portLabel(leg)), d(e.rx.legs[leg].packets));
-                    out.counter("mxl_st2110_gateway_rx_leg_seq_lost_total", "Sequence gaps per ST 2022-7 leg", with(l, "leg", portLabel(leg)), d(e.rx.legs[leg].lost));
+                    out.counter("mxl_st2110_gateway_rx_leg_packets_total", "Packets received per ST 2022-7 leg", with(l, "leg", portLabel(leg)),
+                                d(e.rx.legs[leg].packets));
+                    out.counter("mxl_st2110_gateway_rx_leg_seq_lost_total", "Sequence gaps per ST 2022-7 leg", with(l, "leg", portLabel(leg)),
+                                d(e.rx.legs[leg].lost));
                 }
                 out.counter("mxl_st2110_gateway_rx_packets_total", "Packets after the ST 2022-7 merge", l, d(e.rx.packets));
                 if (e.originAgeNs)
@@ -147,7 +151,8 @@ namespace mxlgw::ops
             out.counter("mxl_st2110_gateway_tx_late_frames_total", "Frames that missed their transmit time", l, d(e.tx.framesLate + e.txDropped));
             if (e.leadNs)
             {
-                out.gauge("mxl_st2110_gateway_egress_lead_ns", "Time from data available to transmit deadline (negative = late)", l, static_cast<double>(*e.leadNs));
+                out.gauge("mxl_st2110_gateway_egress_lead_ns", "Time from data available to transmit deadline (negative = late)", l,
+                          static_cast<double>(*e.leadNs));
             }
         }
     }
@@ -166,8 +171,10 @@ namespace mxlgw::ops
         if (in.clock && in.clock->valid)
         {
             out.gauge("mxl_st2110_gateway_clock_mtl_minus_host_tai_ns", "MTL PTP time - host CLOCK_TAI (ns)", {}, static_cast<double>(in.clock->offsetNs));
-            out.gauge("mxl_st2110_gateway_clock_mtl_minus_host_tai_ns", "MTL PTP time - host CLOCK_TAI (ns)", {{"stat", "min"}}, static_cast<double>(in.clock->min60Ns));
-            out.gauge("mxl_st2110_gateway_clock_mtl_minus_host_tai_ns", "MTL PTP time - host CLOCK_TAI (ns)", {{"stat", "max"}}, static_cast<double>(in.clock->max60Ns));
+            out.gauge("mxl_st2110_gateway_clock_mtl_minus_host_tai_ns", "MTL PTP time - host CLOCK_TAI (ns)", {{"stat", "min"}},
+                      static_cast<double>(in.clock->min60Ns));
+            out.gauge("mxl_st2110_gateway_clock_mtl_minus_host_tai_ns", "MTL PTP time - host CLOCK_TAI (ns)", {{"stat", "max"}},
+                      static_cast<double>(in.clock->max60Ns));
         }
         for (auto const& g : in.groups)
         {
@@ -187,14 +194,17 @@ namespace mxlgw::ops
             }
             out.gauge("mxl_st2110_gateway_mxl_discovered_domains", "MXL domains found under mxl.scan_path by kind", {{"kind", "discovered"}},
                       static_cast<double>(discovered));
-            out.gauge("mxl_st2110_gateway_mxl_discovered_domains", "MXL domains found under mxl.scan_path by kind", {{"kind", "mirror"}}, static_cast<double>(mirror));
+            out.gauge("mxl_st2110_gateway_mxl_discovered_domains", "MXL domains found under mxl.scan_path by kind", {{"kind", "mirror"}},
+                      static_cast<double>(mirror));
             out.gauge("mxl_st2110_gateway_mxl_discovered_domains", "MXL domains found under mxl.scan_path by kind", {{"kind", "conflict"}},
                       static_cast<double>(in.scan->conflicts.size()));
         }
         for (auto const& dom : in.domains)
         {
-            out.gauge("mxl_st2110_gateway_mxl_domain_bytes", "Configured MXL domain filesystem usage", {{"domain", dom.name}, {"kind", "used"}}, d(dom.usedBytes));
-            out.gauge("mxl_st2110_gateway_mxl_domain_bytes", "Configured MXL domain filesystem usage", {{"domain", dom.name}, {"kind", "free"}}, d(dom.freeBytes));
+            out.gauge("mxl_st2110_gateway_mxl_domain_bytes", "Configured MXL domain filesystem usage", {{"domain", dom.name}, {"kind", "used"}},
+                      d(dom.usedBytes));
+            out.gauge("mxl_st2110_gateway_mxl_domain_bytes", "Configured MXL domain filesystem usage", {{"domain", dom.name}, {"kind", "free"}},
+                      d(dom.freeBytes));
             out.gauge("mxl_st2110_gateway_mxl_domain_flows", "Flows in a configured MXL domain", {{"domain", dom.name}}, static_cast<double>(dom.flows));
         }
         for (auto const& [node, registered] : in.nmosRegistered)
