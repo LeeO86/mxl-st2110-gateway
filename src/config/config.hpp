@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -88,6 +89,8 @@ namespace mxlgw::config
     struct EssenceCommon
     {
         util::Uuid uid;
+        /// UUIDv5 namespace of the essence's NMOS/MXL ids: `uid`, or UUIDv5(seed namespace, uid) with node.seed (§7.3).
+        util::Uuid idNamespace;
         std::string label;
         int payloadType = 96;
         ReadOffset readOffset;
@@ -153,6 +156,7 @@ namespace mxlgw::config
     {
         Backend backend = Backend::Dpdk;
         std::string lcores;
+        int lcoreCount = 4;
         std::string appCpus;
         std::optional<int> hugepageSocket; // nullopt = auto
         std::vector<PortPair> portPairs;
@@ -183,15 +187,26 @@ namespace mxlgw::config
         std::optional<std::string> scanPath = std::string("/Volumes/mxl");
         ReadOffset defaultReadOffset;
         std::vector<Domain> domains;
+        bool cleanupOnExit = false;
 
         Domain const* findDomain(std::string const& name) const;
     };
 
+    inline constexpr int defaultRegistrationPort = 3210;
+
     struct Registry
     {
-        RegistryMode mode = RegistryMode::DnsSd;
+        bool dnsSd = false;
+        std::optional<RegistryMode> legacyMode; // deprecated `mode`, kept for round trips
         std::string address;
-        int port = 0;
+        int port = defaultRegistrationPort;
+        std::string queryAddress; // "" = address
+        std::optional<int> queryPort;
+
+        /// A registry the node is expected to register with (readiness, §10).
+        bool configured() const { return dnsSd || !address.empty(); }
+        std::string effectiveQueryAddress() const { return queryAddress.empty() ? address : queryAddress; }
+        int effectiveQueryPort() const { return queryPort ? *queryPort : port + 1; }
     };
 
     struct Tls
@@ -201,19 +216,39 @@ namespace mxlgw::config
         std::string privateKey;
     };
 
+    using Tags = std::map<std::string, std::vector<std::string>>;
+
+    struct St2110Node
+    {
+        bool enabled = true;
+        std::optional<std::string> label;
+        std::optional<int> httpPort;
+        std::optional<std::string> hostAddress;
+        Registry registry;
+    };
+
     struct Node
     {
         std::optional<util::Uuid> id;
+        std::optional<std::string> seed;
         std::string label = "mxl-st2110-gateway";
         std::string description = "ST 2110 <-> MXL gateway";
+        Tags tags;
         int httpPort = 8080;
-        std::optional<std::string> publicAddress;
+        std::optional<int> webPort;
+        std::optional<std::string> hostAddress; // node.host_address or the deprecated node.public_address
         std::optional<int> publicPort;
         std::vector<std::string> managementAddresses;
         Registry registry;
+        St2110Node st2110;
         Tls tls;
         bool resumeConnections = true;
         std::string logLevel = "info";
+        int shutdownTimeoutS = 10;
+
+        int effectiveWebPort() const { return webPort ? *webPort : httpPort; }
+        int st2110HttpPort() const { return st2110.httpPort ? *st2110.httpPort : httpPort + 1; }
+        std::string st2110Label() const { return st2110.label ? *st2110.label : label + " ST 2110"; }
     };
 
     struct Config
@@ -230,7 +265,32 @@ namespace mxlgw::config
         bool unconfigured() const;
         /// Read offset of an egress essence, falling back to mxl.default_read_offset_*.
         ReadOffset effectiveReadOffset(EssenceCommon const& essence) const;
+
+        /// UUIDv5 namespace derived from node.seed (§7.3), if set.
+        std::optional<util::Uuid> seedNamespace() const;
+        /// MXL node id: UUIDv5(seed namespace, "node") with a seed, else node.id (nil while unset).
+        util::Uuid mxlNodeId() const;
+        /// ST 2110 node id: UUIDv5(seed namespace, "st2110-node") with a seed, else UUIDv5(MXL node id, "st2110-node").
+        util::Uuid st2110NodeId() const;
+        /// Id a configured domain gets when neither the config nor domain_def.json has one: seed-derived or nullopt.
+        std::optional<util::Uuid> seedDomainId(std::string const& domainName) const;
     };
+
+    /// UUIDv5(URL namespace, "urn:x-mxl-st2110-gateway:seed:" + seed).
+    util::Uuid seedNamespaceOf(std::string const& seed);
+
+    /// True for an IPv4 literal that may be announced in NMOS (not 0.0.0.0, 127/8, link-local, multicast or broadcast).
+    bool isAnnounceableIpv4(std::string const& text);
+
+    /// MTL lcores and worker CPUs after applying the CPU affinity (§4, Kubernetes cpuset).
+    struct CpuPlacement
+    {
+        std::string lcores;
+        std::string appCpus;
+        bool lcoresDerived = false;
+        bool appCpusDerived = false;
+    };
+    CpuPlacement resolveCpuPlacement(Nic const& nic, std::set<int> const& allowedCpus);
 
     /// Converts a schema-valid configuration JSON into the typed model, filling defaults.
     /// Throws std::invalid_argument for type errors (callers validate with the schema first).

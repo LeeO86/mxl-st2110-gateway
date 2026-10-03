@@ -187,8 +187,8 @@ namespace mxlgw::nmosnode
             : _setup(std::move(setup))
             , _callbacks(std::move(callbacks))
         {
-            _nodeId = us(_setup.config.node.id->toString());
-            _deviceId = us(ids::deviceId(*_setup.config.node.id).toString());
+            _nodeId = us(_setup.config.mxlNodeId().toString());
+            _deviceId = us(ids::deviceId(_setup.config.mxlNodeId()).toString());
             for (auto const& d : _setup.domains)
             {
                 _domainIds[d.name] = d.id;
@@ -247,7 +247,7 @@ namespace mxlgw::nmosnode
             log::info("nmos_node_started", {{"node_id", _nodeId},
                                             {"device_id", _deviceId},
                                             {"http_port", _setup.config.node.httpPort},
-                                            {"registry", _setup.config.node.registry.mode == config::RegistryMode::DnsSd ? "dns-sd" : "static"}});
+                                            {"registry", _setup.config.node.registry.dnsSd ? "dns-sd" : "static"}});
         }
 
         void stop() override
@@ -373,7 +373,7 @@ namespace mxlgw::nmosnode
                 std::lock_guard const lock{_statusMutex};
                 j["registration_uri"] = _registrationUri;
             }
-            j["registry_mode"] = _setup.config.node.registry.mode == config::RegistryMode::DnsSd ? "dns-sd" : "static";
+            j["registry_mode"] = _setup.config.node.registry.dnsSd ? "dns-sd" : "static";
             njson senders = njson::array();
             njson receivers = njson::array();
             auto lock = _model.read_lock();
@@ -436,9 +436,9 @@ namespace mxlgw::nmosnode
                 s[us(key)] = -1;
             }
             std::vector<std::string> addresses = n.managementAddresses;
-            if (n.publicAddress)
+            if (n.hostAddress)
             {
-                addresses = {*n.publicAddress};
+                addresses = {*n.hostAddress};
             }
             if (!addresses.empty())
             {
@@ -459,7 +459,7 @@ namespace mxlgw::nmosnode
                 }
                 s[U("proxy_map")] = value_of({value_of({{U("client_port"), *n.publicPort}, {U("server_port"), n.httpPort}})});
             }
-            if (n.registry.mode == config::RegistryMode::Static && !n.registry.address.empty())
+            if (!n.registry.address.empty())
             {
                 s[U("registry_address")] = value::string(us(n.registry.address));
                 s[U("registration_port")] = n.registry.port;
@@ -675,7 +675,7 @@ namespace mxlgw::nmosnode
             if (g.direction == config::Direction::Ingest)
             {
                 // §7.2: the IS-04 Flow body IS the MXL flow descriptor (flow_def.json).
-                auto def = group::flowDefinition(*_setup.config.node.id, g, type, index, nmos::make_version());
+                auto def = group::flowDefinition(_setup.config.mxlNodeId(), g, type, index, nmos::make_version());
                 flow = nmos::resource{nmos::is04_versions::v1_3, nmos::types::flow, toWeb(def), false};
             }
             else if (type == config::EssenceType::Video)

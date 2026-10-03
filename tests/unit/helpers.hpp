@@ -84,7 +84,7 @@ namespace testutil
     {
         auto j = nlohmann::json::parse(R"({
           "schema_version": 1,
-          "node": {"id": "11111111-1111-4111-8111-111111111111", "label": "GW", "http_port": 18080, "registry": {"mode": "dns-sd"}},
+          "node": {"id": "11111111-1111-4111-8111-111111111111", "label": "GW", "http_port": 18080},
           "nic": {"backend": "mock", "port_pairs": [{"name": "media",
                   "primary": {"name": "media-p", "ip": "10.1.1.21", "netmask": "255.255.255.0"},
                   "redundant": {"name": "media-r", "ip": "10.2.1.21", "netmask": "255.255.255.0"}}]},

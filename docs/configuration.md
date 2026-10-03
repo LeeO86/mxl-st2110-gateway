@@ -7,13 +7,16 @@ The configuration file is `/config/gateway.json` (override the path with `MXLGW_
 an invalid file stops the gateway with exit code 78 and every error printed as JSON pointer + message.
 
 **Precedence: environment variable > file > default** for every scalar setting of `node`, `nic`, `ptp` and `mxl`
-(§9.1). Values are parsed by type (integers, `true`/`false`, comma lists, `null`); an invalid value is a configuration
-error naming the variable. Settings taken from the environment are read-only in the admin UI, rejected by `/api`
-and never written into the file. Groups and essences live in the file only. `MXLGW_LOG_FORMAT=text` switches the
-log output from JSON lines to text.
+(§9.1). Values are parsed by type (integers, `true`/`false`, comma lists, JSON objects, `null`); an invalid value is
+a configuration error naming the variable. A setting has one canonical variable (the platform's standard name where
+one exists) and may have aliases; setting two of them to different values is a configuration error. Unknown
+variables are ignored. Settings taken from the environment are read-only in the admin UI, rejected by `/api` and
+never written into the file. Groups and essences live in the file only. `MXLGW_LOG_FORMAT=text` switches the log
+output from JSON lines to text.
 
 In the tables, `[]` marks an array element. `MXLGW_MXL_DOMAIN_<NAME>_…` uses the upper-snake domain `name`
-(e.g. `main` → `MXLGW_MXL_DOMAIN_MAIN_PATH`).
+(e.g. `main` → `MXLGW_MXL_DOMAIN_MAIN_PATH`). `MXL_OUTPUT_DOMAIN_*` configure the first configured domain and create
+it with the name `main` when the file has no domain.
 
 `schema_version`: `1` — Configuration schema version.
 
@@ -23,21 +26,39 @@ NMOS node identity, HTTP port, registry, TLS and logging.
 
 | Setting | Type | Default | Environment | Description |
 |---|---|---|---|---|
-| `node.id` | UUID or null |  | `MXLGW_NODE_ID` | Node seed id; generated on first start and written back. |
-| `node.label` | string (≤ 128 chars) | `"mxl-st2110-gateway"` | `MXLGW_NODE_LABEL` | Node and Device label (IS-04). |
+| `node.id` | UUID or null | `null` | `MXLGW_NODE_ID` | MXL node id when node.seed is not set; generated on first start and written back. Ignored when node.seed is set. |
+| `node.seed` | string or null (≤ 256 chars) | `null` | `NMOS_SEED`<br>alias `MXLGW_NODE_SEED` | Seed for every NMOS id (nodes, devices, sources, flows, senders, receivers) and the default ids of configured MXL domains (UUIDv5, §7.3). Seed-derived ids are never written back. |
+| `node.label` | string (≤ 128 chars) | `"mxl-st2110-gateway"` | `NMOS_LABEL`<br>alias `MXLGW_NODE_LABEL` | MXL node label; also the prefix of the device labels (IS-04). |
 | `node.description` | string (≤ 512 chars) | `"ST 2110 <-> MXL gateway"` | `MXLGW_NODE_DESCRIPTION` | Node and Device description (IS-04). |
-| `node.http_port` | integer 1–65535 | `8080` | `MXLGW_NODE_HTTP_PORT`<br>`MXLGW_HTTP_PORT` | The single HTTP port (NMOS, UI, API, metrics, health). |
-| `node.public_address` | string or null | `null` | `MXLGW_NODE_PUBLIC_ADDRESS` | Address advertised in NMOS hrefs (reverse proxy). |
+| `node.tags` | object of array of string | `{}` | `NMOS_TAGS`<br>alias `MXLGW_NODE_TAGS` | IS-04 tags added to both nodes and their devices (JSON object of string arrays). Senders and Receivers keep their BCP-002-01 group hints. |
+| `node.http_port` | integer 1–65535 | `8080` | `NMOS_PORT`<br>alias `MXLGW_NODE_HTTP_PORT`, `MXLGW_HTTP_PORT` | Port of the MXL node's IS-04 Node API and IS-05 Connection API; also serves the UI, /api, /metrics and health unless node.web_port is set. |
+| `node.web_port` | integer 1–65535 or null | `null` | `WEB_PORT`<br>alias `MXLGW_NODE_WEB_PORT` | Separate port for the admin UI, /api, /metrics and health; null = node.http_port. |
+| `node.host_address` | IPv4 address or null | `null` | `NMOS_HOST_ADDRESS`<br>alias `MXLGW_NODE_HOST_ADDRESS`, `MXLGW_NODE_PUBLIC_ADDRESS` | IPv4 literal announced in NMOS hrefs and api.endpoints; null = IPv4 of the default-route interface, else the first non-loopback IPv4. Never a hostname, 0.0.0.0 or 127.x. |
+| `node.public_address` | IPv4 address or null | `null` |  | Deprecated alias of node.host_address. |
 | `node.public_port` | integer 1–65535 or null | `null` | `MXLGW_NODE_PUBLIC_PORT` | Port advertised in NMOS hrefs (reverse proxy / port mapping). |
-| `node.management_addresses` | array of IPv4 address | `[]` | `MXLGW_NODE_MANAGEMENT_ADDRESSES` | Management IPs; empty = all non-DPDK interfaces. |
-| `node.registry.mode` | `"dns-sd"` \| `"static"` | `"dns-sd"` | `MXLGW_NODE_REGISTRY_MODE` | dns-sd: discover the registry via DNS-SD; static: use address and port. |
-| `node.registry.address` | string or null | `null` | `MXLGW_NODE_REGISTRY_ADDRESS` | Registry host for mode static. |
-| `node.registry.port` | integer 1–65535 or null | `null` | `MXLGW_NODE_REGISTRY_PORT` | Registry port for mode static. |
+| `node.management_addresses` | array of IPv4 address | `[]` | `MXLGW_NODE_MANAGEMENT_ADDRESSES` | Deprecated: additional IPv4 addresses announced in api.endpoints; empty = only node.host_address. |
+| `node.registry.dns_sd` | boolean or null | `null` | `NMOS_DNS_SD`<br>alias `MXLGW_NODE_REGISTRY_DNS_SD` | Discover the registry with DNS-SD and advertise the node with mDNS (needs Avahi). null = true only if the deprecated mode is "dns-sd". |
+| `node.registry.mode` | `"dns-sd"` \| `"static"` |  | `MXLGW_NODE_REGISTRY_MODE` | Deprecated: "dns-sd" = dns_sd true, "static" = dns_sd false with address and port. |
+| `node.registry.address` | string or null | `null` | `NMOS_REGISTRY_ADDRESS`<br>alias `MXLGW_NODE_REGISTRY_ADDRESS` | Registration API host (IPv4 or DNS name); null = no static registry. |
+| `node.registry.port` | integer 1–65535 or null | `null` | `NMOS_REGISTRY_PORT`<br>alias `MXLGW_NODE_REGISTRY_PORT` | Registration API port; null = 3210. |
+| `node.registry.query_address` | string or null | `null` | `NMOS_QUERY_ADDRESS`<br>alias `MXLGW_NODE_REGISTRY_QUERY_ADDRESS` | Query API host (reported in /api/nmos; the gateway does not query); null = registry address. |
+| `node.registry.query_port` | integer 1–65535 or null | `null` | `NMOS_QUERY_PORT`<br>alias `MXLGW_NODE_REGISTRY_QUERY_PORT` | Query API port; null = registry port + 1. |
+| `node.st2110.enabled` | boolean | `true` | `MXLGW_NODE_ST2110_ENABLED` | Run the ST 2110 node (RTP Receivers of ingest groups, RTP Senders of egress groups). false = RTP connections only from the group defaults. |
+| `node.st2110.label` | string or null (≤ 128 chars) | `null` | `MXLGW_NODE_ST2110_LABEL` | ST 2110 node and device label; null = node.label + " ST 2110". |
+| `node.st2110.http_port` | integer 1–65535 or null | `null` | `MXLGW_NODE_ST2110_HTTP_PORT` | Port of the ST 2110 node's IS-04 Node API and IS-05 Connection API; null = node.http_port + 1. |
+| `node.st2110.host_address` | IPv4 address or null | `null` | `MXLGW_NODE_ST2110_HOST_ADDRESS` | IPv4 literal announced by the ST 2110 node; null = the MXL node's host address. |
+| `node.st2110.registry.dns_sd` | boolean or null | `null` | `MXLGW_NODE_ST2110_REGISTRY_DNS_SD` | Discover the registry with DNS-SD and advertise the node with mDNS (needs Avahi). null = true only if the deprecated mode is "dns-sd". |
+| `node.st2110.registry.mode` | `"dns-sd"` \| `"static"` |  |  | Deprecated: "dns-sd" = dns_sd true, "static" = dns_sd false with address and port. |
+| `node.st2110.registry.address` | string or null | `null` | `MXLGW_NODE_ST2110_REGISTRY_ADDRESS` | Registration API host (IPv4 or DNS name); null = no static registry. |
+| `node.st2110.registry.port` | integer 1–65535 or null | `null` | `MXLGW_NODE_ST2110_REGISTRY_PORT` | Registration API port; null = 3210. |
+| `node.st2110.registry.query_address` | string or null | `null` |  | Query API host (reported in /api/nmos; the gateway does not query); null = registry address. |
+| `node.st2110.registry.query_port` | integer 1–65535 or null | `null` |  | Query API port; null = registry port + 1. |
 | `node.tls.enabled` | boolean | `false` | `MXLGW_NODE_TLS_ENABLED` | Serve HTTPS instead of HTTP on node.http_port. |
 | `node.tls.certificate` | string or null | `null` | `MXLGW_NODE_TLS_CERTIFICATE` | PEM certificate chain file. |
 | `node.tls.private_key` | string or null | `null` | `MXLGW_NODE_TLS_PRIVATE_KEY` | PEM private key file. |
 | `node.resume_connections` | boolean | `true` | `MXLGW_NODE_RESUME_CONNECTIONS` | Restore the last IS-05 /active of every Sender and Receiver after a restart (state/connections.json, §7.6). |
-| `node.log_level` | `"trace"` \| `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | `MXLGW_NODE_LOG_LEVEL`<br>`MXLGW_LOG_LEVEL` | Gateway log level (MTL/DPDK messages are mapped onto it). |
+| `node.log_level` | `"trace"` \| `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | `MXLGW_NODE_LOG_LEVEL`<br>alias `MXLGW_LOG_LEVEL` | Gateway log level (MTL/DPDK messages are mapped onto it). |
+| `node.shutdown_timeout_s` | integer (≥ 1, ≤ 300) | `10` | `SHUTDOWN_TIMEOUT_S`<br>alias `MXLGW_NODE_SHUTDOWN_TIMEOUT_S` | SIGTERM: upper bound for the graceful shutdown (media stop, MXL release, NMOS deregistration, domain cleanup); the process exits 143 at the latest after this time. |
 
 ## Media NIC (`nic`)
 
@@ -46,8 +67,9 @@ Media NIC: backend, CPU placement and the ST 2022-7 port pair.
 | Setting | Type | Default | Environment | Description |
 |---|---|---|---|---|
 | `nic.backend` | `"dpdk"` \| `"kernel"` \| `"mock"` | `"dpdk"` | `MXLGW_NIC_BACKEND` | dpdk (production), kernel and mock are test-only. |
-| `nic.lcores` | string or null | `null` | `MXLGW_NIC_LCORES` | MTL lcores as a CPU list (e.g. "4-9"); disjoint from app_cpus. |
-| `nic.app_cpus` | string or null | `null` | `MXLGW_NIC_APP_CPUS` | CPU list for the gateway worker threads (optional). |
+| `nic.lcores` | string or null | `null` | `MXLGW_NIC_LCORES` | MTL lcores as a CPU list (e.g. "4-9"); disjoint from app_cpus. null = dpdk backend: the first nic.lcore_count CPUs of the process's CPU affinity (Kubernetes cpuset); kernel/mock: MTL's choice. |
+| `nic.lcore_count` | integer (≥ 1, ≤ 128) | `4` | `MXLGW_NIC_LCORE_COUNT` | Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend). |
+| `nic.app_cpus` | string or null | `null` | `MXLGW_NIC_APP_CPUS` | CPU list for the gateway worker threads; null = dpdk backend: the CPUs of the affinity not used as lcores. |
 | `nic.hugepage_socket` | `"auto"` or integer (≥ 0) | `"auto"` | `MXLGW_NIC_HUGEPAGE_SOCKET` | NUMA socket for hugepage memory; auto = the NIC's socket. |
 | `nic.port_pairs` | array of objects | `[]` |  | The media port pair (exactly one in v1). |
 | `nic.port_pairs[].name` | string | `"media"` |  | Port pair name. |
@@ -83,17 +105,18 @@ MXL root, configured domains and default read offsets (§8).
 
 | Setting | Type | Default | Environment | Description |
 |---|---|---|---|---|
-| `mxl.scan_path` | absolute path or null | `"/Volumes/mxl"` | `MXLGW_MXL_SCAN_PATH`<br>`MXL_DOMAIN_SCAN_PATH` | MXL root scanned for discovered and mirror domains (§8.5); null = off. |
-| `mxl.default_read_offset_grains` | integer or null (≥ 0, ≤ 1000) | `null` | `MXLGW_MXL_DEFAULT_READ_OFFSET_GRAINS`<br>`MXL_READ_OFFSET_GRAINS` | Default read offset in grains for MXL Receivers without their own (§5.7); exclusive with default_read_offset_ns. |
-| `mxl.default_read_offset_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` | `MXLGW_MXL_DEFAULT_READ_OFFSET_NS`<br>`MXL_READ_OFFSET_MS` (milliseconds) | Default read offset in ns for MXL Receivers without their own (§5.7). |
-| `mxl.domains` | array of objects | `[]` |  | Configured domains: the only domains the gateway writes to. |
+| `mxl.scan_path` | absolute path or null | `"/Volumes/mxl"` | `MXL_DOMAIN_SCAN_PATH`<br>alias `MXLGW_MXL_SCAN_PATH` | MXL root scanned for discovered and mirror domains (§8.5); null = off. |
+| `mxl.default_read_offset_grains` | integer or null (≥ 0, ≤ 1000) | `null` | `MXLGW_MXL_DEFAULT_READ_OFFSET_GRAINS`<br>alias `MXL_READ_OFFSET_GRAINS` | Default read offset in grains for MXL Receivers without their own (§5.7); exclusive with default_read_offset_ns. |
+| `mxl.default_read_offset_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` | `MXLGW_MXL_DEFAULT_READ_OFFSET_NS`<br>alias `MXL_READ_OFFSET_MS` (milliseconds) | Default read offset in ns for MXL Receivers without their own (§5.7). |
+| `mxl.domains` | array of objects | `[]` |  | Configured domains: the only domains the gateway writes to. The first one is the output domain of MXL_OUTPUT_DOMAIN_*. |
 | `mxl.domains[].name` | string (pattern `^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`) |  |  | Name referenced by groups[].domain. |
-| `mxl.domains[].path` | absolute path |  | `MXLGW_MXL_DOMAIN_<NAME>_PATH` | Domain directory on a tmpfs (never mirror-*); created if missing. |
-| `mxl.domains[].id` | UUID or null | `null` | `MXLGW_MXL_DOMAIN_<NAME>_ID` | Domain id; null = taken from domain_def.json or generated, then written back (§8.3). |
+| `mxl.domains[].path` | absolute path |  | `MXL_OUTPUT_DOMAIN_DIR` (first domain)<br>alias `MXLGW_MXL_DOMAIN_<NAME>_PATH` | Domain directory on a tmpfs (never mirror-*); created if missing. |
+| `mxl.domains[].id` | UUID or null | `null` | `MXL_OUTPUT_DOMAIN_ID` (first domain)<br>alias `MXLGW_MXL_DOMAIN_<NAME>_ID` | Domain id; null = taken from domain_def.json or generated, then written back (§8.3). |
 | `mxl.domains[].label` | string or null | `null` | `MXLGW_MXL_DOMAIN_<NAME>_LABEL` | Label written into a new domain_def.json. |
 | `mxl.domains[].description` | string or null | `null` | `MXLGW_MXL_DOMAIN_<NAME>_DESCRIPTION` | Description written into a new domain_def.json. |
-| `mxl.domains[].history_duration_ns` | integer or null (≥ 1000000, ≤ 60000000000) | `null` | `MXLGW_MXL_DOMAIN_<NAME>_HISTORY_DURATION_NS` | Ring history written into options.json if the file is missing; null = MXL default. |
+| `mxl.domains[].history_duration_ns` | integer or null (≥ 1000000, ≤ 60000000000) | `null` | `MXL_OUTPUT_DOMAIN_HISTORY_DURATION_NS` (first domain)<br>alias `MXLGW_MXL_DOMAIN_<NAME>_HISTORY_DURATION_NS` | Ring history written into options.json if the file is missing; null = MXL default. |
 | `mxl.domains[].gc_on_start` | boolean | `false` | `MXLGW_MXL_DOMAIN_<NAME>_GC_ON_START` | Garbage-collect every stale flow of the domain at start (default: only the gateway's own). |
+| `mxl.cleanup_on_exit` | boolean | `false` | `MXL_CLEANUP_ON_EXIT`<br>alias `MXLGW_MXL_CLEANUP_ON_EXIT` | On SIGTERM/SIGINT remove the directories of the configured domains after the MXL writers are released (only if their domain_def.json carries the gateway's id and no other process writes a flow there). |
 
 ## Groups and essences (`groups`)
 
@@ -160,7 +183,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 
 | Variable | Meaning |
 |---|---|
-| `MXLGW_CONFIG` | configuration file path (default `/config/gateway.json`) |
+| `MXLGW_CONFIG` | configuration file path (default `/config/gateway.json`); its directory holds all state the gateway writes (`gateway.json`, `gateway.json.bak`, `state/connections.json`) |
 | `MXLGW_LOG_FORMAT` | `json` (default) or `text` |
 
 ## Kubernetes PCI injection

@@ -106,6 +106,7 @@ namespace mxlgw::config
         void readCommon(json const& j, EssenceCommon& e)
         {
             e.uid = reqUuid(j, "uid");
+            e.idNamespace = e.uid;
             e.label = str(j, "label");
             e.payloadType = num<int>(j, "payload_type", e.payloadType);
             e.readOffset = readOffset(j, "read_offset_grains", "read_offset_ns");
@@ -190,6 +191,66 @@ namespace mxlgw::config
         void add(ValidationErrors& errors, std::string pointer, std::string message)
         {
             errors.push_back({std::move(pointer), std::move(message)});
+        }
+
+        Registry readRegistry(json const& r)
+        {
+            Registry reg;
+            if (!r.is_object())
+            {
+                return reg;
+            }
+            if (r.contains("mode") && r.at("mode").is_string())
+            {
+                reg.legacyMode = enumFrom<RegistryMode>(r.at("mode").get<std::string>(), {{"dns-sd", RegistryMode::DnsSd}, {"static", RegistryMode::Static}},
+                                                        "registry mode");
+            }
+            if (r.contains("dns_sd") && r.at("dns_sd").is_boolean())
+            {
+                reg.dnsSd = r.at("dns_sd").get<bool>();
+            }
+            else
+            {
+                reg.dnsSd = reg.legacyMode == RegistryMode::DnsSd;
+            }
+            reg.address = str(r, "address");
+            reg.port = num<int>(r, "port", defaultRegistrationPort);
+            reg.queryAddress = str(r, "query_address");
+            reg.queryPort = optNum<int>(r, "query_port");
+            return reg;
+        }
+
+        nlohmann::ordered_json registryJson(Registry const& r)
+        {
+            nlohmann::ordered_json j;
+            j["dns_sd"] = r.dnsSd;
+            j["address"] = r.address.empty() ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(r.address);
+            j["port"] = r.port;
+            if (!r.queryAddress.empty())
+            {
+                j["query_address"] = r.queryAddress;
+            }
+            if (r.queryPort)
+            {
+                j["query_port"] = *r.queryPort;
+            }
+            return j;
+        }
+
+        void validateRegistry(Registry const& r, std::string const& ptr, ValidationErrors& errors)
+        {
+            if (r.legacyMode == RegistryMode::Static && r.address.empty())
+            {
+                add(errors, ptr + "/address", "is required for a static registry");
+            }
+            if (r.legacyMode == RegistryMode::Static && r.dnsSd)
+            {
+                add(errors, ptr + "/dns_sd", "contradicts the deprecated mode \"static\"");
+            }
+            if (r.effectiveQueryPort() > 65535)
+            {
+                add(errors, ptr + "/query_port", "registry port + 1 exceeds 65535; set query_port");
+            }
         }
 
         bool isMirrorPath(std::string const& path)
@@ -432,12 +493,34 @@ namespace mxlgw::config
         {
             auto const& n = j.at("node");
             c.node.id = optUuid(n, "id");
+            if (auto const s = str(n, "seed"); !s.empty())
+            {
+                c.node.seed = s;
+            }
             c.node.label = str(n, "label", c.node.label);
             c.node.description = str(n, "description", c.node.description);
-            c.node.httpPort = num<int>(n, "http_port", c.node.httpPort);
-            if (auto const a = str(n, "public_address"); !a.empty())
+            if (n.contains("tags") && n.at("tags").is_object())
             {
-                c.node.publicAddress = a;
+                for (auto const& [key, values] : n.at("tags").items())
+                {
+                    auto& list = c.node.tags[key];
+                    for (auto const& v : values)
+                    {
+                        list.push_back(v.get<std::string>());
+                    }
+                }
+            }
+            c.node.httpPort = num<int>(n, "http_port", c.node.httpPort);
+            c.node.webPort = optNum<int>(n, "web_port");
+            auto const hostAddress = str(n, "host_address");
+            auto const publicAddress = str(n, "public_address");
+            if (!hostAddress.empty() && !publicAddress.empty() && hostAddress != publicAddress)
+            {
+                throw std::invalid_argument("node.host_address and the deprecated node.public_address differ; remove node.public_address");
+            }
+            if (!hostAddress.empty() || !publicAddress.empty())
+            {
+                c.node.hostAddress = hostAddress.empty() ? publicAddress : hostAddress;
             }
             c.node.publicPort = optNum<int>(n, "public_port");
             if (n.contains("management_addresses"))
@@ -447,13 +530,27 @@ namespace mxlgw::config
                     c.node.managementAddresses.push_back(a.get<std::string>());
                 }
             }
-            if (n.contains("registry") && n.at("registry").is_object())
+            if (n.contains("registry"))
             {
-                auto const& r = n.at("registry");
-                c.node.registry.mode =
-                    enumFrom<RegistryMode>(str(r, "mode", "dns-sd"), {{"dns-sd", RegistryMode::DnsSd}, {"static", RegistryMode::Static}}, "registry mode");
-                c.node.registry.address = str(r, "address");
-                c.node.registry.port = num<int>(r, "port", 0);
+                c.node.registry = readRegistry(n.at("registry"));
+            }
+            if (n.contains("st2110") && n.at("st2110").is_object())
+            {
+                auto const& s = n.at("st2110");
+                c.node.st2110.enabled = boolean(s, "enabled", true);
+                if (auto const l = str(s, "label"); !l.empty())
+                {
+                    c.node.st2110.label = l;
+                }
+                c.node.st2110.httpPort = optNum<int>(s, "http_port");
+                if (auto const a = str(s, "host_address"); !a.empty())
+                {
+                    c.node.st2110.hostAddress = a;
+                }
+                if (s.contains("registry"))
+                {
+                    c.node.st2110.registry = readRegistry(s.at("registry"));
+                }
             }
             if (n.contains("tls") && n.at("tls").is_object())
             {
@@ -464,6 +561,7 @@ namespace mxlgw::config
             }
             c.node.resumeConnections = boolean(n, "resume_connections", true);
             c.node.logLevel = str(n, "log_level", "info");
+            c.node.shutdownTimeoutS = num<int>(n, "shutdown_timeout_s", c.node.shutdownTimeoutS);
         }
 
         if (j.contains("nic"))
@@ -472,6 +570,7 @@ namespace mxlgw::config
             c.nic.backend =
                 enumFrom<Backend>(str(n, "backend", "dpdk"), {{"dpdk", Backend::Dpdk}, {"kernel", Backend::Kernel}, {"mock", Backend::Mock}}, "backend");
             c.nic.lcores = str(n, "lcores");
+            c.nic.lcoreCount = num<int>(n, "lcore_count", c.nic.lcoreCount);
             c.nic.appCpus = str(n, "app_cpus");
             if (n.contains("hugepage_socket") && n.at("hugepage_socket").is_number_integer())
             {
@@ -535,6 +634,7 @@ namespace mxlgw::config
                     c.mxl.domains.push_back(domain);
                 }
             }
+            c.mxl.cleanupOnExit = boolean(m, "cleanup_on_exit", false);
         }
 
         if (j.contains("groups"))
@@ -544,7 +644,129 @@ namespace mxlgw::config
                 c.groups.push_back(groupFromJson(g));
             }
         }
+        if (auto const ns = c.seedNamespace())
+        {
+            for (auto& g : c.groups)
+            {
+                auto seed = [&](auto& list)
+                {
+                    for (auto& e : list)
+                    {
+                        e.idNamespace = util::uuidV5(*ns, e.uid.toString());
+                    }
+                };
+                seed(g.video);
+                seed(g.audio);
+                seed(g.anc);
+            }
+        }
         return c;
+    }
+
+    util::Uuid seedNamespaceOf(std::string const& seed)
+    {
+        // RFC 4122 appendix C name space for URLs.
+        static util::Uuid const urlNamespace = *util::parseUuid("6ba7b811-9dad-11d1-80b4-00c04fd430c8");
+        return util::uuidV5(urlNamespace, "urn:x-mxl-st2110-gateway:seed:" + seed);
+    }
+
+    std::optional<util::Uuid> Config::seedNamespace() const
+    {
+        if (!node.seed)
+        {
+            return std::nullopt;
+        }
+        return seedNamespaceOf(*node.seed);
+    }
+
+    util::Uuid Config::mxlNodeId() const
+    {
+        if (auto const ns = seedNamespace())
+        {
+            return util::uuidV5(*ns, "node");
+        }
+        return node.id ? *node.id : util::Uuid{};
+    }
+
+    util::Uuid Config::st2110NodeId() const
+    {
+        if (auto const ns = seedNamespace())
+        {
+            return util::uuidV5(*ns, "st2110-node");
+        }
+        return util::uuidV5(mxlNodeId(), "st2110-node");
+    }
+
+    std::optional<util::Uuid> Config::seedDomainId(std::string const& domainName) const
+    {
+        if (auto const ns = seedNamespace())
+        {
+            return util::uuidV5(*ns, "mxl-domain:" + domainName);
+        }
+        return std::nullopt;
+    }
+
+    bool isAnnounceableIpv4(std::string const& text)
+    {
+        auto const ip = util::parseIpv4(text);
+        if (!ip)
+        {
+            return false;
+        }
+        auto const o = ip->octets();
+        if (ip->value == 0 || ip->value == 0xFFFFFFFFu || o[0] == 127 || o[0] == 0 || (o[0] == 169 && o[1] == 254) || util::isMulticast(*ip))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    CpuPlacement resolveCpuPlacement(Nic const& nic, std::set<int> const& allowedCpus)
+    {
+        CpuPlacement p;
+        p.lcores = nic.lcores;
+        p.appCpus = nic.appCpus;
+        if (nic.backend != Backend::Dpdk || allowedCpus.empty())
+        {
+            return p;
+        }
+        std::set<int> lcores;
+        if (p.lcores.empty())
+        {
+            // Keep at least one CPU of the affinity for the gateway's own threads when there is more than one.
+            auto const want = std::min<std::size_t>(static_cast<std::size_t>(std::max(1, nic.lcoreCount)), allowedCpus.size() > 1 ? allowedCpus.size() - 1 : 1);
+            for (auto const cpu : allowedCpus)
+            {
+                if (lcores.size() == want)
+                {
+                    break;
+                }
+                lcores.insert(cpu);
+            }
+            p.lcores = util::formatCpuList(lcores);
+            p.lcoresDerived = true;
+        }
+        else if (auto const parsed = util::parseCpuList(p.lcores))
+        {
+            lcores = *parsed;
+        }
+        if (p.appCpus.empty())
+        {
+            std::set<int> rest;
+            for (auto const cpu : allowedCpus)
+            {
+                if (lcores.count(cpu) == 0)
+                {
+                    rest.insert(cpu);
+                }
+            }
+            if (!rest.empty())
+            {
+                p.appCpus = util::formatCpuList(rest);
+                p.appCpusDerived = true;
+            }
+        }
+        return p;
     }
 
     nlohmann::ordered_json toJson(Group const& g)
@@ -613,27 +835,38 @@ namespace mxlgw::config
     {
         nlohmann::ordered_json j;
         j["schema_version"] = c.schemaVersion;
+        auto optText = [](std::optional<std::string> const& v) { return v ? nlohmann::ordered_json(*v) : nlohmann::ordered_json(nullptr); };
+        auto optInt = [](std::optional<int> const& v) { return v ? nlohmann::ordered_json(*v) : nlohmann::ordered_json(nullptr); };
         auto& n = j["node"];
         n["id"] = c.node.id ? nlohmann::ordered_json(c.node.id->toString()) : nlohmann::ordered_json(nullptr);
+        n["seed"] = optText(c.node.seed);
         n["label"] = c.node.label;
         n["description"] = c.node.description;
-        n["http_port"] = c.node.httpPort;
-        n["public_address"] = c.node.publicAddress ? nlohmann::ordered_json(*c.node.publicAddress) : nlohmann::ordered_json(nullptr);
-        n["public_port"] = c.node.publicPort ? nlohmann::ordered_json(*c.node.publicPort) : nlohmann::ordered_json(nullptr);
-        n["management_addresses"] = c.node.managementAddresses;
-        n["registry"]["mode"] = c.node.registry.mode == RegistryMode::DnsSd ? "dns-sd" : "static";
-        if (c.node.registry.mode == RegistryMode::Static)
+        n["tags"] = nlohmann::ordered_json::object();
+        for (auto const& [key, values] : c.node.tags)
         {
-            n["registry"]["address"] = c.node.registry.address;
-            n["registry"]["port"] = c.node.registry.port;
+            n["tags"][key] = values;
         }
+        n["http_port"] = c.node.httpPort;
+        n["web_port"] = optInt(c.node.webPort);
+        n["host_address"] = optText(c.node.hostAddress);
+        n["public_port"] = optInt(c.node.publicPort);
+        n["management_addresses"] = c.node.managementAddresses;
+        n["registry"] = registryJson(c.node.registry);
+        n["st2110"]["enabled"] = c.node.st2110.enabled;
+        n["st2110"]["label"] = optText(c.node.st2110.label);
+        n["st2110"]["http_port"] = optInt(c.node.st2110.httpPort);
+        n["st2110"]["host_address"] = optText(c.node.st2110.hostAddress);
+        n["st2110"]["registry"] = registryJson(c.node.st2110.registry);
         n["tls"]["enabled"] = c.node.tls.enabled;
         n["resume_connections"] = c.node.resumeConnections;
         n["log_level"] = c.node.logLevel;
+        n["shutdown_timeout_s"] = c.node.shutdownTimeoutS;
 
         auto& nic = j["nic"];
         nic["backend"] = toName(c.nic.backend);
         nic["lcores"] = c.nic.lcores.empty() ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(c.nic.lcores);
+        nic["lcore_count"] = c.nic.lcoreCount;
         nic["app_cpus"] = c.nic.appCpus.empty() ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(c.nic.appCpus);
         nic["hugepage_socket"] = c.nic.hugepageSocket ? nlohmann::ordered_json(*c.nic.hugepageSocket) : nlohmann::ordered_json("auto");
         nic["port_pairs"] = nlohmann::ordered_json::array();
@@ -699,6 +932,7 @@ namespace mxlgw::config
             o["gc_on_start"] = d.gcOnStart;
             m["domains"].push_back(o);
         }
+        m["cleanup_on_exit"] = c.mxl.cleanupOnExit;
 
         j["groups"] = nlohmann::ordered_json::array();
         for (auto const& g : c.groups)
@@ -714,15 +948,39 @@ namespace mxlgw::config
         static std::regex const pciRe{pciPattern()};
 
         // node
-        if (c.node.registry.mode == RegistryMode::Static)
+        validateRegistry(c.node.registry, "/node/registry", errors);
+        validateRegistry(c.node.st2110.registry, "/node/st2110/registry", errors);
+        if (c.node.hostAddress && !isAnnounceableIpv4(*c.node.hostAddress))
         {
-            if (c.node.registry.address.empty())
+            add(errors, "/node/host_address", "must be an IPv4 address that can be announced (not 0.0.0.0, 127.x, link-local or multicast)");
+        }
+        if (c.node.st2110.hostAddress && !isAnnounceableIpv4(*c.node.st2110.hostAddress))
+        {
+            add(errors, "/node/st2110/host_address", "must be an IPv4 address that can be announced (not 0.0.0.0, 127.x, link-local or multicast)");
+        }
+        for (std::size_t i = 0; i < c.node.managementAddresses.size(); ++i)
+        {
+            if (!isAnnounceableIpv4(c.node.managementAddresses[i]))
             {
-                add(errors, "/node/registry/address", "is required for a static registry");
+                add(errors, "/node/management_addresses/" + std::to_string(i), "must be an IPv4 address that can be announced");
             }
-            if (c.node.registry.port <= 0)
+        }
+        if (c.node.st2110.enabled)
+        {
+            auto const st2110Port = c.node.st2110HttpPort();
+            auto const ptr = c.node.st2110.httpPort ? std::string("/node/st2110/http_port") : std::string("/node/http_port");
+            auto const what = c.node.st2110.httpPort ? std::string("node.st2110.http_port") : std::string("node.st2110.http_port (default node.http_port + 1)");
+            if (st2110Port > 65535)
             {
-                add(errors, "/node/registry/port", "is required for a static registry");
+                add(errors, ptr, what + " exceeds 65535; set node.st2110.http_port");
+            }
+            if (st2110Port == c.node.httpPort)
+            {
+                add(errors, ptr, what + " must differ from node.http_port");
+            }
+            if (st2110Port == c.node.effectiveWebPort())
+            {
+                add(errors, ptr, what + " (" + std::to_string(st2110Port) + ") collides with node.web_port");
             }
         }
         if (c.node.tls.enabled && (c.node.tls.certificate.empty() || c.node.tls.privateKey.empty()))

@@ -273,7 +273,12 @@ TEST_CASE("semantic rules")
         j["node"]["registry"] = {{"mode", "static"}};
         auto r = parse(j);
         CHECK(hasError(r, "/node/registry/address"));
-        CHECK(hasError(r, "/node/registry/port"));
+        j["node"]["registry"] = {{"mode", "static"}, {"address", "10.0.0.2"}, {"dns_sd", true}};
+        CHECK(hasError(parse(j), "/node/registry/dns_sd"));
+        j["node"]["registry"] = {{"address", "10.0.0.2"}, {"port", 65535}};
+        CHECK(hasError(parse(j), "/node/registry/query_port"));
+        j["node"]["registry"]["query_port"] = 3211;
+        CHECK(parse(j).ok());
         j = testutil::sampleConfig();
         j["node"]["tls"] = {{"enabled", true}};
         CHECK(hasError(parse(j), "/node/tls"));
@@ -281,6 +286,208 @@ TEST_CASE("semantic rules")
         j["ptp"]["warn_offset_ns"] = 2'000'000;
         CHECK(hasError(parse(j), "/ptp/warn_offset_ns"));
     }
+}
+
+TEST_CASE("registry: DNS-SD off by default, deprecated mode mapped (G4)")
+{
+    auto j = testutil::sampleConfig();
+    auto r = parse(j);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r.config->node.registry.dnsSd);
+    CHECK_FALSE(r.config->node.registry.configured());
+    CHECK(r.config->node.registry.port == config::defaultRegistrationPort);
+    CHECK(r.config->node.registry.effectiveQueryPort() == 3211);
+
+    j["node"]["registry"] = {{"mode", "dns-sd"}};
+    r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->node.registry.dnsSd);
+    CHECK(r.config->node.registry.configured());
+
+    j["node"]["registry"] = {{"mode", "dns-sd"}, {"dns_sd", false}, {"address", "10.0.0.2"}};
+    r = parse(j);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r.config->node.registry.dnsSd);
+    CHECK(r.config->node.registry.configured());
+
+    j["node"]["registry"] = {{"mode", "static"}, {"address", "10.0.0.2"}, {"port", 8235}, {"query_address", "10.0.0.3"}, {"query_port", 8236}};
+    r = parse(j);
+    REQUIRE(r.ok());
+    CHECK_FALSE(r.config->node.registry.dnsSd);
+    CHECK(r.config->node.registry.port == 8235);
+    CHECK(r.config->node.registry.effectiveQueryAddress() == "10.0.0.3");
+    CHECK(r.config->node.registry.effectiveQueryPort() == 8236);
+}
+
+TEST_CASE("host address: IPv4 literals only (G5)")
+{
+    for (auto const* bad : {"0.0.0.0", "127.0.0.1", "169.254.10.1", "239.1.1.1", "255.255.255.255"})
+    {
+        auto j = testutil::sampleConfig();
+        j["node"]["host_address"] = bad;
+        CHECK_MESSAGE(hasError(parse(j), "/node/host_address"), bad);
+    }
+    auto j = testutil::sampleConfig();
+    j["node"]["host_address"] = "gateway.example.net";
+    CHECK(hasError(parse(j), "/node/host_address"));
+    j["node"]["host_address"] = "10.0.0.5";
+    REQUIRE(parse(j).ok());
+    CHECK(parse(j).config->node.hostAddress == std::string("10.0.0.5"));
+
+    // Deprecated public_address is an alias; a hostname is no longer accepted.
+    j = testutil::sampleConfig();
+    j["node"]["public_address"] = "10.0.0.6";
+    REQUIRE(parse(j).ok());
+    CHECK(parse(j).config->node.hostAddress == std::string("10.0.0.6"));
+    j["node"]["host_address"] = "10.0.0.7";
+    CHECK_FALSE(parse(j).ok());
+    j["node"]["host_address"] = "10.0.0.6";
+    CHECK(parse(j).ok());
+    j = testutil::sampleConfig();
+    j["node"]["public_address"] = "proxy.example.net";
+    CHECK(hasError(parse(j), "/node/public_address"));
+
+    j = testutil::sampleConfig();
+    j["node"]["st2110"] = {{"host_address", "127.0.0.2"}};
+    CHECK(hasError(parse(j), "/node/st2110/host_address"));
+    j = testutil::sampleConfig();
+    j["node"]["management_addresses"] = {"10.0.0.1", "127.0.0.1"};
+    CHECK(hasError(parse(j), "/node/management_addresses/1"));
+
+    CHECK(config::isAnnounceableIpv4("192.168.1.10"));
+    CHECK_FALSE(config::isAnnounceableIpv4("localhost"));
+    CHECK_FALSE(config::isAnnounceableIpv4(""));
+}
+
+TEST_CASE("ports: web port, ST 2110 node port (G6)")
+{
+    auto j = testutil::sampleConfig();
+    auto r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->node.effectiveWebPort() == 18080);
+    CHECK(r.config->node.st2110HttpPort() == 18081);
+    CHECK(r.config->node.st2110Label() == "GW ST 2110");
+
+    j["node"]["web_port"] = 18081; // collides with the ST 2110 default http_port + 1
+    CHECK(hasError(parse(j), "/node/http_port"));
+    j["node"]["st2110"] = {{"http_port", 18082}};
+    CHECK(parse(j).ok());
+    j["node"]["st2110"] = {{"http_port", 18080}};
+    CHECK(hasError(parse(j), "/node/st2110/http_port"));
+    j["node"]["st2110"] = {{"enabled", false}};
+    CHECK(parse(j).ok());
+
+    j = testutil::sampleConfig();
+    j["node"]["http_port"] = 65535;
+    CHECK(hasError(parse(j), "/node/http_port"));
+    j["node"]["st2110"] = {{"http_port", 65534}, {"label", "GW 2110"}};
+    REQUIRE(parse(j).ok());
+    CHECK(parse(j).config->node.st2110Label() == "GW 2110");
+}
+
+TEST_CASE("node.seed derives every id (G3)")
+{
+    auto j = testutil::sampleConfig();
+    auto const plain = parse(j);
+    REQUIRE(plain.ok());
+    CHECK(plain.config->mxlNodeId() == *plain.config->node.id);
+    CHECK(plain.config->st2110NodeId() == util::uuidV5(*plain.config->node.id, "st2110-node"));
+    CHECK(plain.config->groups[0].video[0].idNamespace == plain.config->groups[0].video[0].uid);
+    CHECK_FALSE(plain.config->seedDomainId("main"));
+
+    j["node"]["seed"] = "prod1-gw";
+    auto const a = parse(j);
+    REQUIRE(a.ok());
+    auto const ns = config::seedNamespaceOf("prod1-gw");
+    CHECK(a.config->seedNamespace() == ns);
+    CHECK(a.config->mxlNodeId() == util::uuidV5(ns, "node"));
+    CHECK(a.config->mxlNodeId() != *a.config->node.id); // the seed wins over node.id
+    CHECK(a.config->st2110NodeId() == util::uuidV5(ns, "st2110-node"));
+    CHECK(a.config->seedDomainId("main") == util::uuidV5(ns, "mxl-domain:main"));
+    auto const& v = a.config->groups[0].video[0];
+    CHECK(v.idNamespace == util::uuidV5(ns, v.uid.toString()));
+
+    // Same seed and config: same ids, also without node.id; another seed: other ids.
+    j["node"].erase("id");
+    auto const b = parse(j);
+    REQUIRE(b.ok());
+    CHECK(b.config->mxlNodeId() == a.config->mxlNodeId());
+    CHECK(b.config->groups[0].video[0].idNamespace == v.idNamespace);
+    j["node"]["seed"] = "prod2-gw";
+    auto const c = parse(j);
+    REQUIRE(c.ok());
+    CHECK(c.config->mxlNodeId() != a.config->mxlNodeId());
+    CHECK(c.config->groups[0].video[0].idNamespace != v.idNamespace);
+
+    j["node"]["seed"] = "";
+    CHECK(hasError(parse(j), "/node/seed"));
+}
+
+TEST_CASE("node tags")
+{
+    auto j = testutil::sampleConfig();
+    j["node"]["tags"] = {{"urn:x-platform:production", {"prod1"}}, {"empty", json::array()}};
+    auto const r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->node.tags.at("urn:x-platform:production") == std::vector<std::string>{"prod1"});
+    CHECK(r.config->node.tags.at("empty").empty());
+    j["node"]["tags"] = {{"bad", {1}}};
+    CHECK(hasError(parse(j), "/node/tags/bad/0"));
+}
+
+TEST_CASE("CPU placement from the affinity (Kubernetes cpuset)")
+{
+    config::Nic nic;
+    nic.backend = config::Backend::Dpdk;
+    nic.lcoreCount = 2;
+    auto p = config::resolveCpuPlacement(nic, {4, 5, 6, 7, 8});
+    CHECK(p.lcores == "4-5");
+    CHECK(p.appCpus == "6-8");
+    CHECK(p.lcoresDerived);
+    CHECK(p.appCpusDerived);
+
+    p = config::resolveCpuPlacement(nic, {3});
+    CHECK(p.lcores == "3");
+    CHECK(p.appCpus.empty());
+
+    nic.lcoreCount = 8;
+    p = config::resolveCpuPlacement(nic, {0, 1, 2});
+    CHECK(p.lcores == "0-1"); // one CPU stays for the gateway's own threads
+    CHECK(p.appCpus == "2");
+
+    nic.lcores = "10-11";
+    p = config::resolveCpuPlacement(nic, {8, 9, 10, 11});
+    CHECK(p.lcores == "10-11");
+    CHECK_FALSE(p.lcoresDerived);
+    CHECK(p.appCpus == "8-9");
+
+    nic.appCpus = "12";
+    p = config::resolveCpuPlacement(nic, {8, 9, 10, 11});
+    CHECK(p.appCpus == "12");
+    CHECK_FALSE(p.appCpusDerived);
+
+    config::Nic kernel;
+    kernel.backend = config::Backend::Kernel;
+    p = config::resolveCpuPlacement(kernel, {0, 1, 2, 3});
+    CHECK(p.lcores.empty());
+    CHECK(p.appCpus.empty());
+}
+
+TEST_CASE("shutdown and cleanup settings (G8)")
+{
+    auto j = testutil::sampleConfig();
+    auto r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->node.shutdownTimeoutS == 10);
+    CHECK_FALSE(r.config->mxl.cleanupOnExit);
+    j["node"]["shutdown_timeout_s"] = 0;
+    CHECK(hasError(parse(j), "/node/shutdown_timeout_s"));
+    j["node"]["shutdown_timeout_s"] = 30;
+    j["mxl"]["cleanup_on_exit"] = true;
+    r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->node.shutdownTimeoutS == 30);
+    CHECK(r.config->mxl.cleanupOnExit);
 }
 
 TEST_CASE("toJson round trip")

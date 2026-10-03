@@ -28,16 +28,16 @@ namespace mxlgw::ids
 
     EssenceIds forVideo(config::VideoEssence const& e)
     {
-        return make(e.uid, e.format.canonical());
+        return make(e.idNamespace, e.format.canonical());
     }
 
     EssenceIds forAudio(config::AudioEssence const& e)
     {
-        return make(e.uid, e.format.canonical());
+        return make(e.idNamespace, e.format.canonical());
     }
 
     EssenceIds forAnc(config::AncEssence const& e)
     {
-        return make(e.uid, e.format.canonical());
+        return make(e.idNamespace, e.format.canonical());
     }
 }

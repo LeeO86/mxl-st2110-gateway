@@ -25,6 +25,14 @@ First full implementation of SPECIFICATION.md Draft 1.2.
 - **Deployment:** Dockerfile (webui, deps, build, fuzz, runtime stages; E810 DDP package bundled), Compose files (single host, mxl-fabrics-agent host A/B), Kubernetes manifests with an mxl-fabrics-agent two-node kustomization.
 - **CI:** lint, unit tests in the image build, MTL patch check, web tests, 60 s libFuzzer per parser, integration tests (smoke, kernel-backend loopback with leg loss, late flow with a mirror domain, AMWA nmos-testing); container publishing to GHCR and releases.
 
+### Platform guideline (G1–G14)
+
+- **Standard environment variables** (canonical; the `MXLGW_*` names stay valid as aliases): `NMOS_SEED`, `NMOS_LABEL` (alias `MXLGW_NODE_LABEL`), `NMOS_TAGS`, `NMOS_PORT` (aliases `MXLGW_NODE_HTTP_PORT`, `MXLGW_HTTP_PORT`), `WEB_PORT`, `NMOS_HOST_ADDRESS` (aliases `MXLGW_NODE_HOST_ADDRESS`, `MXLGW_NODE_PUBLIC_ADDRESS`), `NMOS_REGISTRY_ADDRESS` / `NMOS_REGISTRY_PORT` (aliases `MXLGW_NODE_REGISTRY_ADDRESS` / `_PORT`), `NMOS_QUERY_ADDRESS`, `NMOS_QUERY_PORT`, `NMOS_DNS_SD`, `SHUTDOWN_TIMEOUT_S`, `MXL_DOMAIN_SCAN_PATH` (now canonical, alias `MXLGW_MXL_SCAN_PATH`), `MXL_OUTPUT_DOMAIN_DIR`, `MXL_OUTPUT_DOMAIN_ID`, `MXL_OUTPUT_DOMAIN_HISTORY_DURATION_NS`, `MXL_CLEANUP_ON_EXIT`.
+- **Configuration schema v1, new keys** (backwards compatible): `node.seed`, `node.tags`, `node.web_port`, `node.host_address`, `node.shutdown_timeout_s`, `node.registry.dns_sd`, `node.registry.query_address`, `node.registry.query_port`, `node.st2110.*` (second NMOS node), `nic.lcore_count`, `mxl.cleanup_on_exit`.
+- **Changed:** two environment variables of one setting with different values (e.g. `NMOS_PORT` and `MXLGW_HTTP_PORT`) are a configuration error (exit 78); before, the canonical name won silently.
+- **Changed:** `node.registry` without `mode`/`dns_sd` no longer means DNS-SD: DNS-SD is off unless `dns_sd: true` or the deprecated `mode: "dns-sd"` is set; `node.registry.port` defaults to 3210; `mode: "static"` still requires `address`. The minimal configuration written on first start no longer contains `registry.mode`.
+- **Changed:** `node.public_address` (deprecated alias of `node.host_address`) and `node.management_addresses` must be IPv4 literals that can be announced (no hostnames, `0.0.0.0`, `127/8`, link-local or multicast).
+
 ### Fixed
 
 - MTL patch 0004: lost wakeup in MTL's scheduler sleep (1 s stalls under load).

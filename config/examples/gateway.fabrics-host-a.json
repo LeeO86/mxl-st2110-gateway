@@ -5,7 +5,7 @@
     "label": "GW-HOST-A",
     "description": "Host A: ST 2110 -> MXL (replicated to host B by mxl-fabrics-agent)",
     "http_port": 8090,
-    "registry": { "mode": "dns-sd" },
+    "registry": { "dns_sd": false, "address": "10.10.0.5", "port": 3210 },
     "resume_connections": true
   },
   "nic": {

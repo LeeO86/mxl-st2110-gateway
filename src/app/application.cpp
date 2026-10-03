@@ -317,7 +317,7 @@ namespace mxlgw::app
             }
             _clock = std::make_unique<ops::ClockSupervisor>([this] { return _backend->ptpTimeNs(); }, [] { return media::hostTaiNs(); });
             _clock->start();
-            _groups = std::make_unique<group::GroupManager>(*cfg.node.id, *_backend, *_resolver, _domains, cfg.nic.appCpus);
+            _groups = std::make_unique<group::GroupManager>(cfg.mxlNodeId(), *_backend, *_resolver, _domains, cfg.nic.appCpus);
         }
 
         _router = ops::makeGatewayRouter(*this);
@@ -1010,11 +1010,11 @@ namespace mxlgw::app
         auto const snap = _store->snapshot();
         auto const& cfg = snap.config;
         json j;
-        j["node"] = {{"id", cfg.node.id ? json(cfg.node.id->toString()) : json()},
+        j["node"] = {{"id", cfg.mxlNodeId().isNil() ? json() : json(cfg.mxlNodeId().toString())},
                      {"label", cfg.node.label},
                      {"description", cfg.node.description},
                      {"http_port", cfg.node.httpPort},
-                     {"device_id", cfg.node.id ? json(ids::deviceId(*cfg.node.id).toString()) : json()}};
+                     {"device_id", cfg.mxlNodeId().isNil() ? json() : json(ids::deviceId(cfg.mxlNodeId()).toString())}};
         j["versions"] = {{"gateway", version::gateway},
                          {"mtl", version::mtl},
                          {"dpdk", version::dpdk},

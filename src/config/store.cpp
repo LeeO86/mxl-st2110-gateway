@@ -90,7 +90,11 @@ namespace mxlgw::config
     bool fillGeneratedIds(ojson& file, EnvOverlay const& overlay)
     {
         bool changed = false;
-        if (!overlay.variableFor("/node/id"))
+        auto const& effectiveNode = overlay.effective.contains("node") ? overlay.effective["node"] : nlohmann::json();
+        bool const seeded = effectiveNode.is_object() && effectiveNode.contains("seed") && effectiveNode["seed"].is_string() &&
+                            !effectiveNode["seed"].get<std::string>().empty();
+        // With node.seed every node id is derived (§7.3): nothing to generate or write back.
+        if (!overlay.variableFor("/node/id") && !seeded)
         {
             if (!file.contains("node") || !file["node"].is_object())
             {
