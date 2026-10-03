@@ -89,11 +89,14 @@ make_mxl_root() {
 }
 
 # start_gateway <name> <image> <config-dir> <mxl-root> <network: host|container:NAME> [extra docker args...]
+# MTL (also its kernel backend) needs root for the host's hugetlbfs; group 1000 as in deploy/k8s, so the
+# tools running as the image user (uid 1000) can write into the domains the gateway creates.
 start_gateway() {
     local name="$1" image="$2" config="$3" mxl="$4" net="$5"
     shift 5
     docker rm -f "$name" >/dev/null 2>&1 || true
     docker run -d --name "$name" \
+        --user 0:1000 \
         --network "$net" \
         --cap-add IPC_LOCK --cap-add SYS_NICE --cap-add NET_RAW --cap-add NET_ADMIN \
         --ulimit memlock=-1:-1 \

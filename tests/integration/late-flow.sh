@@ -19,8 +19,11 @@ MIRROR_ID=a1a1a1a1-0000-4000-8000-00000000a001
 FLOW_V=66666666-6666-4666-8666-000000000001
 FLOW_A=66666666-6666-4666-8666-000000000002
 FLOW_ANC=66666666-6666-4666-8666-000000000003
+# MXL node / ST 2110 node of each gateway (§7.1)
 GWE=http://127.0.0.1:18183
+GWE2110=http://127.0.0.1:18193
 GWI=http://192.168.81.2:18184
+GWI2110=http://192.168.81.2:18194
 
 ensure_hugepages 1024
 make_mxl_root "$WORK/mxl" 2g
@@ -44,7 +47,7 @@ config() { # <label> <port> <ifname> <ip> <lcores> <group> <direction> <multicas
     cat <<EOF
 {
   "schema_version": 1,
-  "node": {"label": "$1", "http_port": $2, "registry": {"mode": "static", "address": "127.0.0.1", "port": 9}},
+  "node": {"label": "$1", "http_port": $2, "st2110": {"http_port": $(($2 + 10))}},
   "nic": {"backend": "kernel", "lcores": "$5", "port_pairs": [{"name": "media",
           "primary": {"name": "media-p", "ifname": "$3", "ip": "$4", "netmask": "255.255.255.0"}}]},
   "ptp": {"mode": "external", "require_lock": false},
@@ -72,12 +75,12 @@ for e in V A ANC; do
     rid=$(nmos_id "$GWE" receivers "PGM $e")
     patch_staged "$GWE" receivers "$rid" "{\"master_enable\": true, \"activation\": {\"mode\": \"activate_immediate\"},
         \"transport_params\": [{\"mxl_domain_id\": \"$MIRROR_ID\", \"mxl_flow_id\": \"${FLOW[$e]}\"}]}"
-    sid=$(nmos_id "$GWE" senders "PGM $e")
-    patch_staged "$GWE" senders "$sid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
-    sdp=$(curl -fsS "$GWE/x-nmos/connection/v1.2/single/senders/$sid/transportfile")
+    sid=$(nmos_id "$GWE2110" senders "PGM $e")
+    patch_staged "$GWE2110" senders "$sid" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
+    sdp=$(curl -fsS "$GWE2110/x-nmos/connection/v1.2/single/senders/$sid/transportfile")
     body=$(python3 -c 'import json,sys; print(json.dumps({"sender_id": sys.argv[1], "master_enable": True,
         "activation": {"mode": "activate_immediate"}, "transport_file": {"data": sys.argv[2], "type": "application/sdp"}}))' "$sid" "$sdp")
-    patch_staged "$GWI" receivers "$(nmos_id "$GWI" receivers "LOOP $e")" "$body"
+    patch_staged "$GWI2110" receivers "$(nmos_id "$GWI2110" receivers "LOOP $e")" "$body"
     patch_staged "$GWI" senders "$(nmos_id "$GWI" senders "LOOP $e")" '{"master_enable": true, "activation": {"mode": "activate_immediate"}}'
 done
 for e in V A ANC; do
