@@ -66,18 +66,18 @@ TEST_CASE("metrics exposition format")
     auto const id = reg.add(
         [](MetricsWriter& w)
         {
-            w.gauge("mxlgw_ready", "Readiness", {}, 1);
-            w.counter("mxlgw_rx_frames_total", "Frames", {{"group", "CAM \"1\""}, {"result", "complete"}}, 42);
-            w.counter("mxlgw_rx_frames_total", "Frames", {{"group", "CAM \"1\""}, {"result", "incomplete"}}, 0);
-            w.gauge("mxlgw_clock_mtl_minus_host_tai_ns", "Offset", {}, -12.5);
+            w.gauge("mxl_st2110_gateway_ready", "Readiness", {}, 1);
+            w.counter("mxl_st2110_gateway_rx_frames_total", "Frames", {{"group", "CAM \"1\""}, {"result", "complete"}}, 42);
+            w.counter("mxl_st2110_gateway_rx_frames_total", "Frames", {{"group", "CAM \"1\""}, {"result", "incomplete"}}, 0);
+            w.gauge("mxl_st2110_gateway_clock_mtl_minus_host_tai_ns", "Offset", {}, -12.5);
         });
     auto const text = reg.scrape();
-    CHECK(text.find("# TYPE mxlgw_ready gauge\nmxlgw_ready 1\n") != std::string::npos);
-    CHECK(text.find("mxlgw_rx_frames_total{group=\"CAM \\\"1\\\"\",result=\"complete\"} 42") != std::string::npos);
-    CHECK(text.find("# HELP mxlgw_rx_frames_total Frames") != std::string::npos);
+    CHECK(text.find("# TYPE mxl_st2110_gateway_ready gauge\nmxl_st2110_gateway_ready 1\n") != std::string::npos);
+    CHECK(text.find("mxl_st2110_gateway_rx_frames_total{group=\"CAM \\\"1\\\"\",result=\"complete\"} 42") != std::string::npos);
+    CHECK(text.find("# HELP mxl_st2110_gateway_rx_frames_total Frames") != std::string::npos);
     CHECK(text.find("-12.5") != std::string::npos);
     // TYPE appears once per family.
-    CHECK(text.find("# TYPE mxlgw_rx_frames_total") == text.rfind("# TYPE mxlgw_rx_frames_total"));
+    CHECK(text.find("# TYPE mxl_st2110_gateway_rx_frames_total") == text.rfind("# TYPE mxl_st2110_gateway_rx_frames_total"));
     reg.remove(id);
     CHECK(reg.scrape().empty());
     CHECK(escapeLabelValue("a\\b\n") == "a\\\\b\\n");

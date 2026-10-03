@@ -43,13 +43,13 @@ Every **VERIFY** item touched in a phase MUST be resolved in that phase: confirm
 - Video ingest (§6.1) with v210 conversion into the grain (resolve R1) and video egress with user timestamp/pacing.
 - Kernel-backend loopback test for video (`tests/integration/loopback.sh`, video only).
 
-**Accept:** CI loopback video: frame counter continuous for 60 s, no unconverted RFC 4175 in grains (verify pixel values of the colour bars); unit test of the patch API via a stub; on hardware (record in `docs/acceptance.md`): PTP lock on E810 PF, GM identity shown, `mxlgw_clock_mtl_minus_host_tai_ns` within 10 µs with a correctly configured host.
+**Accept:** CI loopback video: frame counter continuous for 60 s, no unconverted RFC 4175 in grains (verify pixel values of the colour bars); unit test of the patch API via a stub; on hardware (record in `docs/acceptance.md`): PTP lock on E810 PF, GM identity shown, `mxl_st2110_gateway_clock_mtl_minus_host_tai_ns` within 10 µs with a correctly configured host.
 
 ## Phase 4 — Audio, ANC, ST 2022-7, egress sync
 
 - Audio ingest/egress (§6.2), ANC ingest/egress (§6.3), egress sync groups and `output_delay` (§5.7), redundancy on both directions (§4.3), `update_source`/`update_destination` paths (§7.5).
 
-**Accept:** CI loopback full group (1 V + 2 A × 8 ch + 1 ANC): tone frequency/level exact, timecode continuous, A/V alignment within ±1 audio block; leg-loss simulation on the kernel backend (drop leg R) keeps output intact and increments `mxlgw_rx_leg_seq_lost_total{leg="r"}`.
+**Accept:** CI loopback full group (1 V + 2 A × 8 ch + 1 ANC): tone frequency/level exact, timecode continuous, A/V alignment within ±1 audio block; leg-loss simulation on the kernel backend (drop leg R) keeps output intact and increments `mxl_st2110_gateway_rx_leg_seq_lost_total{leg="r"}`.
 
 ## Phase 5 — NMOS
 

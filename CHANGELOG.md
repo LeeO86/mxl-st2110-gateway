@@ -17,7 +17,7 @@ First full implementation of SPECIFICATION.md Draft 1.2.
 - **Configuration schema v1** (`schema_version: 1`) with descriptions and defaults; precedence environment > file > default; environment variables `MXLGW_*` and the aliases `MXLGW_HTTP_PORT`, `MXLGW_LOG_LEVEL`, `MXL_DOMAIN_SCAN_PATH`, `MXL_READ_OFFSET_GRAINS`, `MXL_READ_OFFSET_MS` (`docs/configuration.md`). Backends `dpdk`, `kernel` (test-only) and `mock` (test-only).
 - **REST API** (`/api/status`, `/api/config` with ETag/If-Match, export/import with `keep_ids`, validate, schema, groups, nic, ptp, domains, flows, nmos, preflight, logs, restart), health endpoints `/livez`, `/readyz`, `/statusz`.
 - **Admin web UI** (Vue 3, single embedded file): dashboard, groups (create by counts, edit, duplicate, delete), NMOS, network, PTP, MXL (domains, flow browser, receivers), configuration (export/import, changed-on-disk resolution, preflight, logs).
-- **Metrics** (`docs/metrics.md`): `mxlgw_build_info`, `mxlgw_ready`, `mxlgw_restart_required`, `mxlgw_ptp_*`, `mxlgw_clock_mtl_minus_host_tai_ns`, `mxlgw_nic_*`, `mxlgw_essence_state`, `mxlgw_rx_*`, `mxlgw_ingest_origin_age_ns`, `mxlgw_mxl_*`, `mxlgw_tx_*`, `mxlgw_egress_lead_ns`, `mxlgw_nmos_*`. PTP series exist only while MTL runs PTP.
+- **Metrics** (`docs/metrics.md`): `mxl_st2110_gateway_build_info`, `mxl_st2110_gateway_ready`, `mxl_st2110_gateway_restart_required`, `mxl_st2110_gateway_ptp_*`, `mxl_st2110_gateway_clock_mtl_minus_host_tai_ns`, `mxl_st2110_gateway_nic_*`, `mxl_st2110_gateway_essence_state`, `mxl_st2110_gateway_rx_*`, `mxl_st2110_gateway_ingest_origin_age_ns`, `mxl_st2110_gateway_mxl_*`, `mxl_st2110_gateway_tx_*`, `mxl_st2110_gateway_egress_lead_ns`, `mxl_st2110_gateway_nmos_*`. PTP series exist only while MTL runs PTP.
 - **Monitoring:** generated Grafana 11 dashboard, Prometheus scrape example, Kubernetes `ServiceMonitor`.
 - **Logging:** JSON lines (or text), stable event names, MTL/DPDK output redirected through a lock-free ring, last 500 lines in `/api/logs`.
 - **Preflight** (`--preflight`, at start and `/api/preflight`): hugepages, vfio, PCI binding, capabilities, MXL domains, scan path, TAI offset, HTTP port, lcores.
@@ -32,6 +32,7 @@ First full implementation of SPECIFICATION.md Draft 1.2.
 - **Changed:** two environment variables of one setting with different values (e.g. `NMOS_PORT` and `MXLGW_HTTP_PORT`) are a configuration error (exit 78); before, the canonical name won silently.
 - **Changed:** `node.registry` without `mode`/`dns_sd` no longer means DNS-SD: DNS-SD is off unless `dns_sd: true` or the deprecated `mode: "dns-sd"` is set; `node.registry.port` defaults to 3210; `mode: "static"` still requires `address`. The minimal configuration written on first start no longer contains `registry.mode`.
 - **Changed:** `node.public_address` (deprecated alias of `node.host_address`) and `node.management_addresses` must be IPv4 literals that can be announced (no hostnames, `0.0.0.0`, `127/8`, link-local or multicast).
+- **Changed (metrics):** the prefix of every metric is `mxl_st2110_gateway_` instead of `mxlgw_` (e.g. `mxl_st2110_gateway_ready`); `mxl_st2110_gateway_nmos_registered` has a `node` label (`mxl`, `st2110`). The dashboard and `docs/metrics.md` use the new names.
 
 ### Fixed
 

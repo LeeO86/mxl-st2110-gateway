@@ -148,9 +148,9 @@ TEST_CASE("running gateway: bootstrap, live groups, domains and metrics")
     CHECK(body(call(gw, "GET", "/api/status"))["groups"].size() == 3);
 
     auto const metrics = call(gw, "GET", "/metrics").body;
-    CHECK(metrics.find("mxlgw_build_info{") != std::string::npos);
-    CHECK(metrics.find("mxlgw_essence_state{") != std::string::npos);
-    CHECK(metrics.find("mxlgw_mxl_domain_flows{domain=\"main\"}") != std::string::npos);
+    CHECK(metrics.find("mxl_st2110_gateway_build_info{") != std::string::npos);
+    CHECK(metrics.find("mxl_st2110_gateway_essence_state{") != std::string::npos);
+    CHECK(metrics.find("mxl_st2110_gateway_mxl_domain_flows{domain=\"main\"}") != std::string::npos);
     CHECK(metrics.find("group=\"PGM 2\"") != std::string::npos);
 
     REQUIRE(call(gw, "DELETE", "/api/groups/" + uid).status == 200);
@@ -169,7 +169,7 @@ TEST_CASE("running gateway: bootstrap, live groups, domains and metrics")
     REQUIRE(saved);
     CHECK(saved->status == 200);
     CHECK(body(call(gw, "GET", "/api/status"))["restart_required"] == true);
-    CHECK(call(gw, "GET", "/metrics").body.find("mxlgw_restart_required 1") != std::string::npos);
+    CHECK(call(gw, "GET", "/metrics").body.find("mxl_st2110_gateway_restart_required 1") != std::string::npos);
 
     // A hand edit shows up as changed on disk.
     std::this_thread::sleep_for(std::chrono::milliseconds(20));

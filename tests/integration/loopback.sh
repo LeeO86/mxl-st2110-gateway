@@ -10,7 +10,7 @@
 # timecode ANC continuity, A/V alignment within one audio block, RTP timestamp = grain time + the
 # 2-grain output delay, a second 8-channel audio essence, the IS-05 path (SDP from the egress Sender
 # into the ingest Receiver), and leg-R loss that leaves the output intact while
-# mxlgw_rx_leg_seq_lost_total{leg="r"} grows. Needs root (sudo), docker and hugepages.
+# mxl_st2110_gateway_rx_leg_seq_lost_total{leg="r"} grows. Needs root (sudo), docker and hugepages.
 source "$(dirname "$0")/lib.sh"
 
 IMAGE="${1:?usage: loopback.sh <image>}"
@@ -123,9 +123,9 @@ done
 ACCT_EGRESS="$GWE"
 ACCT_INGEST="$GWI"
 ACCT_INGEST_CONTAINER="$IT_PREFIX-ingest"
-ACCT_AUDIO_TX=('mxlgw_tx_late_frames_total{essence="PGM A1"}' 'mxlgw_tx_late_frames_total{essence="PGM A2"}')
-ACCT_VIDEO_TX=('mxlgw_tx_late_frames_total{essence="PGM V"}')
-ACCT_VIDEO_RX=('mxlgw_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxlgw_rx_frames_total{essence="LOOP V",result="dropped"}')
+ACCT_AUDIO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM A1"}' 'mxl_st2110_gateway_tx_late_frames_total{essence="PGM A2"}')
+ACCT_VIDEO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM V"}')
+ACCT_VIDEO_RX=('mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="dropped"}')
 verify() { # <report.json> <mxl-verify arguments...>
     local report="$1"
     shift
@@ -141,7 +141,7 @@ verify "$IT_ARTIFACTS/loopback-verify-a2.json" --audio-flow "$LOOP_A2" --rate 25
 pass "loopback media verified"
 
 log "dropping 5 % of leg R"
-lost_before=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
+lost_before=$(metric "$GWI" 'mxl_st2110_gateway_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
 # MTL's kernel backend receives with UDP sockets, so a netfilter rule in the ingest namespace drops
 # packets before they reach it (nft numgen: xt_statistic is not available on every kernel).
 in_netns "$IT_PREFIX-ns" nft add table inet mxlit
@@ -151,9 +151,9 @@ sleep 3
 verify "$IT_ARTIFACTS/loopback-verify-leg-loss.json" --video-flow "$LOOP_V" --audio-flow "$LOOP_A1" --anc-flow "$LOOP_ANC" \
     --width 1920 --height 1080 --rate 25/1 --channels 8 --duration-ms 10000 --expect-offset-grains 2 ||
     { cat "$IT_ARTIFACTS/loopback-verify-leg-loss.json" >&2; fail "output not intact with leg R loss"; }
-lost_after=$(metric "$GWI" 'mxlgw_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
+lost_after=$(metric "$GWI" 'mxl_st2110_gateway_rx_leg_seq_lost_total{essence="LOOP V",leg="r"}')
 python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) + 100 else 1)" "${lost_before:-0}" "${lost_after:-0}" ||
-    fail "mxlgw_rx_leg_seq_lost_total{leg=\"r\"} did not grow ($lost_before -> $lost_after)"
+    fail "mxl_st2110_gateway_rx_leg_seq_lost_total{leg=\"r\"} did not grow ($lost_before -> $lost_after)"
 in_netns "$IT_PREFIX-ns" nft delete table inet mxlit
 pass "leg R loss: output intact, leg r lost $lost_before -> $lost_after"
 

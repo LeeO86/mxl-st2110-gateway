@@ -37,4 +37,4 @@ kubectl apply -k <mxl-fabrics-agent>/deploy               # agent DaemonSet
    ```
 
 3. The agent on node B creates `/Volumes/mxl/mirror-a1a1a1a1-0000-4000-8000-00000000a001` (eager mode: already has). The receiver resolves it by id (§8.5), shows `waiting_for_flow` / `no_signal` until grains arrive (§5.8) and then starts on its own.
-4. Check `mxlgw_mxl_reader_info{domain_kind="mirror"}` and `mxlgw_mxl_read_lag_grains` on node B (Grafana row *Egress*).
+4. Check `mxl_st2110_gateway_mxl_reader_info{domain_kind="mirror"}` and `mxl_st2110_gateway_mxl_read_lag_grains` on node B (Grafana row *Egress*).

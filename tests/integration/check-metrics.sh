@@ -32,7 +32,7 @@ out="$(printf '%s\n' "$body" | run 2>&1)"
 rc=$?
 set -e
 
-remaining="$(printf '%s\n' "$out" | grep -vE '^mxlgw_[a-z0-9_]+_ns metric names should not contain abbreviated units$' | grep -v '^$' || true)"
+remaining="$(printf '%s\n' "$out" | grep -vE '^mxl_st2110_gateway_[a-z0-9_]+_ns metric names should not contain abbreviated units$' | grep -v '^$' || true)"
 if [[ -n "$remaining" ]]; then
     echo "check-metrics: promtool findings:" >&2
     printf '%s\n' "$remaining" >&2
@@ -43,4 +43,4 @@ if [[ $rc -ne 0 && $rc -ne 3 ]]; then
     printf '%s\n' "$out" >&2
     exit 1
 fi
-echo "check-metrics: ok ($(printf '%s\n' "$body" | grep -c '^mxlgw_') samples)"
+echo "check-metrics: ok ($(printf '%s\n' "$body" | grep -c '^mxl_st2110_gateway_') samples)"

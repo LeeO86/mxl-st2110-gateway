@@ -11,7 +11,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 | C1 | `node.http_port` 8080 collides with mxl-decklink under host networking | Keep 8080; solve co-location at deployment level (env override, Compose port mapping, reverse proxy) | `MXLGW_HTTP_PORT` alias; `node.public_address` / `public_port` feed nmos-cpp's `proxy_map`; preflight warns about sibling ports; fabrics examples use 8090 |
 | C2 | Environment variables were bootstrap-only | Precedence **env > file > default** for every scalar of `node`, `nic`, `ptp`, `mxl` (mxl-decklink model) | Env-set keys are read-only in the UI, rejected by `/api` with a per-field error, never written back (also not generated ids) |
 | C3 | BCP-007-03 says reject an inaccessible `mxl_domain_id`; mxl-fabrics-agent `MIRROR_MODE=on-demand` creates the mirror only after activation | Accept the unknown domain, log `mxl_domain_unknown` (rate-limited), wait | Deliberate deviation from BCP-007-03 (R11); the receiver's `mxl_domain_id` constraint is `{}`; BCP-007-03-01 does not exercise it; documented in `docs/conformance.md` |
-| C4 | Fixed 500 ms polling for missing flows | Backoff 500 ms → 5 s, ±10 % jitter, while `master_enable` | `util::Backoff`; `mxlgw_mxl_flow_not_found_total` counts attempts |
+| C4 | Fixed 500 ms polling for missing flows | Backoff 500 ms → 5 s, ±10 % jitter, while `master_enable` | `util::Backoff`; `mxl_st2110_gateway_mxl_flow_not_found_total` counts attempts |
 | C5 / Q8 | Flow id only from the essence uid kept the id across format changes | Flow id = UUIDv5(essence uid, `"flow:" + canonical format`) | A format edit mints a new flow; NMOS is updated before the new writer commits (§7.3) |
 | C6 | Config id vs. existing `domain_def.json` | `domain_def.json` wins; the adopted id is written back to the config | `domain_id_mismatch` warning, then write-back; skipped when the id comes from the environment |
 | C7 | Host MXL root path | `/Volumes/mxl` like the siblings; each container maps it to its own path | Identity always comes from `domain_def.json`, never from a path |
@@ -66,7 +66,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Consequence: tests need `sudo` for `ip`/`nsenter`; documented in `tests/integration/lib.sh`.
 
 ### 2026-10-01 — Loopback test: bad audio blocks only when MTL's own counters explain them
-- Context: on the kernel-socket backend one MTL scheduler issues ~200 000 `sendto` calls per second for the two video legs and reads the legs' sockets one after the other. On a loaded 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`, counted in `mxlgw_tx_late_frames_total`), or loses a packet on both legs (its "unrecovered (lost on both)" statistic), which `mxl-verify` sees as a bad audio block. The kernel backend has no pacing guarantees (§17.2, R8).
+- Context: on the kernel-socket backend one MTL scheduler issues ~200 000 `sendto` calls per second for the two video legs and reads the legs' sockets one after the other. On a loaded 4-vCPU runner MTL occasionally misses an audio frame's transmit time and drops it (`*_DROP_WHEN_LATE`, counted in `mxl_st2110_gateway_tx_late_frames_total`), or loses a packet on both legs (its "unrecovered (lost on both)" statistic), which `mxl-verify` sees as a bad audio block. The kernel backend has no pacing guarantees (§17.2, R8).
 - Decision: `loopback.sh` accepts bad audio blocks only if late audio frames plus twice the both-legs-lost audio packets of the same window cover them (one lost 1 ms packet can touch two verify blocks); video, ANC, offsets and A/V alignment must always be exact.
 - Consequence: the test stays strict about the gateway's data path while tolerating the test backend's scheduling; on DPDK hardware late frames and unrecovered packets must be zero (`docs/performance.md`).
 - Addendum: the same rule covers video — invalid video grains (the ingest marks frames with lost packets invalid) are accepted only up to the incomplete, dropped and late video frames the gateways counted in the window; bars, frame counters and timecode must be exact. The rule lives in `tests/integration/lib.sh` (`verify_media`) and is used by `loopback.sh` and `late-flow.sh`.
@@ -98,8 +98,8 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Addendum (first GitHub run): on AppArmor hosts (Ubuntu runners) dbus-daemon refuses D-Bus clients confined by Docker's `docker-default` profile, which has no D-Bus rules; nmos-cpp reports `DNSServiceBrowse reported error: -65553` (`kDNSServiceErr_Refused`). The Compose files run the gateway with `security_opt: ["apparmor=unconfined"]`, the Kubernetes manifests with `appArmorProfile: {type: Unconfined}`, the nmos-testing script likewise when AppArmor is enabled. The container stays unprivileged with only `IPC_LOCK` and `SYS_NICE`; a custom AppArmor profile allowing `dbus send … peer=(name=org.freedesktop.Avahi)` is the stricter alternative. The `DNSServiceCreateConnection … -65544` error logged at start comes from nmos-cpp's address-record registration, which Avahi's compatibility layer does not support; it is harmless.
 
 ### 2026-10-01 — PTP series only when MTL runs PTP
-- Context: with `ptp.mode = external` or the kernel backend MTL has no PTP instance; exporting `mxlgw_ptp_locked 0` showed a red "UNLOCKED".
-- Decision: all `mxlgw_ptp_*` series are absent in that case; the dashboard shows "external / no MTL PTP".
+- Context: with `ptp.mode = external` or the kernel backend MTL has no PTP instance; exporting `mxl_st2110_gateway_ptp_locked 0` showed a red "UNLOCKED".
+- Decision: all `mxl_st2110_gateway_ptp_*` series are absent in that case; the dashboard shows "external / no MTL PTP".
 - Consequence: alert rules should use `absent()` only together with the configured mode.
 
 ### 2026-10-01 — Imports are blocked after a hand edit
@@ -125,7 +125,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 ### 2026-10-01 — Pins only in the Dockerfile and `ci.yaml`
 - Context: AGENTS.md hard rule.
 - Decision: CMake reports the pins it is given (`-DMXLGW_PIN_*`, passed by the Dockerfile build stage) and defaults to `unknown`; `nmos-testing.sh` reads `NMOS_TESTING_REF` from `ci.yaml`; `container.yaml` uses the Dockerfile defaults; a CI step compares both files.
-- Consequence: a local CMake build reports `unknown` pins in `mxlgw_build_info` (MXL's own version is read at runtime).
+- Consequence: a local CMake build reports `unknown` pins in `mxl_st2110_gateway_build_info` (MXL's own version is read at runtime).
 
 ### 2026-10-01 — MXL's own log output
 - Context: §13 redirects MTL and DPDK logs into the gateway's JSON stream. MXL v1.1.0 logs through its private spdlog instance.
@@ -157,6 +157,6 @@ All other dependencies are the pinned ones of §2 (MTL, DPDK, MXL, nmos-cpp and 
 |---|---|---|
 | O-1 | Q14: should a malformed SDP also be a 400 (it is a client error) instead of nmos-cpp's 500? | 500 kept (nmos-cpp behaviour); format mismatch is 400 |
 | O-2 | §15.2: does `CAP_IPC_LOCK` alone lift `RLIMIT_MEMLOCK` enough for vfio DMA pinning on the target containerd, or does the runtime need a memlock ulimit? (**VERIFY** on the cluster) | Manifests rely on `IPC_LOCK`; the entrypoint warns when memlock is not unlimited |
-| O-3 | §12.1 names (`mxlgw_*_ns`) are a public interface, but Phase 6 asks that `/metrics` "passes `promtool check metrics`", whose lint rejects abbreviated units. Rename to base units (`_seconds`) before v1.0? | Names kept as specified; `check-metrics.sh` tolerates only that finding |
+| O-3 | §12.1 names (`mxl_st2110_gateway_*_ns`) are a public interface, but Phase 6 asks that `/metrics` "passes `promtool check metrics`", whose lint rejects abbreviated units. Rename to base units (`_seconds`) before v1.0? | Names kept as specified; `check-metrics.sh` tolerates only that finding |
 | O-4 | `docs/acceptance.md` §19 items 3–6, 10–12 and 14 need the E810 hosts, a grandmaster and the operator's controller (Q12: manual) | Templates in `docs/acceptance.md` / `docs/performance.md` |
 | O-5 | §7.2 gives Senders and Receivers of an essence the same group-hint role, which IS-04-01 rejects. Which role naming does the owner prefer for Receivers? | `<Role> <n> Input` for Receivers; Senders/Flows/Sources unchanged |

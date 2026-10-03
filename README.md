@@ -226,7 +226,7 @@ Health: `/livez` (process alive), `/readyz` (200 only when the config is valid, 
 
 | `ptp.mode` | What happens | Use when |
 |---|---|---|
-| `builtin` (default) | MTL runs PTP on **both** media ports (patched MTL: domain filter, BMCA across ports, per-Announce grandmaster tracking). The host clock is **not touched**: discipline `CLOCK_TAI` separately (step 5 of host preparation). The gateway measures MTL time − host `CLOCK_TAI` every second (`mxlgw_clock_mtl_minus_host_tai_ns`); beyond `ptp.max_offset_ns` it is not ready. | normal and shared hosts, Kubernetes |
+| `builtin` (default) | MTL runs PTP on **both** media ports (patched MTL: domain filter, BMCA across ports, per-Announce grandmaster tracking). The host clock is **not touched**: discipline `CLOCK_TAI` separately (step 5 of host preparation). The gateway measures MTL time − host `CLOCK_TAI` every second (`mxl_st2110_gateway_clock_mtl_minus_host_tai_ns`); beyond `ptp.max_offset_ns` it is not ready. | normal and shared hosts, Kubernetes |
 | `builtin_phc2sys` | Additionally MTL steers `CLOCK_REALTIME` to the PHC **without subtracting the UTC offset**: the wall clock shows TAI (37 s ahead of UTC). The kernel TAI offset must be 0 (checked at start), NTP/chrony must be off, `CAP_SYS_TIME` is needed. | dedicated single-purpose appliances only |
 | `external` | No MTL PTP; the host `CLOCK_TAI` is the only time source. PTP metrics are absent. | VF deployments, hosts already PTP-locked through the kernel; always with the test-only kernel backend |
 
@@ -255,7 +255,7 @@ Under host networking all containers of a host share one port space.
 [mxl-fabrics-agent](https://github.com/LeeO86/mxl-fabrics-agent) runs one container per host and replicates the MXL flows that enabled MXL Receivers need from the host that writes them, using the MXL Fabrics API (RDMA). The gateway has no Fabrics code and needs no configuration for it:
 
 - **Host A, gateway as MXL Sender (ingest):** flows are written into a configured domain directly under the host's MXL root, with a stable domain id (written back into the config) and stable flow ids.
-- **Host B, gateway as MXL Receiver (egress):** a controller stages host A's `mxl_domain_id` and `mxl_flow_id`. The agent on host B creates `mirror-<domain-id>` next to the local domains; the receiver finds it by id, waits (`waiting_for_flow`, then `no_signal`) until grains arrive and starts without further action. Read a few grains behind the writer on host B (`read_offset_grains` or `mxl.default_read_offset_grains`; the example uses 2) and watch `mxlgw_mxl_read_lag_grains`.
+- **Host B, gateway as MXL Receiver (egress):** a controller stages host A's `mxl_domain_id` and `mxl_flow_id`. The agent on host B creates `mirror-<domain-id>` next to the local domains; the receiver finds it by id, waits (`waiting_for_flow`, then `no_signal`) until grains arrive and starts without further action. Read a few grains behind the writer on host B (`read_offset_grains` or `mxl.default_read_offset_grains`; the example uses 2) and watch `mxl_st2110_gateway_mxl_read_lag_grains`.
 
 | mxl-fabrics-agent §11 requirement | Gateway |
 |---|---|
@@ -282,7 +282,7 @@ Further rules: the gateway never writes into mirror domains; new flow UUIDs (for
                              "mxl_flow_id": "<flow id of host A MXL Sender>"}]}'
    ```
 
-5. Check `mxlgw_mxl_reader_info{domain_kind="mirror"}` and `mxlgw_mxl_read_lag_grains` on host B (Grafana row *Egress*).
+5. Check `mxl_st2110_gateway_mxl_reader_info{domain_kind="mirror"}` and `mxl_st2110_gateway_mxl_read_lag_grains` on host B (Grafana row *Egress*).
 
 ## Metrics and Grafana
 

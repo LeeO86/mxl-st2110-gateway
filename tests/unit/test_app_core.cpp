@@ -355,63 +355,63 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
         families.insert(line.substr(0, line.find_first_of("{ ")));
     }
 
-    for (auto const* name : {"mxlgw_build_info",
-                             "mxlgw_ready",
-                             "mxlgw_restart_required",
-                             "mxlgw_ptp_locked",
-                             "mxlgw_ptp_selected",
-                             "mxlgw_ptp_selection_changes_total",
-                             "mxlgw_ptp_info",
-                             "mxlgw_ptp_offset_ns",
-                             "mxlgw_ptp_path_delay_ns",
-                             "mxlgw_ptp_utc_offset_seconds",
-                             "mxlgw_ptp_gm_changes_total",
-                             "mxlgw_ptp_sync_total",
-                             "mxlgw_ptp_errors_total",
-                             "mxlgw_clock_mtl_minus_host_tai_ns",
-                             "mxlgw_nic_link_up",
-                             "mxlgw_nic_link_speed_mbps",
-                             "mxlgw_nic_info",
-                             "mxlgw_nic_rx_packets_total",
-                             "mxlgw_nic_tx_packets_total",
-                             "mxlgw_nic_rx_bytes_total",
-                             "mxlgw_nic_tx_bytes_total",
-                             "mxlgw_nic_rx_errors_total",
-                             "mxlgw_nic_rx_missed_total",
-                             "mxlgw_essence_state",
-                             "mxlgw_rx_frames_total",
-                             "mxlgw_rx_leg_packets_total",
-                             "mxlgw_rx_packets_total",
-                             "mxlgw_rx_leg_seq_lost_total",
-                             "mxlgw_ingest_origin_age_ns",
-                             "mxlgw_mxl_grains_written_total",
-                             "mxlgw_mxl_samples_written_total",
-                             "mxlgw_mxl_write_errors_total",
-                             "mxlgw_mxl_grains_read_total",
-                             "mxlgw_mxl_read_timeouts_total",
-                             "mxlgw_mxl_late_reads_total",
-                             "mxlgw_mxl_grains_invalid_total",
-                             "mxlgw_mxl_flow_not_found_total",
-                             "mxlgw_mxl_read_lag_grains",
-                             "mxlgw_mxl_reader_info",
-                             "mxlgw_mxl_discovered_domains",
-                             "mxlgw_tx_frames_total",
-                             "mxlgw_tx_late_frames_total",
-                             "mxlgw_egress_lead_ns",
-                             "mxlgw_nmos_registered",
-                             "mxlgw_nmos_activations_total",
-                             "mxlgw_mxl_domain_bytes",
-                             "mxlgw_mxl_domain_flows"})
+    for (auto const* name : {"mxl_st2110_gateway_build_info",
+                             "mxl_st2110_gateway_ready",
+                             "mxl_st2110_gateway_restart_required",
+                             "mxl_st2110_gateway_ptp_locked",
+                             "mxl_st2110_gateway_ptp_selected",
+                             "mxl_st2110_gateway_ptp_selection_changes_total",
+                             "mxl_st2110_gateway_ptp_info",
+                             "mxl_st2110_gateway_ptp_offset_ns",
+                             "mxl_st2110_gateway_ptp_path_delay_ns",
+                             "mxl_st2110_gateway_ptp_utc_offset_seconds",
+                             "mxl_st2110_gateway_ptp_gm_changes_total",
+                             "mxl_st2110_gateway_ptp_sync_total",
+                             "mxl_st2110_gateway_ptp_errors_total",
+                             "mxl_st2110_gateway_clock_mtl_minus_host_tai_ns",
+                             "mxl_st2110_gateway_nic_link_up",
+                             "mxl_st2110_gateway_nic_link_speed_mbps",
+                             "mxl_st2110_gateway_nic_info",
+                             "mxl_st2110_gateway_nic_rx_packets_total",
+                             "mxl_st2110_gateway_nic_tx_packets_total",
+                             "mxl_st2110_gateway_nic_rx_bytes_total",
+                             "mxl_st2110_gateway_nic_tx_bytes_total",
+                             "mxl_st2110_gateway_nic_rx_errors_total",
+                             "mxl_st2110_gateway_nic_rx_missed_total",
+                             "mxl_st2110_gateway_essence_state",
+                             "mxl_st2110_gateway_rx_frames_total",
+                             "mxl_st2110_gateway_rx_leg_packets_total",
+                             "mxl_st2110_gateway_rx_packets_total",
+                             "mxl_st2110_gateway_rx_leg_seq_lost_total",
+                             "mxl_st2110_gateway_ingest_origin_age_ns",
+                             "mxl_st2110_gateway_mxl_grains_written_total",
+                             "mxl_st2110_gateway_mxl_samples_written_total",
+                             "mxl_st2110_gateway_mxl_write_errors_total",
+                             "mxl_st2110_gateway_mxl_grains_read_total",
+                             "mxl_st2110_gateway_mxl_read_timeouts_total",
+                             "mxl_st2110_gateway_mxl_late_reads_total",
+                             "mxl_st2110_gateway_mxl_grains_invalid_total",
+                             "mxl_st2110_gateway_mxl_flow_not_found_total",
+                             "mxl_st2110_gateway_mxl_read_lag_grains",
+                             "mxl_st2110_gateway_mxl_reader_info",
+                             "mxl_st2110_gateway_mxl_discovered_domains",
+                             "mxl_st2110_gateway_tx_frames_total",
+                             "mxl_st2110_gateway_tx_late_frames_total",
+                             "mxl_st2110_gateway_egress_lead_ns",
+                             "mxl_st2110_gateway_nmos_registered",
+                             "mxl_st2110_gateway_nmos_activations_total",
+                             "mxl_st2110_gateway_mxl_domain_bytes",
+                             "mxl_st2110_gateway_mxl_domain_flows"})
     {
         CHECK_MESSAGE(families.count(name) == 1, "missing metric " << name);
     }
 
     CHECK(text.find(R"(group="CAM \"1\"")") != std::string::npos);
     CHECK(text.find(R"(domain_kind="mirror")") != std::string::npos);
-    CHECK(text.find(R"(mxlgw_mxl_discovered_domains{kind="mirror"} 1)") != std::string::npos);
+    CHECK(text.find(R"(mxl_st2110_gateway_mxl_discovered_domains{kind="mirror"} 1)") != std::string::npos);
 
     // One-hot essence state: exactly one series per essence has value 1.
-    std::regex const stateLine(R"re(^mxlgw_essence_state\{.*uid="([^"]+)".*\} ([01])$)re");
+    std::regex const stateLine(R"re(^mxl_st2110_gateway_essence_state\{.*uid="([^"]+)".*\} ([01])$)re");
     std::map<std::string, int> ones;
     std::istringstream again(text);
     while (std::getline(again, line))
@@ -435,9 +435,9 @@ TEST_CASE("metrics without a backend still expose the process gauges")
     ops::MetricsInput in;
     ops::exportMetrics(w, in);
     auto const text = w.render();
-    CHECK(text.find("mxlgw_build_info{") != std::string::npos);
-    CHECK(text.find("mxlgw_ready 0") != std::string::npos);
-    CHECK(text.find("mxlgw_ptp_locked") == std::string::npos);
+    CHECK(text.find("mxl_st2110_gateway_build_info{") != std::string::npos);
+    CHECK(text.find("mxl_st2110_gateway_ready 0") != std::string::npos);
+    CHECK(text.find("mxl_st2110_gateway_ptp_locked") == std::string::npos);
 
     // External PTP / kernel backend: no PTP series at all rather than "unlocked".
     auto external = fullMetricsInput();
@@ -445,8 +445,8 @@ TEST_CASE("metrics without a backend still expose the process gauges")
     ops::MetricsWriter we;
     ops::exportMetrics(we, external);
     auto const ext = we.render();
-    CHECK(ext.find("mxlgw_ptp_") == std::string::npos);
-    CHECK(ext.find("mxlgw_nic_link_up{") != std::string::npos);
+    CHECK(ext.find("mxl_st2110_gateway_ptp_") == std::string::npos);
+    CHECK(ext.find("mxl_st2110_gateway_nic_link_up{") != std::string::npos);
     CHECK(std::string(ops::portLabel(0)) == "p");
     CHECK(std::string(ops::portLabel(1)) == "r");
 }

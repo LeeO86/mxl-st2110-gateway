@@ -5,6 +5,8 @@
 ARG MTL_REF=v26.09
 ARG DPDK_VER=26.07
 ARG MXL_REF=v1.1.0
+# Commit of MXL_REF, verified against the clone and published as the io.dmf.mxl.revision label.
+ARG MXL_REVISION=8f3f1096e804bfb822eb959cdf2fc23199a7d15d
 ARG NMOS_CPP_REF=fe303849527394b03bdedc8f161f377fe458bb62
 ARG ICE_VER=2.6.7
 ARG ICE_DMID=923747
@@ -47,7 +49,10 @@ ENV VCPKG_ROOT=/opt/vcpkg
 
 # MXL (Apache-2.0), Fabrics OFF, tools ON (mxl-info, mxl-data-probe). No GStreamer is
 # installed, so the optional mxl-gst tools are skipped by MXL's CMake.
+ARG MXL_REVISION
 RUN git clone --depth 1 --branch "${MXL_REF}" https://github.com/dmf-mxl/mxl /tmp/mxl \
+    && actual="$(git -C /tmp/mxl rev-parse HEAD)" \
+    && if [ "$actual" != "${MXL_REVISION}" ]; then echo "MXL ${MXL_REF} is ${actual}, MXL_REVISION says ${MXL_REVISION}" >&2; exit 1; fi \
     && cmake -S /tmp/mxl -B /tmp/mxl/build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
         -DCMAKE_BUILD_TYPE=Release \
@@ -159,6 +164,7 @@ FROM ubuntu:24.04 AS runtime
 ARG MTL_REF
 ARG DPDK_VER
 ARG MXL_REF
+ARG MXL_REVISION
 ARG NMOS_CPP_REF
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -193,9 +199,21 @@ RUN echo /usr/local/lib/x86_64-linux-gnu > /etc/ld.so.conf.d/dpdk.conf \
                    ldd "$f" 2>/dev/null | grep "not found" | sed "s|^|$f: |"; done) \
     && if [ -n "$missing" ]; then echo "$missing"; exit 1; fi
 
+# uid/gid 1000 (the base image's `ubuntu` user), the platform's media-function user. DPDK deployments run the
+# container as root because VFIO group device nodes are root-owned (README "Users and permissions").
+RUN mkdir -p /config && chown 1000:1000 /config
+USER 1000:1000
+
+# Per-build values last, so they do not invalidate the cached layers above.
+ARG MXLGW_VERSION=""
+ARG VCS_REF=""
 LABEL org.opencontainers.image.title="mxl-st2110-gateway" \
       org.opencontainers.image.description="SMPTE ST 2110 <-> MXL gateway (Intel MTL/DPDK, NMOS IS-04/IS-05, BCP-007-03)" \
+      org.opencontainers.image.source="https://github.com/LeeO86/mxl-st2110-gateway" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${MXLGW_VERSION}" \
       org.opencontainers.image.licenses="MIT" \
+      io.dmf.mxl.revision="${MXL_REVISION}" \
       io.github.mxlgw.mtl="${MTL_REF}" io.github.mxlgw.dpdk="${DPDK_VER}" \
       io.github.mxlgw.mxl="${MXL_REF}" io.github.mxlgw.nmos-cpp="${NMOS_CPP_REF}"
 

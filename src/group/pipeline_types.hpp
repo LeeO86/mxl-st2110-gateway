@@ -36,7 +36,7 @@ namespace mxlgw::group
         bool operator==(MxlReceiverTarget const& o) const { return masterEnable == o.masterEnable && domainId == o.domainId && flowId == o.flowId; }
     };
 
-    /// Resolved domain of an enabled MXL Receiver (`mxlgw_mxl_reader_info`, §12.1).
+    /// Resolved domain of an enabled MXL Receiver (`mxl_st2110_gateway_mxl_reader_info`, §12.1).
     struct ReaderInfo
     {
         util::Uuid domainId;

@@ -237,7 +237,7 @@ make_veth() {
 # ---- media verification on the test-only kernel backend
 # The kernel backend has no pacing guarantees and reads the two legs' sockets one after the other
 # (§17.2). Under CPU load (GitHub runners) MTL drops frames whose transmit time passed
-# (mxlgw_tx_late_frames_total), loses packets on both legs (audio: its "unrecovered (lost on both)"
+# (mxl_st2110_gateway_tx_late_frames_total), loses packets on both legs (audio: its "unrecovered (lost on both)"
 # statistic; video: frames counted as incomplete) and the ingest correctly marks such grains invalid.
 # Bad audio blocks and invalid video grains are accepted only if those counters explain them for the
 # same window (one lost audio packet can touch two verify blocks); bars, frame counters, timecode,

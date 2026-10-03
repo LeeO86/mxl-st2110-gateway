@@ -83,11 +83,11 @@ done
 for e in V A ANC; do
     wait_until 10 "PGM $e waiting_for_flow" essence_state_is "$GWE" "PGM $e" waiting_for_flow
 done
-nf1=$(metric "$GWE" 'mxlgw_mxl_flow_not_found_total{essence="PGM V"}')
+nf1=$(metric "$GWE" 'mxl_st2110_gateway_mxl_flow_not_found_total{essence="PGM V"}')
 sleep 10
-nf2=$(metric "$GWE" 'mxlgw_mxl_flow_not_found_total{essence="PGM V"}')
+nf2=$(metric "$GWE" 'mxl_st2110_gateway_mxl_flow_not_found_total{essence="PGM V"}')
 python3 -c "import sys; sys.exit(0 if float(sys.argv[2]) > float(sys.argv[1]) else 1)" "${nf1:-0}" "${nf2:-0}" ||
-    fail "mxlgw_mxl_flow_not_found_total did not grow ($nf1 -> $nf2)"
+    fail "mxl_st2110_gateway_mxl_flow_not_found_total did not grow ($nf1 -> $nf2)"
 essence_state_is "$GWE" "PGM V" waiting_for_flow || fail "PGM V left waiting_for_flow without a flow"
 pass "waiting for the flow (flow-not-found $nf1 -> $nf2)"
 ready_before=$(readyz_reasons "$GWE")
@@ -102,7 +102,7 @@ writer
 for e in V A ANC; do
     wait_until 20 "PGM $e running" essence_state_is "$GWE" "PGM $e" running
 done
-[[ "$(metric "$GWE" 'mxlgw_mxl_reader_info{essence="PGM V",domain_kind="mirror"}')" == "1" ]] || fail "mxlgw_mxl_reader_info does not show the mirror domain"
+[[ "$(metric "$GWE" 'mxl_st2110_gateway_mxl_reader_info{essence="PGM V",domain_kind="mirror"}')" == "1" ]] || fail "mxl_st2110_gateway_mxl_reader_info does not show the mirror domain"
 for e in V A ANC; do
     wait_until 30 "LOOP $e running" essence_state_is "$GWI" "LOOP $e" running
 done
@@ -111,9 +111,9 @@ mkdir -p "$IT_ARTIFACTS"
 ACCT_EGRESS="$GWE"
 ACCT_INGEST="$GWI"
 ACCT_INGEST_CONTAINER="$IT_PREFIX-lf-ingest"
-ACCT_AUDIO_TX=('mxlgw_tx_late_frames_total{essence="PGM A"}')
-ACCT_VIDEO_TX=('mxlgw_tx_late_frames_total{essence="PGM V"}')
-ACCT_VIDEO_RX=('mxlgw_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxlgw_rx_frames_total{essence="LOOP V",result="dropped"}')
+ACCT_AUDIO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM A"}')
+ACCT_VIDEO_TX=('mxl_st2110_gateway_tx_late_frames_total{essence="PGM V"}')
+ACCT_VIDEO_RX=('mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="incomplete"}' 'mxl_st2110_gateway_rx_frames_total{essence="LOOP V",result="dropped"}')
 verify_media "$IMAGE" "$WORK/mxl" "$IT_ARTIFACTS/late-flow-verify.json" --domain "/Volumes/mxl/local-IT-LF-INGEST" \
     --video-flow "$(essence_field "$GWI" "LOOP V" flow_id)" --audio-flow "$(essence_field "$GWI" "LOOP A" flow_id)" \
     --anc-flow "$(essence_field "$GWI" "LOOP ANC" flow_id)" --width 1920 --height 1080 --rate 25/1 --channels 2 --duration-ms 5000 ||

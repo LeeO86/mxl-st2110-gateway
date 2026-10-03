@@ -58,7 +58,7 @@ namespace
             r.reasons.push_back("ptp_unlocked");
             return r;
         }
-        std::string metrics() override { return "mxlgw_ready 0\n"; }
+        std::string metrics() override { return "mxl_st2110_gateway_ready 0\n"; }
         std::string_view adminHtml() const override { return "<!DOCTYPE html><title>ui</title>"; }
         void requestRestart() override { ++restarts; }
 

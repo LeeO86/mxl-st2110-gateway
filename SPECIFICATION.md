@@ -60,7 +60,7 @@ Changes:
 - §8.1 (domain identity, mirror domains and their marker, MXL reader status codes), §8.2 (`mxl.scan_path`), §8.3 (mirror write protection, id write-back, GC only on configured domains), §8.4 (re-opened flows are compared with the descriptor), new §8.5 (domain discovery), new §8.6 (host-to-host replication with mxl-fabrics-agent, mapping of the agent's §11 requirements).
 - §9.3, §9.5: `mxl.scan_path`, `read_offset_grains` / `read_offset_ns`, new semantic rules, port-collision note on `http_port`.
 - §11.2, §11.3: UI and REST API show discovered/mirror domains, the resolved domain per MXL Receiver and the new states.
-- §12.1, §12.2: new essence state `no_signal`; `mxlgw_mxl_read_timeouts_total` defined as "no data by the deadline"; new MXL reader metrics (flow-not-found retries, read lag, late and invalid reads, resolved domain info, discovered domains) and matching Grafana panels.
+- §12.1, §12.2: new essence state `no_signal`; `mxl_st2110_gateway_mxl_read_timeouts_total` defined as "no data by the deadline"; new MXL reader metrics (flow-not-found retries, read lag, late and invalid reads, resolved domain info, discovered domains) and matching Grafana panels.
 - §13: new log events.
 - §14.1, §14.2, §14.3: Fabrics OFF and same MXL pin as mxl-decklink; MXL root mount; preflight checks for mirror domains, the scan path, a zero kernel TAI offset and port collisions.
 - §15.1, §15.2, §15.3, new §15.4: MXL root mount (instead of a single-domain mount) in Compose/Kubernetes, optional multi-host scenario with mxl-fabrics-agent, TAI on all hosts, port table.
@@ -315,7 +315,7 @@ Never subtract or add the UTC offset anywhere in the media path: RTP, MTL and MX
 ### 5.3 Clock Supervision
 
 - Every second, sample `d = mtl_ptp_read_time(mt) − clock_gettime(CLOCK_TAI)` (take the min-delay sample of several reads, like MTL `phc2sys_adjust`).
-- Expose `mxlgw_clock_mtl_minus_host_tai_ns` (gauge) and its 60 s min/max.
+- Expose `mxl_st2110_gateway_clock_mtl_minus_host_tai_ns` (gauge) and its 60 s min/max.
 - Thresholds (configurable): `ptp.warn_offset_ns` default 10 000 (10 µs), `ptp.max_offset_ns` default 1 000 000 (1 ms). Above max ⇒ `/readyz` reports not ready (reason `clock_mismatch`) and the UI shows a red banner. Media keeps flowing (no automatic stop).
 - PTP lock state, offset, path delay and grandmaster data come from the patched MTL API (§5.5), per port, plus the port currently selected by the BMCA. Not locked ⇒ not ready (reason `ptp_unlocked`) unless `ptp.require_lock=false`.
 
@@ -344,7 +344,7 @@ The pure parts (data-set comparison, timeout and selection logic) are implemente
 
 ### 5.6 Unlocked Sources
 
-The gateway does not resample or drop/repeat to compensate drift. If a source is not locked to the same grandmaster, ingest indices drift relative to host time. Detect it: per ingest essence expose `mxlgw_ingest_origin_age_ns` = `now_tai − T(origin)` (gauge, last frame). If outside `[−history/2, +history/2]` the essence state becomes `degraded` with reason `source_clock_drift`; writes continue at the RTP-derived index. VERIFIED (MXL `v1.1.0` `PosixDiscreteFlowWriter.cpp`): `mxlFlowWriterOpenGrain` returns `MXL_ERR_INVALID_ARG` for any index ≤ the last committed index (there is no time-window check), and a forward jump invalidates the skipped grains. The continuous writer rejects overlapping sample ranges the same way. Rejected frames are counted (`mxlgw_mxl_write_errors_total`); if a source's timestamps jump backwards and stay behind (≥ `history` of consecutive rejections), the gateway releases and re-creates the FlowWriter (same flow id) to resynchronise, logs `mxl_writer_resync` and counts it.
+The gateway does not resample or drop/repeat to compensate drift. If a source is not locked to the same grandmaster, ingest indices drift relative to host time. Detect it: per ingest essence expose `mxl_st2110_gateway_ingest_origin_age_ns` = `now_tai − T(origin)` (gauge, last frame). If outside `[−history/2, +history/2]` the essence state becomes `degraded` with reason `source_clock_drift`; writes continue at the RTP-derived index. VERIFIED (MXL `v1.1.0` `PosixDiscreteFlowWriter.cpp`): `mxlFlowWriterOpenGrain` returns `MXL_ERR_INVALID_ARG` for any index ≤ the last committed index (there is no time-window check), and a forward jump invalidates the skipped grains. The continuous writer rejects overlapping sample ranges the same way. Rejected frames are counted (`mxl_st2110_gateway_mxl_write_errors_total`); if a source's timestamps jump backwards and stay behind (≥ `history` of consecutive rejections), the gateway releases and re-creates the FlowWriter (same flow id) to resynchronise, logs `mxl_writer_resync` and counts it.
 
 ### 5.7 Egress Synchronisation
 
@@ -352,8 +352,8 @@ The gateway does not resample or drop/repeat to compensate drift. If a source is
 - Video/ANC are read per grain. Audio is read in blocks of `audio.block_us` (a multiple of the packet time) aligned to packet-time epochs, independent of the video cadence (at 29.97/59.94 a frame is not an integer number of samples).
 - Transmit uses `USER_PACING` with the TAI transmit time `T_tx = T(i) + output_delay` on all three pipelines (`ST20P_TX_FLAG_USER_PACING`, `ST30P_TX_FLAG_USER_PACING`, `ST40P_TX_FLAG_USER_PACING`) and `ST20P_TX_FLAG_USER_TIMESTAMP` / `ST40P_TX_FLAG_USER_TIMESTAMP` with the same TAI value; `st30p` derives its RTP timestamp from the pacing time (§5.4). Use `*_DROP_WHEN_LATE` and count late frames.
 - `output_delay` (per group, `output_delay_ns`, default **two grains** of the group's video rate — 40 ms at 50p — or 2 × `block_us` for audio-only groups; minimum one grain + the largest read offset + 2 ms) defines the constant MXL→wire latency. All essences of a group use the same delay ⇒ lip-sync preserved. Exact frame-epoch alignment of the output is not required (owner decision Q2); MTL's default user pacing aligns to the virtual receiver schedule anyway.
-- **Read offset.** Every MXL Receiver (egress essence) has a read offset (`read_offset_grains` or `read_offset_ns`, §9.5; if unset, `mxl.default_read_offset_*`, which defaults to `0`, suitable for local flows) by which the gateway reads behind the writer. The worker does not start waiting for grain *i* (or the audio block starting at sample *s*) before the end of that grain period plus the read offset. Flows replicated from another host arrive in their mirror domain with replication lag (mxl-fabrics-agent §11 item 5), so their receivers SHOULD use a read offset ≥ the observed lag (`mxlgw_mxl_read_lag_grains`, §12.1, or the agent's `mxl_fabrics_agent_replication_lag_grains`). One sync group waits for one timestamp, so the group's worker uses the largest read offset of the group's essences. `output_delay_ns` MUST be at least one grain plus that largest read offset (validation, §9.5), so the transmit deadline `T(i)+output_delay` stays reachable. The read offset changes only the read schedule, never RTP timestamps or lip-sync.
-- **No data by the deadline.** If a grain or audio block is not available when its transmit deadline would be missed, or the grain carries `MXL_GRAIN_FLAG_INVALID`, the essence counts a read timeout (`mxlgw_mxl_read_timeouts_total`) or invalid grain (`mxlgw_mxl_grains_invalid_total`) and sends replacement data so the ST 2110 stream stays continuous (owner decision Q3). Per group `missing_data`: `"black"` (default) — black video (Y=64, Cb=Cr=512), silent audio, ANC grain with `ANC_Count = 0`; `"repeat"` — the last good video grain, silent audio, empty ANC. Data that arrives after its deadline is skipped and counted as a late read (`mxlgw_mxl_late_reads_total`). This is the `no_signal` behaviour of §5.8, not an error. The same replacement data is sent whenever the essence's ST 2110 Sender is active but there is nothing to read (MXL Receiver in `waiting_for_flow` or not enabled).
+- **Read offset.** Every MXL Receiver (egress essence) has a read offset (`read_offset_grains` or `read_offset_ns`, §9.5; if unset, `mxl.default_read_offset_*`, which defaults to `0`, suitable for local flows) by which the gateway reads behind the writer. The worker does not start waiting for grain *i* (or the audio block starting at sample *s*) before the end of that grain period plus the read offset. Flows replicated from another host arrive in their mirror domain with replication lag (mxl-fabrics-agent §11 item 5), so their receivers SHOULD use a read offset ≥ the observed lag (`mxl_st2110_gateway_mxl_read_lag_grains`, §12.1, or the agent's `mxl_fabrics_agent_replication_lag_grains`). One sync group waits for one timestamp, so the group's worker uses the largest read offset of the group's essences. `output_delay_ns` MUST be at least one grain plus that largest read offset (validation, §9.5), so the transmit deadline `T(i)+output_delay` stays reachable. The read offset changes only the read schedule, never RTP timestamps or lip-sync.
+- **No data by the deadline.** If a grain or audio block is not available when its transmit deadline would be missed, or the grain carries `MXL_GRAIN_FLAG_INVALID`, the essence counts a read timeout (`mxl_st2110_gateway_mxl_read_timeouts_total`) or invalid grain (`mxl_st2110_gateway_mxl_grains_invalid_total`) and sends replacement data so the ST 2110 stream stays continuous (owner decision Q3). Per group `missing_data`: `"black"` (default) — black video (Y=64, Cb=Cr=512), silent audio, ANC grain with `ANC_Count = 0`; `"repeat"` — the last good video grain, silent audio, empty ANC. Data that arrives after its deadline is skipped and counted as a late read (`mxl_st2110_gateway_mxl_late_reads_total`). This is the `no_signal` behaviour of §5.8, not an error. The same replacement data is sent whenever the essence's ST 2110 Sender is active but there is nothing to read (MXL Receiver in `waiting_for_flow` or not enabled).
 
 ### 5.8 MXL Reader Bring-up and Resilience (egress)
 
@@ -364,7 +364,7 @@ Applies to every MXL Receiver whose IS-05 `/active` has `master_enable=true`. A 
 - **Flow re-created.** On `MXL_ERR_FLOW_INVALID` (the writer re-created the flow), the reader is released and re-created immediately with the same flow id, the flow definition is re-checked (§6.4) and reading resumes.
 - **Flow definition mismatch.** Whenever a flow appears or is re-created, its `flow_def.json` is checked against the essence format (§6.4). A mismatch puts the essence in `error` with reason `format_mismatch`, but the retry loop continues, so a later matching flow is picked up automatically.
 - The other essences of a group keep running while one essence waits. Readers are added to and removed from the group's sync group on the thread that owns it (§3.6).
-- Counters and gauges: `mxlgw_mxl_flow_not_found_total`, `mxlgw_mxl_read_timeouts_total`, `mxlgw_mxl_late_reads_total`, `mxlgw_mxl_grains_invalid_total`, `mxlgw_mxl_read_lag_grains`, `mxlgw_mxl_reader_info` (§12.1).
+- Counters and gauges: `mxl_st2110_gateway_mxl_flow_not_found_total`, `mxl_st2110_gateway_mxl_read_timeouts_total`, `mxl_st2110_gateway_mxl_late_reads_total`, `mxl_st2110_gateway_mxl_grains_invalid_total`, `mxl_st2110_gateway_mxl_read_lag_grains`, `mxl_st2110_gateway_mxl_reader_info` (§12.1).
 
 ---
 
@@ -537,7 +537,7 @@ Domain deletion is not offered (as in mxl-decklink).
 - **Filesystem.** A candidate is used only if it passes the tmpfs/ramfs test of §8.3 step 1. A failing candidate is skipped with warning `mxl_domain_skipped` (no exit: discovered domains belong to other functions). The scan path itself may be on the container root filesystem, for example when only individual domains are mounted.
 - **Identity.** `domain_def.json` MUST be valid against the BCP-007-03 schema; unknown fields are ignored; an invalid file means the directory is skipped with a warning. The `id` is the domain's identity. The directory name is never used as identity — it is only used to recognise `mirror-*` for the write protection of §8.3.
 - **Classification.** `configured` (in `mxl.domains[]`); `mirror` (`x-mxl-fabrics-agent` marker present, or basename `mirror-*`); `discovered` (all others, for example domains of other media functions on the host).
-- **Duplicate ids.** If several directories carry the same id, a configured domain wins; otherwise the id is classified `conflict`, excluded from resolution, and reported (status, log `mxl_domain_conflict`, metric `mxlgw_mxl_discovered_domains{kind="conflict"}`); receivers staged with it wait as for an unknown domain (§7.4).
+- **Duplicate ids.** If several directories carry the same id, a configured domain wins; otherwise the id is classified `conflict`, excluded from resolution, and reported (status, log `mxl_domain_conflict`, metric `mxl_st2110_gateway_mxl_discovered_domains{kind="conflict"}`); receivers staged with it wait as for an unknown domain (§7.4).
 - **When.** At startup, every 2 s while running, and inline before resolving `auto`, before validating a staged `mxl_domain_id` (§7.4) and on every reader retry (§5.8). A scan reads only the scan path directory and the `domain_def.json` files, so it is cheap enough to run inline. Negative results are never cached: a failed lookup always triggers a fresh scan, and its "not found" outcome is not remembered.
 - **Access.** For each discovered domain used by at least one reader, the gateway opens one `mxlInstance` and destroys it when no reader uses the domain any more. It never creates directories, `domain_def.json`, `options.json` or flows in discovered domains, never garbage-collects them and never changes their permissions. Readers on mirror domains are plain MXL readers; no Fabrics API is involved.
 - **Reporting.** `/api/domains` and the MXL tab list every accessible domain with kind, path, id, label and, for mirror domains, `source_host_id` from the marker (§11). Changes are logged (`mxl_domain_discovered`, `mxl_domain_removed`).
@@ -741,46 +741,46 @@ All forms are validated client-side for UX and server-side authoritatively (same
 
 ## 12. Metrics and Grafana
 
-### 12.1 Prometheus Metrics (prefix `mxlgw_`)
+### 12.1 Prometheus Metrics (prefix `mxl_st2110_gateway_`)
 
 Implement a minimal registry like mxl-decklink `src/ops/metrics.*` (no external Prometheus library required). Counters end in `_total`. Common essence labels: `group`, `essence`, `uid`, `type` (`video|audio|anc`), `direction` (`ingest|egress`).
 
 | Metric | Type | Labels |
 |---|---|---|
-| `mxlgw_build_info` | gauge=1 | `version, mtl, dpdk, mxl, nmos_cpp` |
-| `mxlgw_ready` | gauge | — |
-| `mxlgw_restart_required` | gauge | — |
-| `mxlgw_ptp_locked` | gauge | `port` (`p\|r`; both ports run PTP when redundant, §4.3) |
-| `mxlgw_ptp_selected` | gauge | `port` (1 for the port whose PTP instance steers the PHC, chosen by the dual-port BMCA, §5.5) |
-| `mxlgw_ptp_selection_changes_total` | counter | — |
-| `mxlgw_ptp_info` | gauge=1 | `port, gm_identity, parent_port_identity, domain, bind_mode` |
-| `mxlgw_ptp_offset_ns` / `_path_delay_ns` | gauge | `port` (last value; min/max over 60 s as `stat="min|max"`) |
-| `mxlgw_ptp_utc_offset_seconds` | gauge | `port` |
-| `mxlgw_ptp_gm_changes_total`, `mxlgw_ptp_sync_total`, `mxlgw_ptp_errors_total` | counter | `port` (+`kind` for errors) |
-| `mxlgw_clock_mtl_minus_host_tai_ns` | gauge | — |
-| `mxlgw_nic_link_up`, `mxlgw_nic_link_speed_mbps` | gauge | `port` (DPDK `rte_eth_link_get_nowait`, kernel backend: sysfs) |
-| `mxlgw_nic_info` | gauge=1 | `port, mac, pci, driver, ddp_package` (DDP version parsed from the ice PMD's "Active package is" log line) |
-| `mxlgw_nic_rx_packets_total`, `_tx_packets_total`, `_rx_bytes_total`, `_tx_bytes_total`, `_rx_errors_total`, `_rx_missed_total` | counter | `port` (VERIFIED: MTL `mtl_get_port_stats` → `struct mtl_port_status` `rx_packets`, `tx_packets`, `rx_bytes`, `tx_bytes`, `rx_err_packets`, `rx_hw_dropped_packets`) |
-| `mxlgw_essence_state` | gauge (1 for current) | essence labels + `state` (`idle\|waiting_for_flow\|no_signal\|running\|degraded\|error`) |
-| `mxlgw_rx_frames_total` | counter | essence + `result` (`complete|incomplete|dropped`) |
-| `mxlgw_rx_leg_packets_total` | counter | essence + `leg` (`p|r`) |
-| `mxlgw_rx_packets_total` | counter | essence (after 2022-7 merge) |
-| `mxlgw_rx_leg_seq_lost_total` | counter | essence + `leg` |
-| `mxlgw_ingest_origin_age_ns` | gauge | essence |
-| `mxlgw_mxl_grains_written_total`, `mxlgw_mxl_samples_written_total`, `mxlgw_mxl_write_errors_total` | counter | essence |
-| `mxlgw_mxl_grains_read_total`, `mxlgw_mxl_read_timeouts_total` | counter | essence (`read_timeouts` = grains/blocks with no data by their deadline, §5.7) |
-| `mxlgw_mxl_late_reads_total` | counter | essence (data that became available only after its deadline and was skipped) |
-| `mxlgw_mxl_grains_invalid_total` | counter | essence (grains read with `MXL_GRAIN_FLAG_INVALID`, i.e. the writer marked them as having no valid data) |
-| `mxlgw_mxl_flow_not_found_total` | counter | essence (reader attempts that found no flow or no domain, §5.8) |
-| `mxlgw_mxl_read_lag_grains` | gauge | essence (writer head index − read index; for audio converted to grains of the group's video rate, or to audio blocks in audio-only groups) |
-| `mxlgw_mxl_reader_info` | gauge=1 | essence + `domain_id, domain_path, domain_kind` (`configured\|discovered\|mirror`), `flow_id` — resolved domain of every enabled MXL Receiver; the series is replaced when the resolution changes |
-| `mxlgw_mxl_discovered_domains` | gauge | `kind` (`discovered\|mirror\|conflict`) (§8.5) |
-| `mxlgw_tx_frames_total`, `mxlgw_tx_late_frames_total` | counter | essence |
-| `mxlgw_egress_lead_ns` | gauge | essence (time from grain available to TX deadline; negative = late) |
-| `mxlgw_nmos_registered` | gauge | — |
-| `mxlgw_nmos_activations_total` | counter | `kind` (`sender|receiver`), `transport`, `result` |
-| `mxlgw_mxl_domain_bytes` | gauge | `domain, kind` (`used|free`) |
-| `mxlgw_mxl_domain_flows` | gauge | `domain` |
+| `mxl_st2110_gateway_build_info` | gauge=1 | `version, mtl, dpdk, mxl, nmos_cpp` |
+| `mxl_st2110_gateway_ready` | gauge | — |
+| `mxl_st2110_gateway_restart_required` | gauge | — |
+| `mxl_st2110_gateway_ptp_locked` | gauge | `port` (`p\|r`; both ports run PTP when redundant, §4.3) |
+| `mxl_st2110_gateway_ptp_selected` | gauge | `port` (1 for the port whose PTP instance steers the PHC, chosen by the dual-port BMCA, §5.5) |
+| `mxl_st2110_gateway_ptp_selection_changes_total` | counter | — |
+| `mxl_st2110_gateway_ptp_info` | gauge=1 | `port, gm_identity, parent_port_identity, domain, bind_mode` |
+| `mxl_st2110_gateway_ptp_offset_ns` / `_path_delay_ns` | gauge | `port` (last value; min/max over 60 s as `stat="min|max"`) |
+| `mxl_st2110_gateway_ptp_utc_offset_seconds` | gauge | `port` |
+| `mxl_st2110_gateway_ptp_gm_changes_total`, `mxl_st2110_gateway_ptp_sync_total`, `mxl_st2110_gateway_ptp_errors_total` | counter | `port` (+`kind` for errors) |
+| `mxl_st2110_gateway_clock_mtl_minus_host_tai_ns` | gauge | — |
+| `mxl_st2110_gateway_nic_link_up`, `mxl_st2110_gateway_nic_link_speed_mbps` | gauge | `port` (DPDK `rte_eth_link_get_nowait`, kernel backend: sysfs) |
+| `mxl_st2110_gateway_nic_info` | gauge=1 | `port, mac, pci, driver, ddp_package` (DDP version parsed from the ice PMD's "Active package is" log line) |
+| `mxl_st2110_gateway_nic_rx_packets_total`, `_tx_packets_total`, `_rx_bytes_total`, `_tx_bytes_total`, `_rx_errors_total`, `_rx_missed_total` | counter | `port` (VERIFIED: MTL `mtl_get_port_stats` → `struct mtl_port_status` `rx_packets`, `tx_packets`, `rx_bytes`, `tx_bytes`, `rx_err_packets`, `rx_hw_dropped_packets`) |
+| `mxl_st2110_gateway_essence_state` | gauge (1 for current) | essence labels + `state` (`idle\|waiting_for_flow\|no_signal\|running\|degraded\|error`) |
+| `mxl_st2110_gateway_rx_frames_total` | counter | essence + `result` (`complete|incomplete|dropped`) |
+| `mxl_st2110_gateway_rx_leg_packets_total` | counter | essence + `leg` (`p|r`) |
+| `mxl_st2110_gateway_rx_packets_total` | counter | essence (after 2022-7 merge) |
+| `mxl_st2110_gateway_rx_leg_seq_lost_total` | counter | essence + `leg` |
+| `mxl_st2110_gateway_ingest_origin_age_ns` | gauge | essence |
+| `mxl_st2110_gateway_mxl_grains_written_total`, `mxl_st2110_gateway_mxl_samples_written_total`, `mxl_st2110_gateway_mxl_write_errors_total` | counter | essence |
+| `mxl_st2110_gateway_mxl_grains_read_total`, `mxl_st2110_gateway_mxl_read_timeouts_total` | counter | essence (`read_timeouts` = grains/blocks with no data by their deadline, §5.7) |
+| `mxl_st2110_gateway_mxl_late_reads_total` | counter | essence (data that became available only after its deadline and was skipped) |
+| `mxl_st2110_gateway_mxl_grains_invalid_total` | counter | essence (grains read with `MXL_GRAIN_FLAG_INVALID`, i.e. the writer marked them as having no valid data) |
+| `mxl_st2110_gateway_mxl_flow_not_found_total` | counter | essence (reader attempts that found no flow or no domain, §5.8) |
+| `mxl_st2110_gateway_mxl_read_lag_grains` | gauge | essence (writer head index − read index; for audio converted to grains of the group's video rate, or to audio blocks in audio-only groups) |
+| `mxl_st2110_gateway_mxl_reader_info` | gauge=1 | essence + `domain_id, domain_path, domain_kind` (`configured\|discovered\|mirror`), `flow_id` — resolved domain of every enabled MXL Receiver; the series is replaced when the resolution changes |
+| `mxl_st2110_gateway_mxl_discovered_domains` | gauge | `kind` (`discovered\|mirror\|conflict`) (§8.5) |
+| `mxl_st2110_gateway_tx_frames_total`, `mxl_st2110_gateway_tx_late_frames_total` | counter | essence |
+| `mxl_st2110_gateway_egress_lead_ns` | gauge | essence (time from grain available to TX deadline; negative = late) |
+| `mxl_st2110_gateway_nmos_registered` | gauge | — |
+| `mxl_st2110_gateway_nmos_activations_total` | counter | `kind` (`sender|receiver`), `transport`, `result` |
+| `mxl_st2110_gateway_mxl_domain_bytes` | gauge | `domain, kind` (`used|free`) |
+| `mxl_st2110_gateway_mxl_domain_flows` | gauge | `domain` |
 
 Metric names and labels are a public interface: document them in `docs/metrics.md` and keep them stable across minor versions.
 
@@ -788,7 +788,7 @@ Metric names and labels are a public interface: document them in `docs/metrics.m
 
 - Generated by `monitoring/tools/gen_dashboard.py` (deterministic output, no network access) into `monitoring/grafana/mxl-st2110-gateway.json`; CI fails if the committed file differs from a fresh generation.
 - Grafana ≥ 11 JSON model; template variables: `datasource` (Prometheus), `instance`, `group`, `essence`.
-- Rows: *Overview* (ready, restart required, PTP locked, GM identity as table, clock offset), *PTP* (offset, path delay, GM changes, sync rate, lock and BMCA selection per port), *NIC* (link, throughput, errors/missed per port), *Ingest* (frames by result, leg packet loss P vs R, origin age), *Egress* (late frames, lead time, read timeouts; per MXL Receiver: read lag in grains, flow-not-found retry rate, no-data / invalid / late reads, essence state incl. `waiting_for_flow` and `no_signal`, and a table of resolved domains from `mxlgw_mxl_reader_info` with mirror domains highlighted), *NMOS* (registered, activations), *MXL domains* (usage, flow counts, discovered/mirror/conflict domain counts).
+- Rows: *Overview* (ready, restart required, PTP locked, GM identity as table, clock offset), *PTP* (offset, path delay, GM changes, sync rate, lock and BMCA selection per port), *NIC* (link, throughput, errors/missed per port), *Ingest* (frames by result, leg packet loss P vs R, origin age), *Egress* (late frames, lead time, read timeouts; per MXL Receiver: read lag in grains, flow-not-found retry rate, no-data / invalid / late reads, essence state incl. `waiting_for_flow` and `no_signal`, and a table of resolved domains from `mxl_st2110_gateway_mxl_reader_info` with mirror domains highlighted), *NMOS* (registered, activations), *MXL domains* (usage, flow counts, discovered/mirror/conflict domain counts).
 - Also ship `monitoring/prometheus/scrape-example.yaml` and a Kubernetes `ServiceMonitor` example (`deploy/k8s/servicemonitor.yaml`, optional).
 
 ---
@@ -882,7 +882,7 @@ README explains: why host networking, how to create the host tmpfs (`/etc/fstab`
 - *Host A:* the gateway with an **ingest** group (ST 2110 → MXL Sender, config `config/examples/gateway.fabrics-host-a.json`, configured domain `/Volumes/mxl/main` with a fixed `id`), plus mxl-fabrics-agent with `MXL_ROOT` = the same host root.
 - *Host B:* mxl-fabrics-agent plus an MXL Receiver — either the gateway with an **egress** group (`gateway.fabrics-host-b.json`, MXL → ST 2110) or mxl-decklink with an output channel.
 - Shared: one NMOS registry (both hosts register; the agents discover each other via their NMOS Nodes or a static `PEERS` map), TAI-disciplined clocks on both hosts (§5.1), non-colliding ports (§15.4).
-- Demo steps: activate the host-A gateway's ingest receivers and MXL Senders; then, with `curl` or a controller, PATCH the host-B MXL Receiver with host A's `mxl_domain_id` and `mxl_flow_id`. The host-B agent creates (eager mode: has already created) `mirror-<domain-id>` and replicates; the host-B receiver resolves the mirror domain by id (§8.5), waits in `waiting_for_flow` / `no_signal` until grains arrive (§5.8) and starts without further action. Show `mxlgw_mxl_reader_info{domain_kind="mirror"}` and `mxlgw_mxl_read_lag_grains`, and recommend a read offset of a few grains on host B (§5.7).
+- Demo steps: activate the host-A gateway's ingest receivers and MXL Senders; then, with `curl` or a controller, PATCH the host-B MXL Receiver with host A's `mxl_domain_id` and `mxl_flow_id`. The host-B agent creates (eager mode: has already created) `mirror-<domain-id>` and replicates; the host-B receiver resolves the mirror domain by id (§8.5), waits in `waiting_for_flow` / `no_signal` until grains arrive (§5.8) and starts without further action. Show `mxl_st2110_gateway_mxl_reader_info{domain_kind="mirror"}` and `mxl_st2110_gateway_mxl_read_lag_grains`, and recommend a read offset of a few grains on host B (§5.7).
 
 ### 15.2 Kubernetes (`deploy/k8s/`, first-class, also in README)
 
@@ -948,7 +948,7 @@ Same structure as mxl-decklink `.github/workflows/container.yaml`:
 ### 16.3 Releases
 
 - On a `v*.*.*` tag, after the image is pushed, a `release` job (`needs: build-and-push`, `contents: write`) creates the **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section, and attaches: `gateway-config.schema.json`, the Grafana dashboard JSON, `docker-compose.yaml`, a `k8s-manifests-<version>.tar.gz`, and the image digest. The image reference with digest is printed in the release notes.
-- Version source of truth: the git tag; the binary embeds it (`--version`, `mxlgw_build_info`, `/api/status`); untagged builds report `0.0.0-dev+<sha>`.
+- Version source of truth: the git tag; the binary embeds it (`--version`, `mxl_st2110_gateway_build_info`, `/api/status`); untagged builds report `0.0.0-dev+<sha>`.
 
 ---
 
@@ -967,7 +967,7 @@ All MTL calls go through thin interfaces (`src/mtl/*.hpp`) so that unit tests an
 - Runner prep: `sudo sysctl vm.nr_hugepages=1024`, create a veth pair with multicast routing, tmpfs for the domain.
 - `tools/mxl-pattern-writer` (part of this repo): writes a v210 colour-bar pattern with a frame counter, a 1 kHz tone per channel, and SMPTE 12M timecode ANC into an MXL domain.
 - `tests/integration/loopback.sh`: gateway instance with an **egress** group (pattern flows → 2110 on veth A) and an **ingest** group (2110 on veth B → new MXL flows); verify with `tools/mxl-verify` (frame counter continuity, tone frequency/level per channel, timecode continuity, audio/video alignment within ±1 audio block) and `mxl-info` / `mxl-data-probe`.
-- `tests/integration/late-flow.sh` (receiver activated before its flow exists): start the gateway with an egress group and no pattern writer running; create a simulated mirror domain `mirror-<id>` (with `domain_def.json` incl. the `x-mxl-fabrics-agent` marker) under the scan path; IS-05 PATCH the MXL Receivers with that `mxl_domain_id`, a not-yet-existing `mxl_flow_id` and `master_enable=true` — the activation succeeds, the essences report `waiting_for_flow` and `mxlgw_mxl_flow_not_found_total` increases; after ≥ 10 s start `tools/mxl-pattern-writer` for that flow id in the mirror domain — the receivers start without any further request (state `running`, `mxlgw_mxl_reader_info{domain_kind="mirror"}`, ST 2110 output verified by the ingest side); stop the writer → `no_signal`, not `error`, `/readyz` unaffected; restart the writer (flow re-created) → reading resumes automatically; finally verify that no file was written into the mirror domain by the gateway.
+- `tests/integration/late-flow.sh` (receiver activated before its flow exists): start the gateway with an egress group and no pattern writer running; create a simulated mirror domain `mirror-<id>` (with `domain_def.json` incl. the `x-mxl-fabrics-agent` marker) under the scan path; IS-05 PATCH the MXL Receivers with that `mxl_domain_id`, a not-yet-existing `mxl_flow_id` and `master_enable=true` — the activation succeeds, the essences report `waiting_for_flow` and `mxl_st2110_gateway_mxl_flow_not_found_total` increases; after ≥ 10 s start `tools/mxl-pattern-writer` for that flow id in the mirror domain — the receivers start without any further request (state `running`, `mxl_st2110_gateway_mxl_reader_info{domain_kind="mirror"}`, ST 2110 output verified by the ingest side); stop the writer → `no_signal`, not `error`, `/readyz` unaffected; restart the writer (flow re-created) → reading resumes automatically; finally verify that no file was written into the mirror domain by the gateway.
 - `tests/integration/nmos-testing.sh`: run the AMWA nmos-testing tool (pinned commit, Python venv or container, host networking, `DNS_SD_MODE = 'multicast'`, Avahi on the runner) and the gateway with `node.registry.mode = "dns-sd"`; run IS-04-01, IS-05-01, IS-05-02, BCP-007-03-01 non-interactively (`nmos-test.py suite <S> --host … --port … --version …`), fail on any `Fail`, publish the JSON results as an artifact. No registry container (owner decision Q13).
 
 ### 17.4 Hardware Acceptance (manual, documented in `docs/acceptance.md`)
@@ -992,8 +992,8 @@ On an E810 2×25G and a 2×100G host with a real PTP grandmaster and the operato
 2. UI: create an ingest group "CAM 1" with 1 video + 2 audio (8 ch each) + 1 ANC and an egress group "PGM" likewise, redundancy on; config file contains both; export → import on a second instance reproduces identical NMOS ids with `keep_ids=true`.
 3. Operator's NMOS controller connects an external 2110 source to the ingest receivers; MXL flows appear in the domain, `mxl-info` shows them active with correct descriptors; a third-party MXL reader displays correct video (proves real v210), audio and ANC.
 4. Controller connects ingest MXL senders to egress MXL receivers (same or second gateway); egress output is verified on an ST 2110 analyser: narrow pacing compliant, 2022-7 both legs, lip-sync error ≤ 1 audio sample block versus source.
-5. Pulling one network leg: no visible/audible error; metrics show leg loss; PTP stays locked via the other port (`mxlgw_ptp_selected` moves if the pulled leg was selected).
-6. GM failover (with and without a parent change): `mxlgw_ptp_gm_changes_total` increments, GM identity in UI changes, PTP re-locks, media continues.
+5. Pulling one network leg: no visible/audible error; metrics show leg loss; PTP stays locked via the other port (`mxl_st2110_gateway_ptp_selected` moves if the pulled leg was selected).
+6. GM failover (with and without a parent change): `mxl_st2110_gateway_ptp_gm_changes_total` increments, GM identity in UI changes, PTP re-locks, media continues.
 7. Hand-editing the config + restart applies; UI save after external edit is blocked until resolved.
 8. AMWA suites IS-04-01, IS-05-01, IS-05-02, BCP-007-03-01: zero failures.
 9. Restart with `resume_connections=true` restores all active connections without controller action.
@@ -1001,7 +1001,7 @@ On an E810 2×25G and a 2×100G host with a real PTP grandmaster and the operato
 11. Tag `v1.0.0` produces images `1.0.0`, `1.0`, `1`, `latest` on GHCR and a GitHub Release with assets; a push to `main` updates `nightly-dev`.
 12. Kubernetes manifests deploy successfully on a node with the SR-IOV device plugin; readiness turns green; another pod on the node reads the flows via the hostPath domain.
 13. An egress MXL Receiver activated before its flow exists starts automatically when the flow appears, goes to `no_signal` (not `error`) when the writer stops and resumes after the writer is restarted (CI test `late-flow.sh`, §17.3).
-14. *(Optional, does not gate v1.0.)* Multi-host demo with mxl-fabrics-agent (§15.1 or §15.2): an ingest flow of the gateway on host A is received by an MXL Receiver on host B (gateway egress or mxl-decklink) through a mirror domain, without manual steps beyond the IS-05 connection; `mxlgw_mxl_reader_info` shows `domain_kind="mirror"`.
+14. *(Optional, does not gate v1.0.)* Multi-host demo with mxl-fabrics-agent (§15.1 or §15.2): an ingest flow of the gateway on host A is received by an MXL Receiver on host B (gateway egress or mxl-decklink) through a mirror domain, without manual steps beyond the IS-05 connection; `mxl_st2110_gateway_mxl_reader_info` shows `domain_kind="mirror"`.
 
 ---
 
@@ -1023,7 +1023,7 @@ On an E810 2×25G and a 2×100G host with a real PTP grandmaster and the operato
 | R12 | MXL version skew between gateway, mxl-decklink and mxl-fabrics-agent sharing one MXL root (the agent may pin a later v1.1 revision with Fabrics fixes) | same v1.1 line on a host (§2); check the agent's pin on every `MXL_REF` bump; integration test against a flow written by the agent's MXL build when available |
 | R13 | Host-port collisions under host networking (default `8080` = mxl-decklink) | port table §15.4, preflight warning, deployment-level remapping / reverse proxy (owner decision C1) |
 | R15 | Dual-port BMCA patch (0003) is a behaviour change inside MTL's PTP | pure selection logic unit-tested in the gateway with the same vectors; hardware acceptance with leg pull and GM failover; upstream PR |
-| R14 | Cross-host TAI misalignment makes replicated indices land at the wrong time | TAI discipline required on all hosts (§5.1), preflight warning on a zero TAI offset, `mxlgw_mxl_read_lag_grains` and the agent's TAI-offset metric in Grafana |
+| R14 | Cross-host TAI misalignment makes replicated indices land at the wrong time | TAI discipline required on all hosts (§5.1), preflight warning on a zero TAI offset, `mxl_st2110_gateway_mxl_read_lag_grains` and the agent's TAI-offset metric in Grafana |
 
 ---
 

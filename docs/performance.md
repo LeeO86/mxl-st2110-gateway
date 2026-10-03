@@ -1,6 +1,6 @@
 # Performance
 
-Capacity targets of SPECIFICATION.md §18, measured on the acceptance hosts (`docs/acceptance.md`). Each run: 24 h, per direction concurrently, zero packet loss (`mxlgw_rx_leg_seq_lost_total` and `mxlgw_nic_rx_missed_total` flat) and zero late frames (`mxlgw_tx_late_frames_total`, `mxlgw_mxl_read_timeouts_total` flat).
+Capacity targets of SPECIFICATION.md §18, measured on the acceptance hosts (`docs/acceptance.md`). Each run: 24 h, per direction concurrently, zero packet loss (`mxl_st2110_gateway_rx_leg_seq_lost_total` and `mxl_st2110_gateway_nic_rx_missed_total` flat) and zero late frames (`mxl_st2110_gateway_tx_late_frames_total`, `mxl_st2110_gateway_mxl_read_timeouts_total` flat).
 
 ## Targets
 
@@ -11,7 +11,7 @@ Capacity targets of SPECIFICATION.md §18, measured on the acceptance hosts (`do
 
 ## Results
 
-| Date | Version | Host | Load | Duration | Packet loss | Late frames | MTL lcores | Conversion cores (`app_cpus` load) | Max `mxlgw_ingest_origin_age_ns` | Min `mxlgw_egress_lead_ns` | Notes |
+| Date | Version | Host | Load | Duration | Packet loss | Late frames | MTL lcores | Conversion cores (`app_cpus` load) | Max `mxl_st2110_gateway_ingest_origin_age_ns` | Min `mxl_st2110_gateway_egress_lead_ns` | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | | | | | | | | | | | | |
 
