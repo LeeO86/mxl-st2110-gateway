@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-04
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.1` image.
+
 ### Fixed
 
 - Container workflow: `git-<sha7>` is written only by the push to `main`, so the release build and the nightly or manual rebuilds of the same commit no longer move it (the `v1.0.0` build had moved `git-151df45`); a release build fails when its `X.Y.Z` tag already exists.
