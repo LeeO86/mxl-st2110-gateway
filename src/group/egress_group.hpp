@@ -48,6 +48,8 @@ namespace mxlgw::group
         void setReadOffset(util::Uuid const& essenceUid, std::int64_t readOffsetNs);
         GroupSnapshot snapshot() const;
         util::Uuid const& uid() const { return _spec.group.uid; }
+        /// Transmit time after the grain time, fixed for the group's lifetime (§5.7).
+        std::int64_t outputDelayNs() const { return _outputDelayNs; }
 
     private:
         struct Essence;
@@ -65,7 +67,6 @@ namespace mxlgw::group
         void processAudio(Essence& e, std::int64_t periodOrigin, std::int64_t deadline);
         void markData(Essence& e, bool good, std::int64_t steadyNow);
         std::int64_t maxReadOffset() const;
-        std::int64_t outputDelayNs() const { return _outputDelayNs; }
 
         EgressSpec _spec;
         media::MediaBackend& _backend;
