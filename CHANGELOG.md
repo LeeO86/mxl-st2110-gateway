@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- `nic.tx_pacing` (`MXLGW_NIC_TX_PACING`): MTL's TX pacing, `auto` (default, unchanged behaviour), `rl` or `tsc`. On an E810 PF (E810-XXV, NVM 5.01, 8 TX queues) `auto` failed to start MTL: the rate-limiter test restarts the port, the restart fails with ice `Failed to add lan txq`, and `mtl_init` fails despite MTL's fallback to TSC. `tsc` skips the rate limiter. Ignored by the kernel backend. The `mtl_init` log line shows the value.
+- `nic.tx_pacing` (`MXLGW_NIC_TX_PACING`): MTL's TX pacing, `auto` (default, unchanged behaviour), `rl` or `tsc`. On an E810 PF (E810-XXV, NVM 5.01, 8 TX queues) the rate-limiter test of `auto` restarts the port, the restart fails with ice `Failed to add lan txq` and a stack dump, and MTL falls back to TSC; in one of two runs `mtl_init` still failed. `tsc` skips the rate limiter. Ignored by the kernel backend. The `mtl_init` log line shows the value.
 
 ### Fixed
 

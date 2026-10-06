@@ -415,7 +415,7 @@ namespace mxlgw::media
                     p.lcores = _lcores.data();
                 }
                 // auto tries the NIC rate limiter first. On E810 that restarts the port, and when the restart fails
-                // (ice "Failed to add lan txq") mtl_init fails despite MTL's fallback to TSC; tsc never tries it.
+                // (ice "Failed to add lan txq") MTL's fallback to TSC did not always recover; tsc never tries it.
                 // The kernel backend has no rate limiter (rl would fail): it keeps auto, which is TSC there.
                 if (!_ctx.kernel)
                 {

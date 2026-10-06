@@ -200,7 +200,7 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Consequence: `v1.0.0` is a stable configuration/API/metrics contract; hardware findings are fixed in `1.x` releases.
 
 ### 2026-10-06 — TX pacing selectable
-- Context: first run on the platform's E810-XXV hosts (NVM 5.01, ice PMD, DPDK 26.07, 8 TX queues): with MTL's `auto` pacing the rate-limiter test restarted the port, the restart failed (`Failed to add lan txq`) and `mtl_init` failed despite MTL's fallback to TSC.
+- Context: first run on the platform's E810-XXV hosts (NVM 5.01, ice PMD, DPDK 26.07, 8 TX queues): with MTL's `auto` pacing the rate-limiter test restarted the port, the restart failed (`Failed to add lan txq`, stack dump). After MTL's fallback to TSC, `mtl_init` failed in one run and started in another (card moved to another slot).
 - Decision: `nic.tx_pacing` = `auto` (default, unchanged) | `rl` | `tsc`, passed as `mtl_init_params.pacing`; the kernel backend keeps `auto`.
 - Consequence: such hosts run with `tsc` (software pacing, no NIC rate limiter); the cause in the ice PMD stays open.
 

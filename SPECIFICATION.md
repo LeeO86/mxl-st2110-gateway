@@ -278,7 +278,7 @@ DPDK takes the media ports away from the kernel (`vfio-pci`). The ports therefor
 
 The mode is detected from the PCI device (PF vs VF) at startup, logged, exposed in `/api/status` and as metric label `bind_mode`.
 
-TX pacing (`nic.tx_pacing`, `mtl_init_params.pacing`): `auto` (default) lets MTL try the NIC rate limiter and fall back to TSC pacing; `rl` requires the rate limiter; `tsc` uses TSC pacing and never touches the rate limiter. On an E810 PF the rate limiter test restarts the port. When that restart fails (ice `Failed to add lan txq`, seen on E810-XXV with NVM 5.01 and 8 TX queues), the port does not start again and `mtl_init` fails despite MTL's fallback to TSC; `tsc` skips the rate limiter test.
+TX pacing (`nic.tx_pacing`, `mtl_init_params.pacing`): `auto` (default) lets MTL try the NIC rate limiter and fall back to TSC pacing; `rl` requires the rate limiter; `tsc` uses TSC pacing and never touches the rate limiter. On an E810 PF the rate limiter test restarts the port. When that restart fails (ice `Failed to add lan txq`, seen on E810-XXV with NVM 5.01 and 8 TX queues), MTL falls back to TSC pacing, but in one of two runs on those hosts `mtl_init` still failed; `tsc` skips the rate limiter test.
 
 ### 4.3 Port Pair and ST 2022-7
 
