@@ -2,8 +2,11 @@
 // End-to-end pipeline tests: real MXL v1.1.0 + the in-process mock network (§17.2).
 #include <doctest/doctest.h>
 
+#include <atomic>
 #include <filesystem>
+#include <functional>
 #include <set>
+#include <stdexcept>
 #include <thread>
 
 #include "group/domain_resolver.hpp"
@@ -46,6 +49,40 @@ namespace
         return {{"uid", testutil::uid(uid)}, {"label", label}, {"defaults", {{"legs", {{{"multicast", mcast}, {"port", 20000}}}}}}};
     }
 
+    /// Mock backend whose video senders fail to be created while `fail` is set (like st20p_tx_create).
+    struct FailingVideoTxBackend final : media::MediaBackend
+    {
+        std::unique_ptr<media::MediaBackend> inner;
+        std::atomic<bool>& fail;
+
+        FailingVideoTxBackend(std::unique_ptr<media::MediaBackend> backend, std::atomic<bool>& failFlag)
+            : inner(std::move(backend))
+            , fail(failFlag)
+        {}
+
+        std::string name() const override { return inner->name(); }
+        std::int64_t ptpTimeNs() const override { return inner->ptpTimeNs(); }
+        media::BackendStatus status() const override { return inner->status(); }
+        std::unique_ptr<media::VideoRxSession> createVideoRx(media::VideoRxParams const& p, media::VideoRxHandler& h) override
+        {
+            return inner->createVideoRx(p, h);
+        }
+        std::unique_ptr<media::VideoTxSession> createVideoTx(media::VideoTxParams const& p) override
+        {
+            if (fail)
+            {
+                throw std::runtime_error("st20p_tx_create failed for " + p.name);
+            }
+            return inner->createVideoTx(p);
+        }
+        std::unique_ptr<media::AudioRxSession> createAudioRx(media::AudioParams const& p) override { return inner->createAudioRx(p); }
+        std::unique_ptr<media::AudioTxSession> createAudioTx(media::AudioParams const& p) override { return inner->createAudioTx(p); }
+        std::unique_ptr<media::AncRxSession> createAncRx(media::AncParams const& p) override { return inner->createAncRx(p); }
+        std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
+    };
+
+    using BackendWrap = std::function<std::unique_ptr<media::MediaBackend>(std::unique_ptr<media::MediaBackend>)>;
+
     /// Gateway core (domains, resolver, mock backend, groups) without NMOS.
     struct Harness
     {
@@ -58,7 +95,7 @@ namespace
         std::unique_ptr<group::GroupManager> groups;
         group::DomainRuntime main;
 
-        explicit Harness(nlohmann::json groupsJson)
+        explicit Harness(nlohmann::json groupsJson, BackendWrap const& wrap = {})
         {
             REQUIRE(root.tmpfs());
             auto j = testutil::sampleConfig(root.file("main"));
@@ -76,6 +113,10 @@ namespace
             directory->rescan();
             resolver = std::make_unique<group::DomainResolver>(*directory, instances);
             backend = media::createMockBackend(config);
+            if (wrap)
+            {
+                backend = wrap(std::move(backend));
+            }
             groups = std::make_unique<group::GroupManager>(*config.node.id, *backend, *resolver, std::vector<group::DomainRuntime>{main}, "");
             groups->apply(config);
         }
@@ -309,4 +350,38 @@ TEST_CASE("pipeline: unknown domain is accepted and waited for; format mismatch 
     auto const attempts = h.essence(501).flowNotFound;
     REQUIRE(waitFor([&] { return h.essence(501).flowNotFound > attempts; }, 3s));
     wrong.stop();
+}
+
+TEST_CASE("pipeline: a video sender that cannot be created is error/egress_sender_failed, not running, and is retried")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back(
+        {{"uid", testutil::uid(520)}, {"label", "TXFAIL"}, {"direction", "egress"}, {"domain", "main"}, {"video", {videoJson(521, "TXFAIL V", "239.30.0.5")}}});
+    std::atomic<bool> fail{true};
+    Harness h(groups, [&](std::unique_ptr<media::MediaBackend> inner) { return std::make_unique<FailingVideoTxBackend>(std::move(inner), fail); });
+
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = util::uuidV4();
+    pc.video.rate = {25, 1};
+    mxlbridge::PatternWriter source(h.main.instance, pc);
+    source.start();
+    h.groups->setMxlReceiver(uuidOf(521), {true, h.main.id, pc.videoFlow});
+    h.groups->setRtpSender(uuidOf(521), Harness::rtp("239.30.0.5"));
+
+    // The MXL side reads grains, but the essence shows the failed sender.
+    REQUIRE(waitFor([&] { return h.essence(521).grainsRead > 10; }, 5s));
+    CHECK(h.essence(521).state.state == group::EssenceState::Error);
+    CHECK(h.essence(521).state.reason == "egress_sender_failed");
+
+    // The sender is created at a later retry and the essence runs.
+    fail = false;
+    REQUIRE(waitFor([&] { return h.essence(521).state.state == group::EssenceState::Running; }, 5s));
+    CHECK(h.essence(521).state.reason.empty());
+
+    // Disabling the sender clears the error as well.
+    fail = true;
+    h.groups->setRtpSender(uuidOf(521), {false, {}});
+    std::this_thread::sleep_for(200ms);
+    CHECK(h.essence(521).state.state == group::EssenceState::Running);
+    source.stop();
 }

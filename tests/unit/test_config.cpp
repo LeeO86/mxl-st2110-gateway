@@ -193,6 +193,24 @@ TEST_CASE("semantic rules")
         j["groups"][0]["output_delay_ns"] = 40'000'000;
         CHECK(hasError(parse(j), "/groups/0/output_delay_ns"));
     }
+    SUBCASE("output delay maximum: an ST 2110-20 sender holds at most 8 frames")
+    {
+        auto j = testutil::sampleConfig();
+        j["groups"][1]["output_delay_ns"] = 100'000'000; // read offset 0 + 5 grains at 50p
+        CHECK(parse(j).ok());
+        j["groups"][1]["output_delay_ns"] = 120'000'000; // would need 9 frames: st20p_tx_create fails
+        CHECK(hasError(parse(j), "/groups/1/output_delay_ns"));
+        j["groups"][1]["video"][0]["read_offset_grains"] = 4; // 80 ms: the grains wait 40 ms
+        CHECK(parse(j).ok());
+        j["groups"][1]["output_delay_ns"] = 181'000'000;
+        CHECK(hasError(parse(j), "/groups/1/output_delay_ns"));
+        j["groups"][1].erase("output_delay_ns"); // the default (102 ms) always fits
+        CHECK(parse(j).ok());
+        j = testutil::sampleConfig();
+        j["groups"][1].erase("video"); // audio only: no frame limit
+        j["groups"][1]["output_delay_ns"] = 200'000'000;
+        CHECK(parse(j).ok());
+    }
     SUBCASE("ANC needs a rate without video")
     {
         auto j = testutil::sampleConfig();

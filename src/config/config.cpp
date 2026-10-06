@@ -1283,6 +1283,19 @@ namespace mxlgw::config
                     add(errors, gptr + "/output_delay_ns", "must be at least one grain + the largest read offset + 2 ms (" + std::to_string(minimum) + " ns)");
                 }
             }
+            if (g.direction == Direction::Egress && !g.video.empty())
+            {
+                // An ST 2110-20 sender holds at most 8 frames (MTL). A grain waits from its read (one grain + the
+                // largest read offset after its timestamp) until it is sent (output delay + one grain): at most
+                // 5 grains of output delay beyond the read offset leave one frame in transmission and two spare.
+                auto const maximum = maxReadOffsetNs + 5 * cadence;
+                if (g.effectiveOutputDelayNs(maxReadOffsetNs) > maximum)
+                {
+                    add(errors, gptr + "/output_delay_ns",
+                        "must be at most the largest read offset + 5 grains (" + std::to_string(maximum) +
+                            " ns): an ST 2110-20 sender holds at most 8 frames");
+                }
+            }
         }
         if (anyRedundant)
         {

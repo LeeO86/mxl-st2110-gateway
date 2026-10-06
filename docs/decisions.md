@@ -214,6 +214,11 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: unset `output_delay_ns` = max(two grains, one grain + largest read offset + 2 ms); a read offset change that changes it rebuilds the group (the media sessions size their buffers from the output delay). A saved Receiver activation that the current staging checks reject comes up staged disabled (`restored_activation_disabled`, essence reason `restore_rejected: …`). The staging checks run only when `master_enable` is true.
 - Consequence: setting only a read offset is enough for mirrored flows; an explicit `output_delay_ns` keeps its meaning. A disable always succeeds.
 
+### 2026-10-06 — Video sender queue within MTL's 8 frames (1.0.6)
+- Context: on the platform hardware every ST 2110 video sender failed once `output_delay_ns` reached 120 ms at 50p (also the 1.0.5 default of 102 ms with `read_offset_grains` 4): the frame queue was ceil((output delay + one grain) / grain) + 2 = 9, MTL accepts 2–8 (`ST20_FB_MAX_COUNT`), `st20p_tx_create` failed every few seconds and the essence still showed `running`.
+- Decision: the video queue is capped at 8 (ANC and audio have no MTL maximum). A grain is read one grain + the largest read offset after its timestamp and has been sent one grain after its transmit time, so it waits output delay − read offset; validation allows at most 5 grains of that in groups with video (one more in transmission, two spare). The queue size does not depend on the read offset, so a live read-offset change needs no rebuild. A failed sender sets essence `error` / `egress_sender_failed` over the read-side state and is retried with a backoff (1 s → 30 s).
+- Consequence: read offset 4 with the default output delay works; 120 ms with read offset 4 works again; 120 ms with read offset 0 is rejected by validation.
+
 ## Dependencies
 
 | Dependency | Why | License |

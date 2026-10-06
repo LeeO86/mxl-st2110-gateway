@@ -76,6 +76,27 @@ namespace mxlgw::group
         util::Rational rate;
         std::atomic<std::int64_t> readOffsetNs{0};
         std::unique_ptr<StateHolder> state;
+        // The read side's state; a failed RTP sender (txError) shows instead until it is created.
+        EssenceState readState = EssenceState::Idle;
+        std::string readReason = "receiver_inactive";
+        std::string txError;
+
+        void setState(EssenceState s, std::string reason = {})
+        {
+            readState = s;
+            readReason = std::move(reason);
+            applyState();
+        }
+
+        void applyState()
+        {
+            if (!txError.empty() && readState != EssenceState::Error)
+            {
+                state->set(EssenceState::Error, txError);
+                return;
+            }
+            state->set(readState, readReason);
+        }
 
         // worker-owned
         MxlReceiverTarget haveRx;
@@ -92,6 +113,8 @@ namespace mxlgw::group
         std::unique_ptr<media::VideoTxSession> vtx;
         std::unique_ptr<media::AudioTxSession> atx;
         std::unique_ptr<media::AncTxSession> ntx;
+        util::Backoff txBackoff{std::chrono::seconds(1), std::chrono::seconds(30), 0.1};
+        std::int64_t txNextAttempt = 0;
         std::unique_ptr<VideoReplacement> replacement;
         bool repeatFresh = false;
         std::optional<std::uint64_t> lastGoodIndex;
@@ -141,7 +164,7 @@ namespace mxlgw::group
             auto const it = _spec.readOffsetNs.find(common.uid);
             e->readOffsetNs.store(it != _spec.readOffsetNs.end() ? it->second : 0);
             e->state = std::make_unique<StateHolder>(nlohmann::json{{"group", g.label}, {"essence", common.label}, {"direction", "egress"}});
-            e->state->set(EssenceState::Idle, "receiver_inactive");
+            e->setState(EssenceState::Idle, "receiver_inactive");
             _essences.push_back(std::move(e));
         };
         for (std::size_t i = 0; i < g.video.size(); ++i)
@@ -276,11 +299,11 @@ namespace mxlgw::group
             // VERIFIED: dmf-mxl/mxl@v1.1.0 lib/internal/src/Instance.cpp:135, SharedMemory.cpp:56 — readers hold no lock, so a
             // writer that stops cleanly deletes its flow. A flow that was read and went away is a stopped source:
             // no_signal (§5.8), not waiting_for_flow (docs/decisions.md).
-            e.state->set(EssenceState::NoSignal, "flow_removed");
+            e.setState(EssenceState::NoSignal, "flow_removed");
         }
         else
         {
-            e.state->set(EssenceState::WaitingForFlow, reason);
+            e.setState(EssenceState::WaitingForFlow, reason);
         }
         auto const delay = e.backoff.next();
         e.nextAttempt = steadyNow + std::chrono::duration_cast<std::chrono::nanoseconds>(delay).count();
@@ -317,7 +340,7 @@ namespace mxlgw::group
             {
                 // e.g. MXL_ERR_INVALID_FLOW_READER: the flow is of another kind (video vs audio).
                 e.formatError = true;
-                e.state->set(EssenceState::Error, "format_mismatch");
+                e.setState(EssenceState::Error, "format_mismatch");
                 log::warn("flow_def_mismatch",
                           {{"group", _spec.group.label}, {"essence", e.label}, {"mxl_flow_id", flowId}, {"status", mxlbridge::statusName(status)}});
             }
@@ -337,7 +360,7 @@ namespace mxlgw::group
         {
             detach(e);
             e.formatError = true;
-            e.state->set(EssenceState::Error, "format_mismatch");
+            e.setState(EssenceState::Error, "format_mismatch");
             log::warn("flow_def_mismatch", {{"group", _spec.group.label}, {"essence", e.label}, {"mxl_flow_id", flowId}, {"differences", mismatch}});
             scheduleRetry(e, steadyNow, "format_mismatch");
             return;
@@ -376,12 +399,19 @@ namespace mxlgw::group
             return;
         }
         bool const legsChanged = !(want.legs == e.haveTx.legs);
+        if (!(want == e.haveTx))
+        {
+            e.txBackoff.reset();
+            e.txNextAttempt = 0;
+        }
         e.haveTx = want;
         if (!want.masterEnable)
         {
             e.vtx.reset();
             e.atx.reset();
             e.ntx.reset();
+            e.txError.clear();
+            e.applyState();
             log::info("egress_sender_stopped", {{"group", _spec.group.label}, {"essence", e.label}});
             return;
         }
@@ -397,12 +427,14 @@ namespace mxlgw::group
             e.atx.reset();
             e.ntx.reset();
         }
-        if (e.hasTx())
+        if (e.hasTx() || steadyNs() < e.txNextAttempt)
         {
             return;
         }
         try
         {
+            // Read one grain + the read offset after T(i), sent at T(i) + output delay. The MTL backend caps
+            // video at 8 frames; the config check keeps output delay - read offset within 5 grains for that.
             auto const grainsAhead = static_cast<int>(ceilDiv(_outputDelayNs + _cadenceNs, _cadenceNs)) + 2;
             switch (e.type)
             {
@@ -426,10 +458,21 @@ namespace mxlgw::group
                 }
             }
             log::info("egress_sender_started", {{"group", _spec.group.label}, {"essence", e.label}});
+            e.txBackoff.reset();
+            e.txError.clear();
+            e.applyState();
         }
         catch (std::exception const& ex)
         {
-            log::error("egress_sender_failed", {{"group", _spec.group.label}, {"essence", e.label}, {"error", ex.what()}});
+            // Creating a sender can block the worker for seconds: retry with a growing delay.
+            auto const delay = e.txBackoff.next();
+            e.txNextAttempt = steadyNs() + std::chrono::duration_cast<std::chrono::nanoseconds>(delay).count();
+            e.txError = "egress_sender_failed";
+            e.applyState();
+            log::error("egress_sender_failed", {{"group", _spec.group.label},
+                                                {"essence", e.label},
+                                                {"error", ex.what()},
+                                                {"retry_in_ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count()}});
         }
     }
 
@@ -463,16 +506,16 @@ namespace mxlgw::group
             result.reset();
             if (!want.masterEnable)
             {
-                e.state->set(EssenceState::Idle, want.inactiveReason.empty() ? "receiver_inactive" : want.inactiveReason);
+                e.setState(EssenceState::Idle, want.inactiveReason.empty() ? "receiver_inactive" : want.inactiveReason);
                 log::info("mxl_reader_stopped", {{"group", _spec.group.label}, {"essence", e.label}});
             }
             else if (!want.flowId || !want.domainId)
             {
-                e.state->set(EssenceState::Idle, "no_flow");
+                e.setState(EssenceState::Idle, "no_flow");
             }
             else
             {
-                e.state->set(EssenceState::WaitingForFlow, "attaching");
+                e.setState(EssenceState::WaitingForFlow, "attaching");
             }
         }
         if (!e.haveRx.masterEnable || !e.haveRx.flowId || !e.haveRx.domainId)
@@ -538,7 +581,7 @@ namespace mxlgw::group
             {
                 e.inSync = true;
             }
-            e.state->set(EssenceState::Running);
+            e.setState(EssenceState::Running);
             return;
         }
         if (steadyNow - e.lastGoodSteady > noSignalAfterNs)
@@ -550,7 +593,7 @@ namespace mxlgw::group
                 tlsSync->remove(*e.reader());
                 e.inSync = false;
             }
-            e.state->set(EssenceState::NoSignal, "no_grains");
+            e.setState(EssenceState::NoSignal, "no_grains");
         }
     }
 

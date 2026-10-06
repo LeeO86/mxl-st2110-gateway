@@ -175,7 +175,8 @@ namespace mxlgw::media::mtlimpl
                                         : _params.packing == config::Packing::GpmSl ? ST20_PACKING_GPM_SL
                                                                                     : ST20_PACKING_BPM;
                 ops.device = ST_PLUGIN_DEVICE_AUTO;
-                ops.framebuff_cnt = queueDepth(_params.queueDepth, 4, 16);
+                // MTL accepts 2..ST20_FB_MAX_COUNT (8) frames for an ST 2110-20 sender; more fails st20p_tx_create.
+                ops.framebuff_cnt = queueDepth(_params.queueDepth, 4, ST20_FB_MAX_COUNT);
                 // §5.7: user pacing at T(i) + output_delay with the same TAI as RTP timestamp (Q1).
                 ops.flags =
                     ST20P_TX_FLAG_EXT_FRAME | ST20P_TX_FLAG_USER_PACING | ST20P_TX_FLAG_USER_TIMESTAMP | ST20P_TX_FLAG_DROP_WHEN_LATE | ST20P_TX_FLAG_BLOCK_GET;
