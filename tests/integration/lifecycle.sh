@@ -178,6 +178,41 @@ sid=$(nmos_id "$BASE" senders "CAM 1 V")
     fail "MXL Sender does not report the active mxl_domain_id"
 pass "MXL Receiver connection restored after a restart; MXL Sender reports mxl_domain_id"
 
+# ---- a saved route that no longer fits comes up disabled with the reason; a disable is always accepted
+# A 720p flow of another function: its flow_def.json does not fit the 1080p receiver.
+OTHER_DOMAIN=b2b2b2b2-0000-4000-8000-00000000b002
+AFLOW=00000000-0000-4000-8000-0000000000f3
+mkdir -p "$WORK/mxl/other-function/$AFLOW.mxl-flow"
+cat >"$WORK/mxl/other-function/$AFLOW.mxl-flow/flow_def.json" <<EOF
+{"id": "$AFLOW", "format": "urn:x-nmos:format:video", "media_type": "video/v210", "frame_width": 1280, "frame_height": 720,
+ "grain_rate": {"numerator": 50, "denominator": 1}, "interlace_mode": "progressive", "label": "720p", "description": "", "tags": {}, "parents": []}
+EOF
+code=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' \
+    "$BASE/x-nmos/connection/v1.2/single/receivers/$rid/staged" \
+    -d "{\"master_enable\": true, \"activation\": {\"mode\": \"activate_immediate\"}, \"transport_params\": [{\"mxl_domain_id\": \"$OTHER_DOMAIN\", \"mxl_flow_id\": \"$AFLOW\"}]}")
+[[ "$code" == "400" ]] || fail "a 1080p MXL Receiver accepted a 720p flow ($code)"
+# A route saved by an earlier version that did not check the format: written into the state while stopped.
+docker stop -t 15 "$GW" >/dev/null
+as_root python3 - "$WORK/config/state/connections.json" "$rid" "$OTHER_DOMAIN" "$AFLOW" <<'PY'
+import json, sys
+path, rid, domain, flow = sys.argv[1:]
+doc = json.load(open(path))
+active = doc["resources"][rid]["active"]
+active["master_enable"] = True
+active["transport_params"][0].update({"mxl_domain_id": domain, "mxl_flow_id": flow})
+json.dump(doc, open(path, "w"))
+PY
+docker start "$GW" >/dev/null
+wait_until 30 "/readyz after the restart with a stale route" http_ok "$BASE/readyz"
+restore_rejected() { [[ "$(essence_field "$BASE" "PGM V" reason)" == restore_rejected:* ]]; }
+wait_until 15 "essence reason restore_rejected" restore_rejected
+[[ "$(json "$BASE/x-nmos/connection/v1.2/single/receivers/$rid/active" 'j["master_enable"]')" == "False" ]] ||
+    fail "the stale route came up enabled"
+docker logs "$GW" 2>&1 | grep -q '"event":"restored_activation_disabled"' || fail "restored_activation_disabled was not logged"
+# The staged flow still does not fit; switching the receiver off must be accepted anyway.
+patch_staged "$BASE" receivers "$rid" '{"master_enable": false, "activation": {"mode": "activate_immediate"}}'
+pass "a stale saved route comes up disabled with restore_rejected; a disable is accepted"
+
 # ---- SIGTERM: exit 143 within SHUTDOWN_TIMEOUT_S, deregistered, own domain removed (G8)
 [[ -d "$WORK/mxl/$SEED" ]] || fail "output domain missing before the stop"
 mark=$(python3 -c 'import time; print(time.time())')

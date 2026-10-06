@@ -132,7 +132,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].domain` | string |  |  | Configured domain name. Ingest writes here; egress resolves mxl_domain_id = auto against it. |
 | `groups[].redundancy` | boolean | `false` |  | ST 2022-7: two legs per essence. |
 | `groups[].enabled` | boolean | `true` |  | false: no NMOS resources and no media sessions. |
-| `groups[].output_delay_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress: transmit time after the grain time; null = two grains (§5.7). |
+| `groups[].output_delay_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms (§5.7). |
 | `groups[].missing_data` | `"black"` \| `"repeat"` | `"black"` |  | Egress: black video / silence / empty ANC, or repeat the last good video grain. |
 | `groups[].video` | array of objects | `[]` |  | Video essences (ST 2110-20 ⇄ video/v210). |
 | `groups[].video[].uid` | UUID |  |  | Stable essence id; generated if missing. NMOS ids derive from it (§7.3). |

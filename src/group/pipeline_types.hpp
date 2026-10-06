@@ -18,7 +18,8 @@ namespace mxlgw::group
     {
         bool masterEnable = false;
         std::vector<media::LegAddress> legs; // leg.enabled = rtp_enabled
-        bool operator==(RtpTarget const& o) const { return masterEnable == o.masterEnable && legs == o.legs; }
+        std::string inactiveReason;          // essence state reason while disabled, else "receiver_inactive"
+        bool operator==(RtpTarget const& o) const { return masterEnable == o.masterEnable && legs == o.legs && inactiveReason == o.inactiveReason; }
     };
 
     /// IS-05 /active of an MXL Sender (ingest).
@@ -33,7 +34,11 @@ namespace mxlgw::group
         bool masterEnable = false;
         std::optional<util::Uuid> domainId;
         std::optional<util::Uuid> flowId;
-        bool operator==(MxlReceiverTarget const& o) const { return masterEnable == o.masterEnable && domainId == o.domainId && flowId == o.flowId; }
+        std::string inactiveReason; // essence state reason while disabled, else "receiver_inactive"
+        bool operator==(MxlReceiverTarget const& o) const
+        {
+            return masterEnable == o.masterEnable && domainId == o.domainId && flowId == o.flowId && inactiveReason == o.inactiveReason;
+        }
     };
 
     /// Resolved domain of an enabled MXL Receiver (`mxl_st2110_gateway_mxl_reader_info`, §12.1).

@@ -693,7 +693,9 @@ namespace mxlgw::app
                     }
                     else
                     {
-                        _groups->setRtpReceiver(a.essenceUid, rtpReceiverTarget(a.active));
+                        auto target = rtpReceiverTarget(a.active);
+                        target.inactiveReason = a.note;
+                        _groups->setRtpReceiver(a.essenceUid, target);
                     }
                 }
                 else if (a.sender)
@@ -702,7 +704,9 @@ namespace mxlgw::app
                 }
                 else
                 {
-                    _groups->setMxlReceiver(a.essenceUid, mxlReceiverTarget(a.active));
+                    auto target = mxlReceiverTarget(a.active);
+                    target.inactiveReason = a.note;
+                    _groups->setMxlReceiver(a.essenceUid, target);
                 }
                 countActivation(kind, a.transport, "ok");
                 log::info("nmos_activation", {{"group", group->label},

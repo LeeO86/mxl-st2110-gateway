@@ -60,6 +60,7 @@ namespace mxlgw::nmosnode
         bool sender = false;   // IS-04 type
         std::string transport; // "rtp" | "mxl"
         nlohmann::json active; // IS-05 /active endpoint (master_enable, transport_params, ...)
+        std::string note;      // why a restored activation came up disabled (essence state reason), else empty
     };
 
     /// Result of the MXL flow format check at staging (§6.4): empty = acceptable.

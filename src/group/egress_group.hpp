@@ -65,6 +65,7 @@ namespace mxlgw::group
         void processAudio(Essence& e, std::int64_t periodOrigin, std::int64_t deadline);
         void markData(Essence& e, bool good, std::int64_t steadyNow);
         std::int64_t maxReadOffset() const;
+        std::int64_t outputDelayNs() const { return _outputDelayNs; }
 
         EgressSpec _spec;
         media::MediaBackend& _backend;

@@ -55,7 +55,7 @@ docker compose up -d
 ```yaml
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.4}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.5}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
