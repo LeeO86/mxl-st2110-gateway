@@ -186,7 +186,12 @@ namespace mxlgw::group
             _rate = {50, 1};
         }
         _cadenceNs = config::periodNs(_rate);
-        _outputDelayNs = g.effectiveOutputDelayNs();
+        std::int64_t maxReadOffsetNs = 0;
+        for (auto const& entry : _spec.readOffsetNs)
+        {
+            maxReadOffsetNs = std::max(maxReadOffsetNs, entry.second);
+        }
+        _outputDelayNs = g.effectiveOutputDelayNs(maxReadOffsetNs);
         _thread = std::thread([this] { run(); });
     }
 
@@ -458,7 +463,7 @@ namespace mxlgw::group
             result.reset();
             if (!want.masterEnable)
             {
-                e.state->set(EssenceState::Idle, "receiver_inactive");
+                e.state->set(EssenceState::Idle, want.inactiveReason.empty() ? "receiver_inactive" : want.inactiveReason);
                 log::info("mxl_reader_stopped", {{"group", _spec.group.label}, {"essence", e.label}});
             }
             else if (!want.flowId || !want.domainId)

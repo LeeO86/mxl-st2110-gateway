@@ -372,9 +372,9 @@ namespace mxlgw::config
         return periodNs({50, 1});
     }
 
-    std::int64_t Group::effectiveOutputDelayNs() const
+    std::int64_t Group::effectiveOutputDelayNs(std::int64_t maxReadOffsetNs) const
     {
-        return outputDelayNs ? *outputDelayNs : 2 * cadenceNs();
+        return outputDelayNs ? *outputDelayNs : std::max(2 * cadenceNs(), cadenceNs() + maxReadOffsetNs + 2'000'000);
     }
 
     Domain const* Mxl::findDomain(std::string const& name) const

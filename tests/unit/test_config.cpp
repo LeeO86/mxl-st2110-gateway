@@ -47,7 +47,13 @@ TEST_CASE("sample configuration parses with defaults")
     CHECK(g.anc[0].payloadType == 100);
     CHECK(g.anc[0].format.rate == util::Rational{50, 1}); // from the group's video
     CHECK(g.video[0].legs.size() == 2);
-    CHECK(c.groups[1].effectiveOutputDelayNs() == 40'000'000); // two grains at 50p
+    CHECK(c.groups[1].effectiveOutputDelayNs(0) == 40'000'000); // two grains at 50p
+    // Unset output_delay_ns follows the read offset: one grain + the largest read offset + 2 ms.
+    CHECK(c.groups[1].effectiveOutputDelayNs(10'000'000) == 40'000'000);
+    CHECK(c.groups[1].effectiveOutputDelayNs(80'000'000) == 102'000'000); // read offset 4 grains at 50p
+    auto explicitDelay = c.groups[1];
+    explicitDelay.outputDelayNs = 120'000'000;
+    CHECK(explicitDelay.effectiveOutputDelayNs(80'000'000) == 120'000'000);
     CHECK(c.groups[1].missingData == config::MissingData::Black);
     CHECK(c.groups[1].audio[0].format.blockUs == 1000);
     CHECK_FALSE(c.unconfigured());
@@ -517,7 +523,7 @@ TEST_CASE("toJson round trip")
     CHECK(again.config->groups.size() == r.config->groups.size());
     CHECK(again.config->groups[0].video[0].format == r.config->groups[0].video[0].format);
     CHECK(again.config->groups[0].audio[0].format == r.config->groups[0].audio[0].format);
-    CHECK(again.config->groups[1].effectiveOutputDelayNs() == r.config->groups[1].effectiveOutputDelayNs());
+    CHECK(again.config->groups[1].effectiveOutputDelayNs(0) == r.config->groups[1].effectiveOutputDelayNs(0));
     auto const g = config::groupFromJson(json::parse(config::toJson(r.config->groups[1]).dump()));
     CHECK(g.uid == r.config->groups[1].uid);
     CHECK(g.direction == config::Direction::Egress);

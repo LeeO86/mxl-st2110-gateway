@@ -1,10 +1,44 @@
 // SPDX-License-Identifier: MIT
 #include "group/group_manager.hpp"
 
+#include <algorithm>
+
 #include "util/logging.hpp"
 
 namespace mxlgw::group
 {
+    namespace
+    {
+        /// The read offset of every essence of an egress group in ns, by uid (§5.7).
+        std::map<util::Uuid, std::int64_t> readOffsetsNs(config::Config const& config, config::Group const& g)
+        {
+            std::map<util::Uuid, std::int64_t> out;
+            for (auto const& e : g.video)
+            {
+                out[e.uid] = config.effectiveReadOffset(e).toNs(e.format.grainDurationNs());
+            }
+            for (auto const& e : g.audio)
+            {
+                out[e.uid] = config.effectiveReadOffset(e).toNs(g.cadenceNs());
+            }
+            for (auto const& e : g.anc)
+            {
+                out[e.uid] = config.effectiveReadOffset(e).toNs(e.format.grainDurationNs());
+            }
+            return out;
+        }
+
+        std::int64_t largest(std::map<util::Uuid, std::int64_t> const& offsets)
+        {
+            std::int64_t m = 0;
+            for (auto const& entry : offsets)
+            {
+                m = std::max(m, entry.second);
+            }
+            return m;
+        }
+    }
+
     std::string groupSignature(config::Group const& group)
     {
         auto j = config::toJson(group);
@@ -90,18 +124,7 @@ namespace mxlgw::group
             spec.group = g;
             spec.appCpus = _appCpus;
             spec.owner = domain->instance;
-            for (auto const& e : g.video)
-            {
-                spec.readOffsetNs[e.uid] = config.effectiveReadOffset(e).toNs(e.format.grainDurationNs());
-            }
-            for (auto const& e : g.audio)
-            {
-                spec.readOffsetNs[e.uid] = config.effectiveReadOffset(e).toNs(g.cadenceNs());
-            }
-            for (auto const& e : g.anc)
-            {
-                spec.readOffsetNs[e.uid] = config.effectiveReadOffset(e).toNs(e.format.grainDurationNs());
-            }
+            spec.readOffsetNs = readOffsetsNs(config, g);
             entry.egress = std::make_unique<EgressGroup>(spec, _backend, _resolver);
         }
         for (auto const& e : g.video)
@@ -184,22 +207,19 @@ namespace mxlgw::group
         {
             auto const signature = groupSignature(*g);
             auto it = _groups.find(uid);
-            if (it != _groups.end() && it->second->signature == signature)
+            auto const offsets = readOffsetsNs(config, *g);
+            // A read offset that changes the default output delay needs a rebuild: the media sessions
+            // size their buffers from the output delay (§5.7).
+            bool const delayChanged =
+                it != _groups.end() && it->second->egress && it->second->egress->outputDelayNs() != g->effectiveOutputDelayNs(largest(offsets));
+            if (it != _groups.end() && it->second->signature == signature && !delayChanged)
             {
                 // Only read offsets or network defaults changed: applied live (§9.3).
                 if (it->second->egress)
                 {
-                    for (auto const& e : g->video)
+                    for (auto const& [essenceUid, ns] : offsets)
                     {
-                        it->second->egress->setReadOffset(e.uid, config.effectiveReadOffset(e).toNs(e.format.grainDurationNs()));
-                    }
-                    for (auto const& e : g->audio)
-                    {
-                        it->second->egress->setReadOffset(e.uid, config.effectiveReadOffset(e).toNs(g->cadenceNs()));
-                    }
-                    for (auto const& e : g->anc)
-                    {
-                        it->second->egress->setReadOffset(e.uid, config.effectiveReadOffset(e).toNs(e.format.grainDurationNs()));
+                        it->second->egress->setReadOffset(essenceUid, ns);
                     }
                 }
                 it->second->config = *g;

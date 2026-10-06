@@ -139,8 +139,9 @@ namespace mxlgw::config
         std::size_t essenceCount() const { return video.size() + audio.size() + anc.size(); }
         /// Grain duration that drives the group's cadence (first video, else ANC, else audio block).
         std::int64_t cadenceNs() const;
-        /// output_delay_ns or the default of two grains (§5.7).
-        std::int64_t effectiveOutputDelayNs() const;
+        /// output_delay_ns, or the default: two grains, at least one grain + the largest read offset
+        /// + 2 ms (§5.7), so a read offset alone does not make every grain late.
+        std::int64_t effectiveOutputDelayNs(std::int64_t maxReadOffsetNs) const;
     };
 
     struct NicPort

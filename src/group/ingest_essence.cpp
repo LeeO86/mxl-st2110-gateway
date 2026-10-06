@@ -675,7 +675,7 @@ namespace mxlgw::group
         }
         if (!_receiver.masterEnable)
         {
-            _state.set(EssenceState::Idle, "receiver_inactive");
+            _state.set(EssenceState::Idle, _receiver.inactiveReason.empty() ? "receiver_inactive" : _receiver.inactiveReason);
             return;
         }
         if (!(_videoRx || _audioRx || _ancRx))

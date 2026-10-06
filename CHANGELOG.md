@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-06
+
+### Changed
+
+- An egress group without `output_delay_ns` uses at least one grain + its largest read offset + 2 ms (default still two grains). A read offset alone, as mirrored flows need (§5.7), made every grain late: on the platform a TX essence reading a mirror of another gateway's ingest flow counted only read timeouts until `output_delay_ns` was also set. A read offset change that changes this default rebuilds the group instead of applying live.
+- The Compose and Kubernetes examples use the `1.0.5` image.
+
+### Fixed
+
+- A disable (`master_enable: false`) is always accepted. The MXL flow format check and the SDP check ran on the staged flow or SDP also when the receiver was switched off, so a route that no longer fit (for example a 16-channel flow on a 2-channel essence routed under 1.0.2) could only be disabled by clearing its transport parameters.
+- A saved Receiver activation that the current staging checks reject comes up staged disabled after a restart, logged as `restored_activation_disabled` with the reason and shown as essence state `idle` with reason `restore_rejected: …`. It came up enabled, with the essence in `error`.
+
 ## [1.0.4] - 2026-10-06
 
 ### Changed

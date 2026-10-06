@@ -708,7 +708,10 @@ namespace mxlgw::nmosnode
                                                          {nmos::fields::activation_time, value::string(nmos::make_version())}});
         }
 
-        bool restoreSaved(nmos::resource& connection, std::map<nmos::id, std::pair<value, value>> const& keep)
+        /// `ref` and `group` (receivers only): a saved activation that the current checks reject comes
+        /// up staged disabled, with the reason in the log and, through its activation, in the essence state.
+        bool restoreSaved(nmos::resource& connection, std::map<nmos::id, std::pair<value, value>> const& keep, ResourceRef const* ref = nullptr,
+                          config::Group const* group = nullptr)
         {
             if (auto const it = keep.find(connection.id); it != keep.end())
             {
@@ -741,6 +744,20 @@ namespace mxlgw::nmosnode
             if (auto const peer = saved->find(peerField); peer != saved->end() && peer->is_string())
             {
                 connection.data[nmos::fields::endpoint_staged][us(peerField)] = value::string(us(peer->get<std::string>()));
+            }
+            if (ref != nullptr && group != nullptr && saved->value("master_enable", false))
+            {
+                try
+                {
+                    checkStaged(*ref, *group, connection.data[nmos::fields::endpoint_staged], connection.id);
+                }
+                catch (std::exception const& ex)
+                {
+                    connection.data[nmos::fields::endpoint_staged][nmos::fields::master_enable] = value::boolean(false);
+                    std::lock_guard const lock{_restoreMutex};
+                    _restoreRejected[connection.id] = std::string("restore_rejected: ") + ex.what();
+                    log::warn("restored_activation_disabled", {{"resource_id", connection.id}, {"reason", ex.what()}});
+                }
             }
             return true;
         }
@@ -899,14 +916,15 @@ namespace mxlgw::nmosnode
                             value_of({{nmos::fields::constraint_enum, value_of({value::string(us(portIp(leg)))})}});
                     }
                 }
-                if (!restoreSaved(rconn, keep))
+                ResourceRef const ref{g.uid, common.uid, type, g.direction, index, false, true};
+                if (!restoreSaved(rconn, keep, &ref, &g))
                 {
                     njson legs = app::defaultRtpReceiverParams(common, redundant);
                     stageInitial(rconn, value::boolean(!common.legs.empty()), toWeb(legs));
                 }
                 nmos::insert_resource(_model.node_resources, std::move(receiver));
                 nmos::insert_resource(_model.connection_resources, std::move(rconn));
-                _refs[receiverId] = {g.uid, common.uid, type, g.direction, index, false, true};
+                _refs[receiverId] = ref;
             }
         }
 
@@ -984,13 +1002,14 @@ namespace mxlgw::nmosnode
                 tag(receiver, hint);
                 // C3: mxl_domain_id unconstrained so a domain that does not exist yet can be staged.
                 auto rconn = nmos::make_connection_mxl_receiver(receiverId, {});
-                if (!restoreSaved(rconn, keep))
+                ResourceRef const ref{g.uid, common.uid, type, g.direction, index, false, false};
+                if (!restoreSaved(rconn, keep, &ref, &g))
                 {
                     stageInitial(rconn, value::boolean(false), value_of({value_of({{U("mxl_domain_id"), U("auto")}, {U("mxl_flow_id"), value::null()}})}));
                 }
                 nmos::insert_resource(_model.node_resources, std::move(receiver));
                 nmos::insert_resource(_model.connection_resources, std::move(rconn));
-                _refs[receiverId] = {g.uid, common.uid, type, g.direction, index, false, false};
+                _refs[receiverId] = ref;
             }
         }
 
@@ -1124,13 +1143,30 @@ namespace mxlgw::nmosnode
             {
                 return;
             }
+            checkStaged(*ref, *g, staged, connection.id);
+            (void)resource;
+        }
+
+        /// Throws web::json::json_exception when the staged endpoint does not fit the essence. A
+        /// disable is always accepted: the staged flow or SDP may no longer fit (a route made under an
+        /// earlier version), and rejecting it would leave no way to switch the receiver off.
+        void checkStaged(ResourceRef const& refValue, config::Group const& group, value const& staged, nmos::id const& connectionId)
+        {
+            auto const* ref = &refValue;
+            auto const* g = &group;
             bool const hasFile = staged.has_field(nmos::fields::transport_file) && staged.at(nmos::fields::transport_file).has_field(nmos::fields::data) &&
                                  !staged.at(nmos::fields::transport_file).at(nmos::fields::data).is_null();
+            bool const enabled = staged.has_field(nmos::fields::master_enable) && staged.at(nmos::fields::master_enable).is_boolean() &&
+                                 staged.at(nmos::fields::master_enable).as_bool();
             if (!ref->rtp && !ref->sender)
             {
                 if (hasFile)
                 {
                     throw web::json::json_exception("MXL Receivers do not accept a transport file (BCP-007-03)");
+                }
+                if (!enabled)
+                {
+                    return;
                 }
                 auto const& legs = nmos::fields::transport_params(staged);
                 if (legs.size() == 0)
@@ -1150,10 +1186,10 @@ namespace mxlgw::nmosnode
                 if (!domainText.empty() && domainText != U("auto"))
                 {
                     domain = util::parseUuid(domainText);
-                    if (domain && _callbacks.domainAccessible && !_callbacks.domainAccessible(*domain) && _unknownDomainLog.allow(connection.id))
+                    if (domain && _callbacks.domainAccessible && !_callbacks.domainAccessible(*domain) && _unknownDomainLog.allow(connectionId))
                     {
                         // Owner decision C3: accepted, waited for (deviation from BCP-007-03, docs/decisions.md).
-                        log::warn("mxl_domain_unknown", {{"receiver_id", connection.id}, {"mxl_domain_id", domainText}});
+                        log::warn("mxl_domain_unknown", {{"receiver_id", connectionId}, {"mxl_domain_id", domainText}});
                     }
                 }
                 if (!flowText.empty() && _callbacks.checkMxlFlow)
@@ -1174,7 +1210,7 @@ namespace mxlgw::nmosnode
                 }
                 return;
             }
-            if (ref->rtp && !ref->sender && hasFile)
+            if (ref->rtp && !ref->sender && hasFile && enabled)
             {
                 auto const& tf = staged.at(nmos::fields::transport_file);
                 auto const sdpText = tf.at(nmos::fields::data).as_string();
@@ -1204,7 +1240,6 @@ namespace mxlgw::nmosnode
                     throw web::json::json_exception(message.c_str());
                 }
             }
-            (void)resource;
         }
 
         void resolveAuto(nmos::resource const& resource, nmos::resource const& connection, value& params)
@@ -1386,6 +1421,14 @@ namespace mxlgw::nmosnode
             a.sender = ref->sender;
             a.transport = ref->rtp ? "rtp" : "mxl";
             a.active = toNl(nmos::fields::endpoint_active(connection.data));
+            {
+                std::lock_guard const lock{_restoreMutex};
+                if (auto const it = _restoreRejected.find(connection.id); it != _restoreRejected.end())
+                {
+                    a.note = it->second; // the first activation after the restore carries the reason
+                    _restoreRejected.erase(it);
+                }
+            }
             _callbacks.activated(a);
             (void)resource;
         }
@@ -1418,6 +1461,8 @@ namespace mxlgw::nmosnode
         mutable std::mutex _statusMutex;
         std::string _registrationUri;
         log::RateLimiter _unknownDomainLog{std::chrono::seconds(30)};
+        std::mutex _restoreMutex;
+        std::map<nmos::id, std::string> _restoreRejected; // connection id → reason, until its activation
     };
 
     std::unique_ptr<Node> createNode(Setup setup, Callbacks callbacks)

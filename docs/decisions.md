@@ -209,6 +209,11 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: reading needs only `id`; `label` and `description` default to `""`, `tags` to `{}`. A field that is present must still have the schema's type. The gateway's own `domain_def.json` keeps all four fields.
 - Consequence: discovery finds domains of every writer, also files that already sit on a host's tmpfs (they are never rewritten). The writers are fixed separately.
 
+### 2026-10-06 — Output delay follows the read offset; stale routes come up disabled (1.0.5, owner OK)
+- Context: on the platform a TX essence reading a mirror of another gateway's ingest flow timed out on every grain: read offset 0 with the replication lag of 2–3 grains. With `read_offset_grains` 4 the default output delay of two grains was still too short; the "one grain + largest read offset + 2 ms" minimum was only checked for an explicit `output_delay_ns`. A route made under 1.0.2 (a 16-channel flow on a 2-channel essence) was restored after an upgrade and stayed enabled in `error`, and even a disable PATCH was rejected by the format check.
+- Decision: unset `output_delay_ns` = max(two grains, one grain + largest read offset + 2 ms); a read offset change that changes it rebuilds the group (the media sessions size their buffers from the output delay). A saved Receiver activation that the current staging checks reject comes up staged disabled (`restored_activation_disabled`, essence reason `restore_rejected: …`). The staging checks run only when `master_enable` is true.
+- Consequence: setting only a read offset is enough for mirrored flows; an explicit `output_delay_ns` keeps its meaning. A disable always succeeds.
+
 ## Dependencies
 
 | Dependency | Why | License |
