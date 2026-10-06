@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-06
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.4` image.
+
+### Fixed
+
+- A connection restored after a restart (`node.resume_connections`) keeps its `sender_id` (receivers) or `receiver_id` (senders) in IS-05 `/active`. The saved activation had it, but only `master_enable` and the transport parameters were staged again, so `/active` said `null` and a controller no longer showed the route (seen on the platform after a gateway restart).
+
 ## [1.0.3] - 2026-10-06
 
 ### Changed

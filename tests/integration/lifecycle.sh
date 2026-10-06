@@ -165,13 +165,14 @@ pass "second instance on :18202 ready; a taken port exits 75"
 
 # ---- an active MXL Receiver survives a restart (G9 SHOULD)
 FLOW=00000000-0000-4000-8000-0000000000f1
+SENDER=00000000-0000-4000-8000-0000000000f2
 rid=$(nmos_id "$BASE" receivers "PGM V")
-patch_staged "$BASE" receivers "$rid" "{\"master_enable\": true, \"activation\": {\"mode\": \"activate_immediate\"},
+patch_staged "$BASE" receivers "$rid" "{\"sender_id\": \"$SENDER\", \"master_enable\": true, \"activation\": {\"mode\": \"activate_immediate\"},
   \"transport_params\": [{\"mxl_domain_id\": \"$DOMAIN_ID\", \"mxl_flow_id\": \"$FLOW\"}]}"
 docker restart -t 15 "$GW" >/dev/null
 wait_until 30 "/readyz after the restart" http_ok "$BASE/readyz"
-active=$(json "$BASE/x-nmos/connection/v1.2/single/receivers/$rid/active" '[j["master_enable"], j["transport_params"][0]["mxl_flow_id"]]')
-[[ "$active" == "[true, \"$FLOW\"]" ]] || fail "MXL Receiver /active after the restart: $active"
+active=$(json "$BASE/x-nmos/connection/v1.2/single/receivers/$rid/active" '[j["master_enable"], j["transport_params"][0]["mxl_flow_id"], j["sender_id"]]')
+[[ "$active" == "[true, \"$FLOW\", \"$SENDER\"]" ]] || fail "MXL Receiver /active after the restart: $active"
 sid=$(nmos_id "$BASE" senders "CAM 1 V")
 [[ "$(json "$BASE/x-nmos/connection/v1.2/single/senders/$sid/active" 'j["transport_params"][0]["mxl_domain_id"]')" == "$DOMAIN_ID" ]] ||
     fail "MXL Sender does not report the active mxl_domain_id"

@@ -736,6 +736,12 @@ namespace mxlgw::nmosnode
                 return false; // redundancy changed since: start from defaults
             }
             stageInitial(connection, value::boolean(saved->value("master_enable", false)), params);
+            // The other end of the saved activation, so /active names it again after a restart.
+            auto const* const peerField = connection.type == nmos::types::receiver ? "sender_id" : "receiver_id";
+            if (auto const peer = saved->find(peerField); peer != saved->end() && peer->is_string())
+            {
+                connection.data[nmos::fields::endpoint_staged][us(peerField)] = value::string(us(peer->get<std::string>()));
+            }
             return true;
         }
 
