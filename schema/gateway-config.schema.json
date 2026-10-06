@@ -963,7 +963,7 @@
           ],
           "minimum": 0,
           "maximum": 10000000000,
-          "description": "Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms (§5.7).",
+          "description": "Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms; with video at most the largest read offset + 5 grains (§5.7).",
           "default": null
         },
         "missing_data": {

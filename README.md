@@ -55,7 +55,7 @@ docker compose up -d
 ```yaml
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.5}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.6}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
@@ -407,6 +407,7 @@ Other frequent issues:
 
 - **Essence `waiting_for_flow`** (egress): the MXL flow or domain does not exist (yet). It starts automatically once it appears; check the flow id, `mxl.scan_path` and, for remote flows, the agent. **`no_signal`**: the flow exists but no grains arrive in time.
 - **Essence `error` / `format_mismatch`**: the flow or SDP format differs from the essence configuration (size, rate, scan, channels, packet time).
+- **Essence `error` / `egress_sender_failed`**: the ST 2110 sender could not be created (MTL error in the log just before `egress_sender_failed`); the MXL side may still read. Retried with a growing delay.
 - **`/readyz` `clock_mismatch`**: MTL PTP time and host `CLOCK_TAI` differ by more than `ptp.max_offset_ns` — fix host time sync.
 - **`/readyz` `nmos_not_registered`** / **`st2110_nmos_not_registered`**: the MXL node / ST 2110 node has a registry configured but is not registered; check `NMOS_REGISTRY_ADDRESS`/`_PORT` (or `MXLGW_NODE_ST2110_REGISTRY_*`), the registry's reachability, or Avahi when DNS-SD is on. Without a configured registry registration is not required.
 - **Exit 75 `http_listen_failed`**: `NMOS_PORT`, `NMOS_PORT + 1` or `WEB_PORT` is taken (another gateway, mxl-decklink, …); see [Port usage](#port-usage-and-co-location).

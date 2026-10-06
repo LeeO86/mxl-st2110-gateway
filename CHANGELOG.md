@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-10-06
+
+### Fixed
+
+- An ST 2110-20 sender is created with at most 8 frames, MTL's limit. The frame queue was the output delay in grains + 3 (up to 16), so an output delay above 100 ms at 50p (for example 120 ms, or the 1.0.5 default of 102 ms with `read_offset_grains` 4) made `st20p_tx_create` fail ("invalid framebuff_cnt 9, should in range [2:8]") and no video was sent; seen on the platform hardware.
+- An egress essence whose ST 2110 sender cannot be created is `error` with reason `egress_sender_failed`. It showed `running` (the MXL read side) while no video was sent. The creation is retried after 1 s, doubling up to 30 s, instead of on every grain period.
+
+### Changed
+
+- Validation: in an egress group with video, the effective `output_delay_ns` must be at most the largest read offset + 5 grains (100 ms at 50p beyond the read offset); a grain waits that long in the sender. The default (two grains, at least one grain + the largest read offset + 2 ms) always fits; a configuration with a larger explicit value is rejected instead of sending no video.
+- The Compose and Kubernetes examples use the `1.0.6` image.
+
 ## [1.0.5] - 2026-10-06
 
 ### Changed
