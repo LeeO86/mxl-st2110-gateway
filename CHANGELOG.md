@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-06
+
+Checked on the MXL PoC platform's hosts (Dell Precision 3930, E810-XXV on vfio-pci, NVM 5.01, DDP 1.3.59.0): with `nic.tx_pacing = tsc` the host whose E810 failed the rate-limiter test starts without `Failed to add lan txq` or a stack dump and is ready; the other host is ready with `auto`. Both run `ptp.mode = external`.
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.2` image.
+
 ### Added
 
 - `nic.tx_pacing` (`MXLGW_NIC_TX_PACING`): MTL's TX pacing, `auto` (default, unchanged behaviour), `rl` or `tsc`. On an E810 PF (E810-XXV, NVM 5.01, 8 TX queues) the rate-limiter test of `auto` restarts the port, the restart fails with ice `Failed to add lan txq` and a stack dump, and MTL falls back to TSC; in one of two runs `mtl_init` still failed. `tsc` skips the rate limiter. Ignored by the kernel backend. The `mtl_init` log line shows the value.
