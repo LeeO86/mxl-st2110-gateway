@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `nic.tx_pacing` (`MXLGW_NIC_TX_PACING`): MTL's TX pacing, `auto` (default, unchanged behaviour), `rl` or `tsc`. On an E810 PF (E810-XXV, NVM 5.01, 8 TX queues) the rate-limiter test of `auto` restarts the port, the restart fails with ice `Failed to add lan txq` and a stack dump, and MTL falls back to TSC; in one of two runs `mtl_init` still failed. `tsc` skips the rate limiter. Ignored by the kernel backend. The `mtl_init` log line shows the value.
+
+### Fixed
+
+- The entrypoint no longer warns `entrypoint_memlock` when the process has `CAP_IPC_LOCK`, which lifts the memlock limit for DPDK (mlock and VFIO DMA mappings). Without the capability the warning stays.
+- README troubleshooting: `Failed to add lan txq` (use `nic.tx_pacing = tsc`) and `PTP(0): t3 tx timestamp timeout` (use `ptp.mode = external` with a TAI-disciplined host clock).
+
 ## [1.0.1] - 2026-10-04
 
 ### Changed

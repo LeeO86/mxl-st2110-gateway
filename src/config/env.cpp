@@ -92,6 +92,7 @@ namespace mxlgw::config
                     {"MXLGW_NIC_BACKEND", {}, "/nic/backend", Kind::String},
                     {"MXLGW_NIC_LCORES", {}, "/nic/lcores", Kind::NullableString},
                     {"MXLGW_NIC_LCORE_COUNT", {}, "/nic/lcore_count", Kind::Integer},
+                    {"MXLGW_NIC_TX_PACING", {}, "/nic/tx_pacing", Kind::String},
                     {"MXLGW_NIC_APP_CPUS", {}, "/nic/app_cpus", Kind::NullableString},
                     {"MXLGW_NIC_HUGEPAGE_SOCKET", {}, "/nic/hugepage_socket", Kind::AutoOrInteger},
                     {"MXLGW_PTP_MODE", {}, "/ptp/mode", Kind::String},

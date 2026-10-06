@@ -17,7 +17,9 @@ case "${1:-}" in
 esac
 
 memlock="$(ulimit -l)"
-if [[ "$memlock" != "unlimited" ]]; then
+# CAP_IPC_LOCK (bit 14 of CapEff) lifts the memlock limit for mlock and VFIO DMA mappings: no warning then.
+capeff="$(awk '/^CapEff:/ {print $2}' /proc/self/status 2>/dev/null)"
+if [[ "$memlock" != "unlimited" ]] && ! (( (16#${capeff:-0} >> 14) & 1 )); then
     log warn entrypoint_memlock "memlock ulimit is ${memlock} KiB; DPDK needs it unlimited (compose: ulimits.memlock -1, Kubernetes: CAP_IPC_LOCK)"
 fi
 

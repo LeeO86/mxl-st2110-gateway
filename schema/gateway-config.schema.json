@@ -457,6 +457,15 @@
           "description": "Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend).",
           "default": 4
         },
+        "tx_pacing": {
+          "enum": [
+            "auto",
+            "rl",
+            "tsc"
+          ],
+          "description": "MTL TX pacing (dpdk backend): auto = NIC rate limiter where the driver has one, else TSC; rl = rate limiter only; tsc = software (TSC) pacing, never touches the NIC rate limiter. Use tsc when MTL fails to start with ice \"Failed to add lan txq\".",
+          "default": "auto"
+        },
         "app_cpus": {
           "type": [
             "string",

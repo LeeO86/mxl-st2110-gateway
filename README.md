@@ -195,6 +195,7 @@ Every setting except the per-group fields (groups and essences, see [`docs/confi
 | `MXLGW_NIC_BACKEND` | `nic.backend` | `"dpdk"` | dpdk (production), kernel and mock are test-only. |
 | `MXLGW_NIC_LCORES` | `nic.lcores` | `null` | MTL lcores as a CPU list (e.g. "4-9"); disjoint from app_cpus. null = dpdk backend: the first nic.lcore_count CPUs of the process's CPU affinity (Kubernetes cpuset); kernel/mock: MTL's choice. |
 | `MXLGW_NIC_LCORE_COUNT` | `nic.lcore_count` | `4` | Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend). |
+| `MXLGW_NIC_TX_PACING` | `nic.tx_pacing` | `"auto"` | MTL TX pacing (dpdk backend): auto = NIC rate limiter where the driver has one, else TSC; rl = rate limiter only; tsc = software (TSC) pacing, never touches the NIC rate limiter. Use tsc when MTL fails to start with ice "Failed to add lan txq". |
 | `MXLGW_NIC_APP_CPUS` | `nic.app_cpus` | `null` | CPU list for the gateway worker threads; null = dpdk backend: the CPUs of the affinity not used as lcores. |
 | `MXLGW_NIC_HUGEPAGE_SOCKET` | `nic.hugepage_socket` | `"auto"` | NUMA socket for hugepage memory; auto = the NIC's socket. |
 | — (file only) | `nic.port_pairs` | `[]` | The media port pair (exactly one in v1). |
@@ -410,6 +411,8 @@ Other frequent issues:
 - **`/readyz` `nmos_not_registered`** / **`st2110_nmos_not_registered`**: the MXL node / ST 2110 node has a registry configured but is not registered; check `NMOS_REGISTRY_ADDRESS`/`_PORT` (or `MXLGW_NODE_ST2110_REGISTRY_*`), the registry's reachability, or Avahi when DNS-SD is on. Without a configured registry registration is not required.
 - **Exit 75 `http_listen_failed`**: `NMOS_PORT`, `NMOS_PORT + 1` or `WEB_PORT` is taken (another gateway, mxl-decklink, …); see [Port usage](#port-usage-and-co-location).
 - **`domain_id_mismatch` (error)**: the output domain's `domain_def.json` carries another id than `MXL_OUTPUT_DOMAIN_ID` / the seed-derived id; the file is kept and its id used. Remove the directory (or fix the id) if it belongs to another function.
+- **`mtl_init failed` after `ice_tx_queue_start(): Failed to add lan txq`** and `fallback to tsc as rl init fail` (E810 PF): the NIC rate limiter cannot be set up; MTL's fallback to TSC pacing does not always recover the port. Set `nic.tx_pacing` to `tsc` (`MXLGW_NIC_TX_PACING=tsc`).
+- **`PTP(0): t3 tx timestamp timeout`**, PTP never locks: MTL's PTP gets no TX timestamp from the NIC for its Delay_Req. Use `ptp.mode = external` (`MXLGW_PTP_MODE=external`) with the host's `CLOCK_TAI` disciplined to the same grandmaster as the media network and a kernel TAI offset of 37 s ([tai-offset](#preflight-tai-offset)).
 
 ## Development
 

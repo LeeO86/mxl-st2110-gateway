@@ -293,6 +293,17 @@ namespace mxlgw::config
         return "builtin";
     }
 
+    char const* toName(TxPacing p)
+    {
+        switch (p)
+        {
+            case TxPacing::Auto: return "auto";
+            case TxPacing::Rl: return "rl";
+            case TxPacing::Tsc: return "tsc";
+        }
+        return "auto";
+    }
+
     char const* toName(EssenceType t)
     {
         switch (t)
@@ -571,6 +582,8 @@ namespace mxlgw::config
                 enumFrom<Backend>(str(n, "backend", "dpdk"), {{"dpdk", Backend::Dpdk}, {"kernel", Backend::Kernel}, {"mock", Backend::Mock}}, "backend");
             c.nic.lcores = str(n, "lcores");
             c.nic.lcoreCount = num<int>(n, "lcore_count", c.nic.lcoreCount);
+            c.nic.txPacing =
+                enumFrom<TxPacing>(str(n, "tx_pacing", "auto"), {{"auto", TxPacing::Auto}, {"rl", TxPacing::Rl}, {"tsc", TxPacing::Tsc}}, "tx_pacing");
             c.nic.appCpus = str(n, "app_cpus");
             if (n.contains("hugepage_socket") && n.at("hugepage_socket").is_number_integer())
             {
@@ -858,6 +871,7 @@ namespace mxlgw::config
         nic["backend"] = toName(c.nic.backend);
         nic["lcores"] = c.nic.lcores.empty() ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(c.nic.lcores);
         nic["lcore_count"] = c.nic.lcoreCount;
+        nic["tx_pacing"] = toName(c.nic.txPacing);
         nic["app_cpus"] = c.nic.appCpus.empty() ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(c.nic.appCpus);
         nic["hugepage_socket"] = c.nic.hugepageSocket ? nlohmann::ordered_json(*c.nic.hugepageSocket) : nlohmann::ordered_json("auto");
         nic["port_pairs"] = nlohmann::ordered_json::array();
