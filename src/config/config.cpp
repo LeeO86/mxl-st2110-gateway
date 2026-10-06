@@ -1292,8 +1292,7 @@ namespace mxlgw::config
                 if (g.effectiveOutputDelayNs(maxReadOffsetNs) > maximum)
                 {
                     add(errors, gptr + "/output_delay_ns",
-                        "must be at most the largest read offset + 5 grains (" + std::to_string(maximum) +
-                            " ns): an ST 2110-20 sender holds at most 8 frames");
+                        "must be at most the largest read offset + 5 grains (" + std::to_string(maximum) + " ns): an ST 2110-20 sender holds at most 8 frames");
                 }
             }
         }
