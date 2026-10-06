@@ -414,6 +414,15 @@ namespace mxlgw::media
                     _lcores = cfg.nic.lcores;
                     p.lcores = _lcores.data();
                 }
+                // auto tries the NIC rate limiter first. On E810 that restarts the port, and when the restart fails
+                // (ice "Failed to add lan txq") mtl_init fails despite MTL's fallback to TSC; tsc never tries it.
+                // The kernel backend has no rate limiter (rl would fail): it keeps auto, which is TSC there.
+                if (!_ctx.kernel)
+                {
+                    p.pacing = cfg.nic.txPacing == config::TxPacing::Rl    ? ST21_TX_PACING_WAY_RL
+                               : cfg.nic.txPacing == config::TxPacing::Tsc ? ST21_TX_PACING_WAY_TSC
+                                                                            : ST21_TX_PACING_WAY_AUTO;
+                }
                 p.log_level = MTL_LOG_LEVEL_INFO; // DPDK INFO carries the ice DDP version; lowered after start
                 bool const builtinPtp = !_ctx.kernel && cfg.ptp.mode != config::PtpMode::External;
                 if (builtinPtp)
@@ -451,6 +460,7 @@ namespace mxlgw::media
                                        {"backend", config::toName(cfg.nic.backend)},
                                        {"ports", _ctx.portNames[0] + (_ctx.redundantPort ? "," + _ctx.portNames[1] : std::string())},
                                        {"ptp", builtinPtp ? config::toName(cfg.ptp.mode) : "external"},
+                                       {"tx_pacing", config::toName(cfg.nic.txPacing)},
                                        {"lcores", cfg.nic.lcores}});
                 _ctx.mt = mtl_init(&p);
                 if (_ctx.mt == nullptr)

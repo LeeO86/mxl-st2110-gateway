@@ -490,6 +490,23 @@ TEST_CASE("shutdown and cleanup settings (G8)")
     CHECK(r.config->mxl.cleanupOnExit);
 }
 
+TEST_CASE("nic.tx_pacing: auto by default, tsc and rl selectable")
+{
+    auto j = testutil::sampleConfig();
+    auto r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->nic.txPacing == config::TxPacing::Auto);
+    j["nic"]["tx_pacing"] = "tsc";
+    r = parse(j);
+    REQUIRE(r.ok());
+    CHECK(r.config->nic.txPacing == config::TxPacing::Tsc);
+    CHECK(config::toJson(*r.config)["nic"]["tx_pacing"] == "tsc");
+    j["nic"]["tx_pacing"] = "rl";
+    CHECK(parse(j).config->nic.txPacing == config::TxPacing::Rl);
+    j["nic"]["tx_pacing"] = "fast";
+    CHECK(hasError(parse(j), "/nic/tx_pacing"));
+}
+
 TEST_CASE("toJson round trip")
 {
     auto const r = parse(testutil::sampleConfig());

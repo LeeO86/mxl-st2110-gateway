@@ -69,6 +69,7 @@ Media NIC: backend, CPU placement and the ST 2022-7 port pair.
 | `nic.backend` | `"dpdk"` \| `"kernel"` \| `"mock"` | `"dpdk"` | `MXLGW_NIC_BACKEND` | dpdk (production), kernel and mock are test-only. |
 | `nic.lcores` | string or null | `null` | `MXLGW_NIC_LCORES` | MTL lcores as a CPU list (e.g. "4-9"); disjoint from app_cpus. null = dpdk backend: the first nic.lcore_count CPUs of the process's CPU affinity (Kubernetes cpuset); kernel/mock: MTL's choice. |
 | `nic.lcore_count` | integer (≥ 1, ≤ 128) | `4` | `MXLGW_NIC_LCORE_COUNT` | Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend). |
+| `nic.tx_pacing` | `"auto"` \| `"rl"` \| `"tsc"` | `"auto"` | `MXLGW_NIC_TX_PACING` | MTL TX pacing (dpdk backend): auto = NIC rate limiter where the driver has one, else TSC; rl = rate limiter only; tsc = software (TSC) pacing, never touches the NIC rate limiter. Use tsc when MTL fails to start with ice "Failed to add lan txq". |
 | `nic.app_cpus` | string or null | `null` | `MXLGW_NIC_APP_CPUS` | CPU list for the gateway worker threads; null = dpdk backend: the CPUs of the affinity not used as lcores. |
 | `nic.hugepage_socket` | `"auto"` or integer (≥ 0) | `"auto"` | `MXLGW_NIC_HUGEPAGE_SOCKET` | NUMA socket for hugepage memory; auto = the NIC's socket. |
 | `nic.port_pairs` | array of objects | `[]` |  | The media port pair (exactly one in v1). |

@@ -33,6 +33,13 @@ namespace mxlgw::config
         BuiltinPhc2sys,
         External,
     };
+    // MTL's TX pacing (mtl_init_params.pacing): auto = rate limit where the driver has it, else TSC.
+    enum class TxPacing
+    {
+        Auto,
+        Rl,
+        Tsc,
+    };
     enum class RegistryMode
     {
         DnsSd,
@@ -65,6 +72,7 @@ namespace mxlgw::config
     char const* toName(Direction d);
     char const* toName(Backend b);
     char const* toName(PtpMode m);
+    char const* toName(TxPacing p);
     char const* toName(EssenceType t);
     char const* toName(MissingData m);
     char const* toName(Pacing p);
@@ -157,6 +165,7 @@ namespace mxlgw::config
         Backend backend = Backend::Dpdk;
         std::string lcores;
         int lcoreCount = 4;
+        TxPacing txPacing = TxPacing::Auto;
         std::string appCpus;
         std::optional<int> hugepageSocket; // nullopt = auto
         std::vector<PortPair> portPairs;

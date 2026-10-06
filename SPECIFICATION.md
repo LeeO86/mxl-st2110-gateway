@@ -278,6 +278,8 @@ DPDK takes the media ports away from the kernel (`vfio-pci`). The ports therefor
 
 The mode is detected from the PCI device (PF vs VF) at startup, logged, exposed in `/api/status` and as metric label `bind_mode`.
 
+TX pacing (`nic.tx_pacing`, `mtl_init_params.pacing`): `auto` (default) lets MTL try the NIC rate limiter and fall back to TSC pacing; `rl` requires the rate limiter; `tsc` uses TSC pacing and never touches the rate limiter. On an E810 PF the rate limiter test restarts the port. When that restart fails (ice `Failed to add lan txq`, seen on E810-XXV with NVM 5.01 and 8 TX queues), the port does not start again and `mtl_init` fails despite MTL's fallback to TSC; `tsc` skips the rate limiter test.
+
 ### 4.3 Port Pair and ST 2022-7
 
 - The network is modelled as a **list of port pairs** (`nic.port_pairs[]`). Each pair has a `primary` port and an optional `redundant` port, each with its own PCI address and IP configuration.
@@ -603,7 +605,7 @@ Further rules for this scenario: no writes into mirror domains (§8.3), new flow
   | `NMOS_DNS_SD` (`MXLGW_NODE_REGISTRY_DNS_SD`), `NMOS_REGISTRY_ADDRESS` (`MXLGW_NODE_REGISTRY_ADDRESS`), `NMOS_REGISTRY_PORT` (`MXLGW_NODE_REGISTRY_PORT`), `NMOS_QUERY_ADDRESS`, `NMOS_QUERY_PORT`, `MXLGW_NODE_REGISTRY_MODE` (deprecated) | `node.registry.*` |
   | `MXLGW_NODE_ST2110_ENABLED`, `_LABEL`, `_HTTP_PORT`, `_HOST_ADDRESS`, `_REGISTRY_DNS_SD`, `_REGISTRY_ADDRESS`, `_REGISTRY_PORT` | `node.st2110.*` |
   | `MXLGW_NODE_TLS_ENABLED`, `_CERTIFICATE`, `_PRIVATE_KEY` | `node.tls.*` |
-  | `MXLGW_NIC_BACKEND`, `_LCORES`, `_LCORE_COUNT`, `_APP_CPUS`, `_HUGEPAGE_SOCKET` | `nic.*` |
+  | `MXLGW_NIC_BACKEND`, `_LCORES`, `_LCORE_COUNT`, `_TX_PACING`, `_APP_CPUS`, `_HUGEPAGE_SOCKET` | `nic.*` |
   | `MXLGW_NIC_PRIMARY_NAME`, `_PCI`, `_IFNAME`, `_IP`, `_NETMASK`, `_GATEWAY`; same with `MXLGW_NIC_REDUNDANT_` | `nic.port_pairs[0].primary` / `.redundant` |
   | `MXLGW_PTP_MODE`, `_DOMAIN`, `_REQUIRE_LOCK`, `_WARN_OFFSET_NS`, `_MAX_OFFSET_NS` | `ptp.*` |
   | `MXL_DOMAIN_SCAN_PATH` (alias `MXLGW_MXL_SCAN_PATH`) | `mxl.scan_path` |
@@ -667,6 +669,7 @@ Further rules for this scenario: no writes into mirror domains (§8.3), new flow
     "backend": "dpdk",                  // dpdk | kernel (test-only, ports use "ifname" instead of "pci", §17.2)
     "lcores": "4-9",                    // MTL lcores, disjoint from app threads; null = from the CPU affinity (dpdk)
     "lcore_count": 4,                   // lcores taken from the affinity when "lcores" is null
+    "tx_pacing": "auto",                // MTL TX pacing: auto | rl | tsc (§4.2)
     "app_cpus": "10-15",                // optional affinity for worker threads; null = the rest of the affinity (dpdk)
     "hugepage_socket": "auto",
     "port_pairs": [                     // exactly one in v1

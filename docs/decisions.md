@@ -199,6 +199,11 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: the owner's request wins; the open hardware items stay listed in `docs/acceptance.md` (O-4).
 - Consequence: `v1.0.0` is a stable configuration/API/metrics contract; hardware findings are fixed in `1.x` releases.
 
+### 2026-10-06 — TX pacing selectable
+- Context: first run on the platform's E810-XXV hosts (NVM 5.01, ice PMD, DPDK 26.07, 8 TX queues): with MTL's `auto` pacing the rate-limiter test restarted the port, the restart failed (`Failed to add lan txq`) and `mtl_init` failed despite MTL's fallback to TSC.
+- Decision: `nic.tx_pacing` = `auto` (default, unchanged) | `rl` | `tsc`, passed as `mtl_init_params.pacing`; the kernel backend keeps `auto`.
+- Consequence: such hosts run with `tsc` (software pacing, no NIC rate limiter); the cause in the ice PMD stays open.
+
 ## Dependencies
 
 | Dependency | Why | License |
@@ -218,7 +223,7 @@ All other dependencies are the pinned ones of §2 (MTL, DPDK, MXL, nmos-cpp and 
 | Id | Question | Conservative choice taken |
 |---|---|---|
 | O-1 | Q14: should a malformed SDP also be a 400 (it is a client error) instead of nmos-cpp's 500? | 500 kept (nmos-cpp behaviour); format mismatch is 400 |
-| O-2 | §15.2: does `CAP_IPC_LOCK` alone lift `RLIMIT_MEMLOCK` enough for vfio DMA pinning on the target containerd, or does the runtime need a memlock ulimit? (**VERIFY** on the cluster) | Manifests rely on `IPC_LOCK`; the entrypoint warns when memlock is not unlimited |
+| O-2 | §15.2: does `CAP_IPC_LOCK` alone lift `RLIMIT_MEMLOCK` enough for vfio DMA pinning on the target containerd, or does the runtime need a memlock ulimit? (**VERIFY** on the cluster) | Resolved 2026-10-06 on the platform's E810 hosts: with `CAP_IPC_LOCK` and a memlock limit of 8 MiB MTL started on vfio-pci. The entrypoint now warns only without `CAP_IPC_LOCK` |
 | O-3 | §12.1 names (`mxl_st2110_gateway_*_ns`) are a public interface, but Phase 6 asks that `/metrics` "passes `promtool check metrics`", whose lint rejects abbreviated units. Rename to base units (`_seconds`) before v1.0? | Names kept as specified; `check-metrics.sh` tolerates only that finding |
 | O-4 | `docs/acceptance.md` §19 items 3–6, 10–12 and 14 need the E810 hosts, a grandmaster and the operator's controller (Q12: manual) | Templates in `docs/acceptance.md` / `docs/performance.md` |
 | O-5 | §7.2 gives Senders and Receivers of an essence the same group-hint role, which IS-04-01 rejects. Which role naming does the owner prefer for Receivers? | Resolved 2026-10-03 by the two NMOS nodes: each device holds either the Receiver or the Sender of an essence, so both use `<group>:<Role> <n>` |
