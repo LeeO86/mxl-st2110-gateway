@@ -8,7 +8,7 @@
 #   open http://<host>:8080/admin/   (setup mode until the NIC is configured)
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.3}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.4}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
