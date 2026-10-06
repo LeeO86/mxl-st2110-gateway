@@ -582,7 +582,8 @@ namespace mxlgw::config
                 enumFrom<Backend>(str(n, "backend", "dpdk"), {{"dpdk", Backend::Dpdk}, {"kernel", Backend::Kernel}, {"mock", Backend::Mock}}, "backend");
             c.nic.lcores = str(n, "lcores");
             c.nic.lcoreCount = num<int>(n, "lcore_count", c.nic.lcoreCount);
-            c.nic.txPacing = enumFrom<TxPacing>(str(n, "tx_pacing", "auto"), {{"auto", TxPacing::Auto}, {"rl", TxPacing::Rl}, {"tsc", TxPacing::Tsc}}, "tx_pacing");
+            c.nic.txPacing =
+                enumFrom<TxPacing>(str(n, "tx_pacing", "auto"), {{"auto", TxPacing::Auto}, {"rl", TxPacing::Rl}, {"tsc", TxPacing::Tsc}}, "tx_pacing");
             c.nic.appCpus = str(n, "app_cpus");
             if (n.contains("hugepage_socket") && n.at("hugepage_socket").is_number_integer())
             {

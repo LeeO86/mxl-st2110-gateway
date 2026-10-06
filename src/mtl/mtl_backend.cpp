@@ -421,7 +421,7 @@ namespace mxlgw::media
                 {
                     p.pacing = cfg.nic.txPacing == config::TxPacing::Rl    ? ST21_TX_PACING_WAY_RL
                                : cfg.nic.txPacing == config::TxPacing::Tsc ? ST21_TX_PACING_WAY_TSC
-                                                                            : ST21_TX_PACING_WAY_AUTO;
+                                                                           : ST21_TX_PACING_WAY_AUTO;
                 }
                 p.log_level = MTL_LOG_LEVEL_INFO; // DPDK INFO carries the ice DDP version; lowered after start
                 bool const builtinPtp = !_ctx.kernel && cfg.ptp.mode != config::PtpMode::External;
