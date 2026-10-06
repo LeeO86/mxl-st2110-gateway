@@ -146,7 +146,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: seed-config
-          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.2
+          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.3
           command: ["/bin/sh", "-c", "[ -e /config/gateway.json ] || cp /seed/gateway.json /config/gateway.json"]
           securityContext:
             runAsUser: 1000
@@ -157,7 +157,7 @@ spec:
             - { name: seed, mountPath: /seed, readOnly: true }
       containers:
         - name: gateway
-          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.2
+          image: ghcr.io/leeo86/mxl-st2110-gateway:1.0.3
           env:
             - { name: NMOS_SEED, value: "demo-gateway-a" }
             - name: NMOS_HOST_ADDRESS

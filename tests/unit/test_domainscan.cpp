@@ -39,8 +39,20 @@ TEST_CASE("domain_def.json parsing ignores unknown fields and detects the mirror
     CHECK_FALSE(parseDomainDef("{", error));
     CHECK_FALSE(parseDomainDef("[]", error));
     CHECK_FALSE(parseDomainDef(R"({"id": "x", "label": "A", "description": "x", "tags": {}})", error));
-    CHECK_FALSE(parseDomainDef(R"({"id": ")" + idA + R"(", "label": "A", "description": "x"})", error));
+    // Only the id is required: mxl-test-player, mxl-color-corrector and fabrics-agent mirrors write no description or tags.
+    def = parseDomainDef(R"({"id": ")" + idA + R"(", "label": "MXL Test Player"})", error);
+    REQUIRE(def);
+    CHECK(def->label == "MXL Test Player");
+    CHECK(def->description.empty());
+    CHECK(def->tags == nlohmann::json::object());
+    def = parseDomainDef(R"({"id": ")" + idA + R"(", "x-mxl-fabrics-agent": {"mirror": true}})", error);
+    REQUIRE(def);
+    CHECK(def->label.empty());
+    CHECK(def->mirror);
+    CHECK_FALSE(parseDomainDef(R"({"label": "A", "description": "x", "tags": {}})", error));
+    CHECK(error == "missing required field 'id'");
     CHECK_FALSE(parseDomainDef(R"({"id": ")" + idA + R"(", "label": 1, "description": "x", "tags": {}})", error));
+    CHECK_FALSE(parseDomainDef(R"({"id": ")" + idA + R"(", "description": 1})", error));
     CHECK_FALSE(parseDomainDef(R"({"id": ")" + idA + R"(", "label": "A", "description": "x", "tags": {"k": "v"}})", error));
     CHECK_FALSE(parseDomainDef(R"({"id": ")" + idA + R"(", "label": "A", "description": "x", "tags": {"k": [1]}})", error));
     CHECK_FALSE(parseDomainDef(R"({"id": ")" + idA + R"(", "label": "A", "description": "x", "tags": []})", error));

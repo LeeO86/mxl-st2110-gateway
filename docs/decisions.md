@@ -204,6 +204,11 @@ Answers to the questions raised while reviewing Draft 1.0 / 1.1. They are folded
 - Decision: `nic.tx_pacing` = `auto` (default, unchanged) | `rl` | `tsc`, passed as `mtl_init_params.pacing`; the kernel backend keeps `auto`.
 - Consequence: such hosts run with `tsc` (software pacing, no NIC rate limiter); the cause in the ice PMD stays open. Only the host whose E810 came up in single VLAN mode failed; the other one (double VLAN mode, same NVM and DDP) passed the rate-limiter test with `auto`.
 
+### 2026-10-06 — domain_def.json: only the id is required
+- Context: on the platform the gateway skipped every domain written by mxl-test-player 1.0.3, mxl-color-corrector 1.0.4 and mxl-fabrics-agent 1.0.2 (`mxl_domain_skipped`, "missing required field 'description'"), so egress stayed in `waiting_for_flow`. Their `domain_def.json` has `id` and `label` but no `description` or `tags`, which BCP-007-03's schema requires. The other media functions read such files.
+- Decision: reading needs only `id`; `label` and `description` default to `""`, `tags` to `{}`. A field that is present must still have the schema's type. The gateway's own `domain_def.json` keeps all four fields.
+- Consequence: discovery finds domains of every writer, also files that already sit on a host's tmpfs (they are never rewritten). The writers are fixed separately.
+
 ## Dependencies
 
 | Dependency | Why | License |

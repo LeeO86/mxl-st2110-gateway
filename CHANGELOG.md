@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-06
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.3` image.
+
+### Fixed
+
+- Domain discovery accepts a `domain_def.json` with only an `id`. `label`, `description` and `tags` (required by BCP-007-03) are optional when reading: absent they are `""` and `{}`, present they must have the schema's type. mxl-test-player 1.0.3, mxl-color-corrector 1.0.4 and mxl-fabrics-agent 1.0.2 mirrors write no `description` or `tags`; the gateway skipped those domains (`mxl_domain_skipped`, "missing required field 'description'") and their egress stayed in `waiting_for_flow` with `domain_not_found`. A configured domain whose existing file lacks these fields is adopted instead of failing with `mxl_domain_def_invalid`.
+
 ## [1.0.2] - 2026-10-06
 
 Checked on the MXL PoC platform's hosts (Dell Precision 3930, E810-XXV on vfio-pci, NVM 5.01, DDP 1.3.59.0): with `nic.tx_pacing = tsc` the host whose E810 failed the rate-limiter test starts without `Failed to add lan txq` or a stack dump and is ready; the other host is ready with `auto`. Both run `ptp.mode = external`.
