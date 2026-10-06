@@ -11,7 +11,7 @@
 namespace mxlgw::mxlbridge
 {
     /// BCP-007-03 domain definition (`domain_def.json`), schema mxl_domain_definition.json:
-    /// required id, label, description, tags; unknown fields are ignored (§8.1).
+    /// only id is required (label and description default to "", tags to {}); unknown fields are ignored (§8.1).
     struct DomainDef
     {
         util::Uuid id;

@@ -22,13 +22,12 @@ namespace mxlgw::mxlbridge
             error = "not a JSON object";
             return std::nullopt;
         }
-        for (auto const* key : {"id", "label", "description", "tags"})
+        // BCP-007-03 requires label, description and tags too, but several MXL writers leave them
+        // out; the gateway needs only the id (docs/decisions.md, 2026-10-06).
+        if (!j.contains("id"))
         {
-            if (!j.contains(key))
-            {
-                error = std::string("missing required field '") + key + "'";
-                return std::nullopt;
-            }
+            error = "missing required field 'id'";
+            return std::nullopt;
         }
         if (!j["id"].is_string())
         {
@@ -41,17 +40,18 @@ namespace mxlgw::mxlbridge
             error = "id is not a UUID";
             return std::nullopt;
         }
-        if (!j["label"].is_string() || !j["description"].is_string())
+        if ((j.contains("label") && !j["label"].is_string()) || (j.contains("description") && !j["description"].is_string()))
         {
             error = "label and description must be strings";
             return std::nullopt;
         }
-        if (!j["tags"].is_object())
+        auto const tags = j.value("tags", nlohmann::json::object());
+        if (!tags.is_object())
         {
             error = "tags must be an object";
             return std::nullopt;
         }
-        for (auto const& [key, value] : j["tags"].items())
+        for (auto const& [key, value] : tags.items())
         {
             if (!value.is_array())
             {
@@ -69,9 +69,9 @@ namespace mxlgw::mxlbridge
         }
         DomainDef def;
         def.id = *id;
-        def.label = j["label"].get<std::string>();
-        def.description = j["description"].get<std::string>();
-        def.tags = j["tags"];
+        def.label = j.value("label", "");
+        def.description = j.value("description", "");
+        def.tags = tags;
         if (j.contains("x-mxl-fabrics-agent") && j["x-mxl-fabrics-agent"].is_object())
         {
             auto const& m = j["x-mxl-fabrics-agent"];
