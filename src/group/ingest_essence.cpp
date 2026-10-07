@@ -24,6 +24,12 @@ namespace mxlgw::group
         constexpr std::int64_t noSignalAfterNs = 1'000'000'000;
         constexpr std::uint64_t noIndex = ~std::uint64_t{0};
 
+        // The payload type the sender's SDP announced; the essence's configured one without an SDP.
+        int payloadTypeFor(RtpTarget const& target, int configured)
+        {
+            return target.payloadType > 0 ? target.payloadType : configured;
+        }
+
         std::int64_t steadyNs()
         {
             return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -155,6 +161,8 @@ namespace mxlgw::group
         Quiesce const quiesce(*this, lock);
         bool const wasActive = _receiver.masterEnable;
         bool const legsChanged = !(_receiver.legs == target.legs);
+        int const configured = commonOf(_spec.group, _spec.type, _spec.index).payloadType;
+        bool const payloadTypeChanged = payloadTypeFor(_receiver, configured) != payloadTypeFor(target, configured);
         _receiver = target;
         if (!target.masterEnable)
         {
@@ -171,7 +179,15 @@ namespace mxlgw::group
             return;
         }
         bool const haveSession = _videoRx || _audioRx || _ancRx;
-        if (haveSession && legsChanged)
+        if (haveSession && payloadTypeChanged)
+        {
+            // MTL fixes a session's payload type when it creates it: a new one needs a new session.
+            _videoRx.reset();
+            _audioRx.reset();
+            _ancRx.reset();
+            finishRetiredLocked(true);
+        }
+        else if (haveSession && legsChanged)
         {
             bool ok = false;
             if (_videoRx)
@@ -207,7 +223,7 @@ namespace mxlgw::group
                 case config::EssenceType::Video:
                 {
                     auto const& e = _spec.group.video.at(_spec.index);
-                    media::VideoRxParams p{_label, e.format, e.payloadType, target.legs};
+                    media::VideoRxParams p{_label, e.format, payloadTypeFor(target, e.payloadType), target.legs};
                     _expectedTag = _nextTag.load();
                     _videoRx = _backend.createVideoRx(p, *this);
                     break;
@@ -215,19 +231,21 @@ namespace mxlgw::group
                 case config::EssenceType::Audio:
                 {
                     auto const& e = _spec.group.audio.at(_spec.index);
-                    _audioRx = _backend.createAudioRx({_label, e.format, e.payloadType, target.legs});
+                    _audioRx = _backend.createAudioRx({_label, e.format, payloadTypeFor(target, e.payloadType), target.legs});
                     break;
                 }
                 case config::EssenceType::Anc:
                 {
                     auto const& e = _spec.group.anc.at(_spec.index);
-                    _ancRx = _backend.createAncRx({_label, e.format, e.payloadType, target.legs});
+                    _ancRx = _backend.createAncRx({_label, e.format, payloadTypeFor(target, e.payloadType), target.legs});
                     break;
                 }
             }
             _lastFrameSteadyNs = steadyNs();
             _framesSeen = false;
-            log::info("ingest_receiver_started", {{"group", _spec.group.label}, {"essence", _label}});
+            log::info("ingest_receiver_started", {{"group", _spec.group.label},
+                                                  {"essence", _label},
+                                                  {"payload_type", payloadTypeFor(target, commonOf(_spec.group, _spec.type, _spec.index).payloadType)}});
         }
         catch (std::exception const& ex)
         {

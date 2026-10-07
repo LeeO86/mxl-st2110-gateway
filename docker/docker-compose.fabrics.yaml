@@ -13,7 +13,7 @@
 #   host A: cp ../config/examples/gateway.fabrics-host-a.json config/gateway.json
 #   host B: cp ../config/examples/gateway.fabrics-host-b.json config/gateway.json
 x-gateway: &gateway
-  image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.6}
+  image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.7}
   restart: unless-stopped
   init: true
   network_mode: host

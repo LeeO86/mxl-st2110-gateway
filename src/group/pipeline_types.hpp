@@ -19,7 +19,11 @@ namespace mxlgw::group
         bool masterEnable = false;
         std::vector<media::LegAddress> legs; // leg.enabled = rtp_enabled
         std::string inactiveReason;          // essence state reason while disabled, else "receiver_inactive"
-        bool operator==(RtpTarget const& o) const { return masterEnable == o.masterEnable && legs == o.legs && inactiveReason == o.inactiveReason; }
+        int payloadType = 0;                 // RTP Receiver: a=rtpmap of the active SDP (0 = the essence's payload_type)
+        bool operator==(RtpTarget const& o) const
+        {
+            return masterEnable == o.masterEnable && legs == o.legs && inactiveReason == o.inactiveReason && payloadType == o.payloadType;
+        }
     };
 
     /// IS-05 /active of an MXL Sender (ingest).

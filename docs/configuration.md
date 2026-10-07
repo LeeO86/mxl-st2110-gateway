@@ -137,7 +137,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].video` | array of objects | `[]` |  | Video essences (ST 2110-20 ⇄ video/v210). |
 | `groups[].video[].uid` | UUID |  |  | Stable essence id; generated if missing. NMOS ids derive from it (§7.3). |
 | `groups[].video[].label` | string (≤ 128 chars) |  |  | Essence label (NMOS Source, Flow, Sender, Receiver). |
-| `groups[].video[].payload_type` | integer (≥ 96, ≤ 127) | `96` |  | RTP payload type. |
+| `groups[].video[].payload_type` | integer (≥ 96, ≤ 127) | `96` |  | RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP. |
 | `groups[].video[].read_offset_grains` | integer or null (≥ 0, ≤ 1000) | `null` |  | Egress only: read this many grains behind the writer (§5.7); null = mxl.default_read_offset_*. |
 | `groups[].video[].read_offset_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress only: read offset in ns; exclusive with read_offset_grains. |
 | `groups[].video[].defaults.legs` | array of objects | `[]` |  | One leg, or two (p, r) with group redundancy. |
@@ -155,7 +155,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].audio` | array of objects | `[]` |  | Audio essences (ST 2110-30 ⇄ audio/float32). |
 | `groups[].audio[].uid` | UUID |  |  | Stable essence id; generated if missing. NMOS ids derive from it (§7.3). |
 | `groups[].audio[].label` | string (≤ 128 chars) |  |  | Essence label (NMOS Source, Flow, Sender, Receiver). |
-| `groups[].audio[].payload_type` | integer (≥ 96, ≤ 127) | `97` |  | RTP payload type. |
+| `groups[].audio[].payload_type` | integer (≥ 96, ≤ 127) | `97` |  | RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP. |
 | `groups[].audio[].read_offset_grains` | integer or null (≥ 0, ≤ 1000) | `null` |  | Egress only: read this many grains behind the writer (§5.7); null = mxl.default_read_offset_*. |
 | `groups[].audio[].read_offset_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress only: read offset in ns; exclusive with read_offset_grains. |
 | `groups[].audio[].defaults.legs` | array of objects | `[]` |  | One leg, or two (p, r) with group redundancy. |
@@ -170,7 +170,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].anc` | array of objects | `[]` |  | Ancillary data essences (ST 2110-40 ⇄ video/smpte291). |
 | `groups[].anc[].uid` | UUID |  |  | Stable essence id; generated if missing. NMOS ids derive from it (§7.3). |
 | `groups[].anc[].label` | string (≤ 128 chars) |  |  | Essence label (NMOS Source, Flow, Sender, Receiver). |
-| `groups[].anc[].payload_type` | integer (≥ 96, ≤ 127) | `100` |  | RTP payload type. |
+| `groups[].anc[].payload_type` | integer (≥ 96, ≤ 127) | `100` |  | RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP. |
 | `groups[].anc[].read_offset_grains` | integer or null (≥ 0, ≤ 1000) | `null` |  | Egress only: read this many grains behind the writer (§5.7); null = mxl.default_read_offset_*. |
 | `groups[].anc[].read_offset_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress only: read offset in ns; exclusive with read_offset_grains. |
 | `groups[].anc[].defaults.legs` | array of objects | `[]` |  | One leg, or two (p, r) with group redundancy. |

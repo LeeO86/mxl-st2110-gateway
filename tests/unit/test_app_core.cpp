@@ -139,6 +139,18 @@ TEST_CASE("IS-05 /active maps to pipeline targets")
     CHECK(rx.legs[0].port == 20000);
     CHECK(rx.legs[1].destination == "10.2.1.21"); // unicast reception on the interface
     CHECK_FALSE(rx.legs[1].enabled);
+    CHECK(rx.payloadType == 0); // no SDP: the essence's payload_type
+
+    // The receiver takes the payload type from the active SDP (platform: VideoIPath audio with 98 on an
+    // essence configured with 97 got 0 packets, MTL drops other payload types).
+    auto rxSdp = json::parse(R"({"master_enable": true, "transport_params": [{"multicast_ip": "239.205.128.127", "destination_port": 50312}]})");
+    std::string const sdp = "v=0\r\no=- 1 1 IN IP4 10.120.14.26\r\ns=x\r\nt=0 0\r\nm=audio 50312 RTP/AVP 98\r\n"
+                            "c=IN IP4 239.205.128.127/127\r\na=rtpmap:98 L24/48000/2\r\na=ptime:1\r\n";
+    rxSdp["transport_file"] = {{"type", "application/sdp"}, {"data", sdp}};
+    CHECK(app::rtpReceiverTarget(rxSdp).payloadType == 98);
+    CHECK(app::sdpPayloadType("m=video 5004 RTP/AVP 96\r\na=rtpmap:96 raw/90000\r\n") == 96);
+    CHECK(app::sdpPayloadType("m=video 5004 RTP/AVP 96\r\n") == 0);
+    CHECK(app::sdpPayloadType("a=rtpmap:300 x/1\r\n") == 0);
 
     auto const tx = app::rtpSenderTarget(json::parse(R"({"master_enable": false, "transport_params": [{"destination_ip": "239.10.0.1"}]})"));
     CHECK_FALSE(tx.masterEnable);

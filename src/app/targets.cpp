@@ -38,10 +38,31 @@ namespace mxlgw::app
         }
     }
 
+    int sdpPayloadType(std::string const& sdp)
+    {
+        auto const at = sdp.find("a=rtpmap:");
+        if (at == std::string::npos)
+        {
+            return 0;
+        }
+        int value = 0;
+        for (auto i = at + 9; i < sdp.size() && sdp[i] >= '0' && sdp[i] <= '9' && value < 1000; ++i)
+        {
+            value = value * 10 + (sdp[i] - '0');
+        }
+        return value <= 127 ? value : 0;
+    }
+
     group::RtpTarget rtpReceiverTarget(nlohmann::json const& active)
     {
         group::RtpTarget t;
         t.masterEnable = boolean(active, "master_enable", false);
+        // MTL drops every packet whose payload type differs from the session's: receive what the
+        // sender's SDP says, not the essence's configured payload_type (that one is for senders).
+        if (active.contains("transport_file") && active["transport_file"].is_object())
+        {
+            t.payloadType = sdpPayloadType(text(active["transport_file"], "data"));
+        }
         for (auto const& leg : legsOf(active))
         {
             media::LegAddress a;
