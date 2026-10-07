@@ -161,6 +161,8 @@ namespace mxlgw::group
         Quiesce const quiesce(*this, lock);
         bool const wasActive = _receiver.masterEnable;
         bool const legsChanged = !(_receiver.legs == target.legs);
+        int const configured = commonOf(_spec.group, _spec.type, _spec.index).payloadType;
+        bool const payloadTypeChanged = payloadTypeFor(_receiver, configured) != payloadTypeFor(target, configured);
         _receiver = target;
         if (!target.masterEnable)
         {
@@ -177,7 +179,15 @@ namespace mxlgw::group
             return;
         }
         bool const haveSession = _videoRx || _audioRx || _ancRx;
-        if (haveSession && legsChanged)
+        if (haveSession && payloadTypeChanged)
+        {
+            // MTL fixes a session's payload type when it creates it: a new one needs a new session.
+            _videoRx.reset();
+            _audioRx.reset();
+            _ancRx.reset();
+            finishRetiredLocked(true);
+        }
+        else if (haveSession && legsChanged)
         {
             bool ok = false;
             if (_videoRx)
