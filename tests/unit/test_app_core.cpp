@@ -144,20 +144,13 @@ TEST_CASE("IS-05 /active maps to pipeline targets")
     // The receiver takes the payload type from the active SDP (platform: VideoIPath audio with 98 on an
     // essence configured with 97 got 0 packets, MTL drops other payload types).
     auto rxSdp = json::parse(R"({"master_enable": true, "transport_params": [{"multicast_ip": "239.205.128.127", "destination_port": 50312}]})");
-    rxSdp["transport_file"] = {
-        {"type", "application/sdp"}, {"data",
-                                      "v=0
-                                      o = -1 1 IN IP4 10.120.14.26 s = x t = 0 0 m = audio 50312 RTP / AVP 98 "
-                                                                                                              "c=IN IP4 239.205.128.127/127
-                                                                                     a = rtpmap : 98 L24 / 48000 / 2 a = ptime : 1 "}};
-                                      CHECK(app::rtpReceiverTarget(rxSdp).payloadType == 98);
-    CHECK(app::sdpPayloadType("m=video 5004 RTP/AVP 96
-a=rtpmap:96 raw/90000
-") == 96);
-    CHECK(app::sdpPayloadType("m=video 5004 RTP/AVP 96
-") == 0);
-    CHECK(app::sdpPayloadType("a=rtpmap:300 x/1
-") == 0);
+    std::string const sdp = "v=0\r\no=- 1 1 IN IP4 10.120.14.26\r\ns=x\r\nt=0 0\r\nm=audio 50312 RTP/AVP 98\r\n"
+                            "c=IN IP4 239.205.128.127/127\r\na=rtpmap:98 L24/48000/2\r\na=ptime:1\r\n";
+    rxSdp["transport_file"] = {{"type", "application/sdp"}, {"data", sdp}};
+    CHECK(app::rtpReceiverTarget(rxSdp).payloadType == 98);
+    CHECK(app::sdpPayloadType("m=video 5004 RTP/AVP 96\r\na=rtpmap:96 raw/90000\r\n") == 96);
+    CHECK(app::sdpPayloadType("m=video 5004 RTP/AVP 96\r\n") == 0);
+    CHECK(app::sdpPayloadType("a=rtpmap:300 x/1\r\n") == 0);
 
     auto const tx = app::rtpSenderTarget(json::parse(R"({"master_enable": false, "transport_params": [{"destination_ip": "239.10.0.1"}]})"));
     CHECK_FALSE(tx.masterEnable);
