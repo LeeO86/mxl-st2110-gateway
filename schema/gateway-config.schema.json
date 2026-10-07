@@ -725,7 +725,7 @@
         },
         "payload_type": {
           "$ref": "#/$defs/payloadType",
-          "description": "RTP payload type."
+          "description": "RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP."
         },
         "read_offset_grains": {
           "$ref": "#/$defs/readOffsetGrains",
@@ -754,7 +754,7 @@
         "uid": true,
         "label": true,
         "payload_type": {
-          "description": "RTP payload type.",
+          "description": "RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP.",
           "default": 96
         },
         "read_offset_grains": true,
@@ -840,7 +840,7 @@
         "uid": true,
         "label": true,
         "payload_type": {
-          "description": "RTP payload type.",
+          "description": "RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP.",
           "default": 97
         },
         "read_offset_grains": true,
@@ -895,7 +895,7 @@
         "uid": true,
         "label": true,
         "payload_type": {
-          "description": "RTP payload type.",
+          "description": "RTP payload type of a sender. A receiver uses the payload type of the staged SDP (a=rtpmap) and this one only without an SDP.",
           "default": 100
         },
         "read_offset_grains": true,

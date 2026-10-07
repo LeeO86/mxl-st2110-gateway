@@ -13,6 +13,8 @@ namespace mxlgw::app
     /// IS-05 /active of an rtp.mcast Receiver -> ingest RX legs (§7.5). interface_ip is ignored (DPDK
     /// port IP); a disabled leg keeps rtp_enabled=false.
     group::RtpTarget rtpReceiverTarget(nlohmann::json const& active);
+    /// Payload type of the first a=rtpmap line of an SDP, 0 without one.
+    int sdpPayloadType(std::string const& sdp);
     /// IS-05 /active of an rtp.mcast Sender -> egress TX legs.
     group::RtpTarget rtpSenderTarget(nlohmann::json const& active);
     group::MxlSenderTarget mxlSenderTarget(nlohmann::json const& active);

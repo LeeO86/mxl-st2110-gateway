@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-07
+
+### Fixed
+
+- An RTP Receiver receives the payload type of its staged SDP (`a=rtpmap`). It listened for the essence's configured `payload_type`, and MTL drops packets with another payload type, so an SDP with another one received nothing: on the platform every routed VideoIPath audio stream (payload type 98, essences configured with 97) stayed `no_signal` / `no_packets` with 0 packets on both legs while the video of the same senders ran. The configured `payload_type` still applies to senders and to an activation without an SDP. A new payload type in an activation restarts the receiver; `ingest_receiver_started` logs the payload type in use.
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.7` image.
+
 ## [1.0.6] - 2026-10-06
 
 ### Fixed
