@@ -1,0 +1,57 @@
+diff --git a/lib/src/dev/mt_dev.c b/lib/src/dev/mt_dev.c
+index 475ac20..a044035 100644
+--- a/lib/src/dev/mt_dev.c
++++ b/lib/src/dev/mt_dev.c
+@@ -317,6 +317,38 @@ static void dev_build_pci_devarg(const struct mtl_init_params* p, enum mtl_port
+     snprintf(out, len, "%s", p->port[port]);
+ }
+ 
++#if RTE_VERSION >= RTE_VERSION_NUM(25, 11, 0, 0)
++/* --remap-lcore-ids numbers the CPUs of the -l list from 0 in ascending CPU order, and
++ * --main-lcore takes that number, not the CPU: the main lcore's number is the count of the
++ * other CPUs in the list below it. Without this a main_lcore other than CPU 0 failed with
++ * "Main lcore is not enabled for DPDK" (CPU 0 is not usable in a Kubernetes pod with
++ * exclusive CPUs). */
++static unsigned int dev_remapped_main_lcore(unsigned int main_cpu, const char* lcores) {
++  bool listed[CPU_SETSIZE] = {false};
++  const char* s = lcores;
++
++  while (s && *s) {
++    char* end = NULL;
++    unsigned long first = strtoul(s, &end, 10);
++    unsigned long last = first;
++    if (end == s) break;
++    if (*end == '-') {
++      s = end + 1;
++      last = strtoul(s, &end, 10);
++      if (end == s) break;
++    }
++    for (unsigned long cpu = first; cpu <= last && cpu < CPU_SETSIZE; cpu++) listed[cpu] = true;
++    s = (*end == ',') ? end + 1 : NULL;
++  }
++
++  unsigned int below = 0;
++  for (unsigned int cpu = 0; cpu < main_cpu && cpu < CPU_SETSIZE; cpu++) {
++    if (listed[cpu]) below++;
++  }
++  return below;
++}
++#endif
++
+ static int dev_eal_init(struct mtl_init_params* p, struct mt_kport_info* kport_info) {
+   char* argv[MT_EAL_MAX_ARGS];
+   int argc, ret;
+@@ -421,7 +453,13 @@ static int dev_eal_init(struct mtl_init_params* p, struct mt_kport_info* kport_i
+     argc++;
+ 
+     info("%s, main_lcore: %u\n", __func__, p->main_lcore);
++#if RTE_VERSION >= RTE_VERSION_NUM(25, 11, 0, 0)
++    snprintf(main_lcore, sizeof(main_lcore), "%u",
++             p->lcores ? dev_remapped_main_lcore(p->main_lcore, p->lcores)
++                       : p->main_lcore);
++#else
+     snprintf(main_lcore, sizeof(main_lcore), "%u", p->main_lcore);
++#endif
+     argv[argc] = main_lcore;
+     argc++;
+   }
