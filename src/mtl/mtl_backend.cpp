@@ -417,6 +417,12 @@ namespace mxlgw::media
                     // the process may use (config::mainLcoreFor).
                     p.main_lcore = static_cast<std::uint32_t>(cfg.nic.mainLcore);
                 }
+                // MTL puts a new session on a scheduler lcore while its data quota allows it; the default fits all
+                // sessions of a gateway on one lcore. A smaller quota spreads them over the lcores.
+                if (cfg.nic.schQuotaMbs > 0)
+                {
+                    p.data_quota_mbs_per_sch = static_cast<std::uint32_t>(cfg.nic.schQuotaMbs);
+                }
                 // auto tries the NIC rate limiter first. On E810 that restarts the port, and when the restart fails
                 // (ice "Failed to add lan txq") MTL's fallback to TSC did not always recover; tsc never tries it.
                 // The kernel backend has no rate limiter (rl would fail): it keeps auto, which is TSC there.
@@ -465,7 +471,8 @@ namespace mxlgw::media
                                        {"ptp", builtinPtp ? config::toName(cfg.ptp.mode) : "external"},
                                        {"tx_pacing", config::toName(cfg.nic.txPacing)},
                                        {"lcores", cfg.nic.lcores},
-                                       {"main_lcore", std::to_string(cfg.nic.mainLcore)}});
+                                       {"main_lcore", std::to_string(cfg.nic.mainLcore)},
+                                       {"sch_quota_mbs", std::to_string(cfg.nic.schQuotaMbs)}});
                 _ctx.mt = mtl_init(&p);
                 if (_ctx.mt == nullptr)
                 {

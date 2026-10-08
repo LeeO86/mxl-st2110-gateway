@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-10-08
+
+### Added
+
+- `nic.sch_quota_mbs` (`MXLGW_NIC_SCH_QUOTA_MBS`): the data quota of one MTL scheduler lcore in Mbit/s (MTL `data_quota_mbs_per_sch`). With MTL's default (about 12 TX or 8 RX 1080p sessions per lcore) all sessions of a gateway share one scheduler lcore and the other lcores stay idle; on the platform a gateway with 2 TX + 2 RX 1080p50 groups lost RX packets (`rx_missed`, 25 % incomplete frames) and sent late video frames on that one lcore. A 1080p50 session counts about 2700 (TX) or 4000 (RX); 5000 gives each video session its own lcore. 0 (default) keeps MTL's default. `mtl_init` logs `sch_quota_mbs`.
+
 ## [1.0.10] - 2026-10-08
 
 ### Fixed
