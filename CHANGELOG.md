@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-10-08
+
+### Fixed
+
+- No more segmentation fault (exit 139) when a sender starts while the NIC rate limiter paces TX (`nic.tx_pacing` `auto` or `rl` on an E810 PF). MTL sets the rate limiter for every new TX queue rate, and the ice PMD applies it by stopping and restarting the port. MTL's schedulers kept polling the port meanwhile and read DPDK's fast-path data while it was being rewritten (log before the crash: `ETHDEV: lcore N called rx_pkt_burst for not ready port P`). At start the saved IS-05 activations create the senders right away; more schedulers (`nic.sch_quota_mbs`) made the crash more likely, one scheduler made it rarer. MTL patch `0007-sch-pause-tm-commit.patch` marks the port for the restart: every scheduler finishes its current loop (bursts in flight end), then skips that port until the restart is done. Traffic on the restarting port stops for the restart, as before; the other port of a 2022-7 pair keeps running. `nic.tx_pacing = tsc` never restarts the port.
+
 ## [1.0.12] - 2026-10-08
 
 ### Fixed

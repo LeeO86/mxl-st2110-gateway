@@ -55,7 +55,7 @@ docker compose up -d
 ```yaml
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.12}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.13}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
@@ -409,6 +409,7 @@ Other frequent issues:
 - **Essence `waiting_for_flow`** (egress): the MXL flow or domain does not exist (yet). It starts automatically once it appears; check the flow id, `mxl.scan_path` and, for remote flows, the agent. **`no_signal`**: the flow exists but no grains arrive in time.
 - **Ingest essence `no_signal` / `no_packets` while the source sends**: before 1.0.7 the RTP receiver listened for the essence's configured `payload_type`, not the SDP's (MTL drops other payload types; VideoIPath audio often uses 98). 1.0.7 takes it from the staged SDP; `ingest_receiver_started` logs the payload type in use.
 - **RX `rx_missed` / incomplete frames and TX `late_frames` while only one `mtl_sched` thread is busy** (the other lcores idle): MTL's default quota puts up to ~12 TX / 8 RX 1080p sessions on one scheduler lcore. Set `nic.sch_quota_mbs` (`MXLGW_NIC_SCH_QUOTA_MBS`), e.g. 5000 for one 1080p50 video session per lcore (1.0.11).
+- **Segmentation fault (exit 139, CrashLoopBackOff) at start or when a sender starts, after `ETHDEV: lcore N called rx_pkt_burst for not ready port P`** (E810 PF, `nic.tx_pacing` `auto` or `rl`): before 1.0.13 the ice PMD restarted the port to set the TX rate limiter while MTL's schedulers kept polling it. Fixed in 1.0.13; on older versions `nic.tx_pacing = tsc` avoids the restart.
 - **CrashLoopBackOff with `EAL: Cannot set affinity` and `media_backend_failed`** in a Guaranteed pod (exclusive CPUs, CPU 0 reserved): before 1.0.10 DPDK's main lcore was CPU 0, outside the pod's CPUs (1.0.9 moved it but MTL still passed the CPU number). 1.0.10 puts it on the first app CPU; `mtl_init` logs `main_lcore`.
 - **TX audio below 1000 packets/s (ptime 1 ms), gaps at the receiver, `late_frames` growing**: before 1.0.8 the audio blocks of a TX group were handed to MTL once per grain period behind the video, and with a read offset close to the output delay MTL dropped the first blocks of every period as late. 1.0.8 hands each block over when its data is due; `mxl_st2110_gateway_egress_lead_ns` shows the remaining lead (about output delay − read offset − 1 ms for an on-time source).
 - **Essence `error` / `format_mismatch`**: the flow or SDP format differs from the essence configuration (size, rate, scan, channels, packet time).

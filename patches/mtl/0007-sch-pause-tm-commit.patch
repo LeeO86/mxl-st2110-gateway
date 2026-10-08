@@ -1,0 +1,254 @@
+diff --git a/lib/src/datapath/mt_shared_queue.c b/lib/src/datapath/mt_shared_queue.c
+index b252a75..e210877 100644
+--- a/lib/src/datapath/mt_shared_queue.c
++++ b/lib/src/datapath/mt_shared_queue.c
+@@ -299,6 +299,8 @@ static int rsq_rx(struct mt_rsq_queue* rsq_queue) {
+ 
+   if (rsq_queue->xdp)
+     rx = mt_rx_xdp_burst(rsq_queue->xdp, pkts, MT_SQ_BURST_SIZE);
++  else if (mt_dev_port_restarting(rsq_queue->port_id))
++    rx = 0;
+   else
+     rx = rte_eth_rx_burst(rsq_queue->port_id, q, pkts, MT_SQ_BURST_SIZE);
+   if (rx) dbg("%s(%u), rx pkts %u\n", __func__, q, rx);
+@@ -627,7 +629,8 @@ int mt_tsq_done_cleanup(struct mt_tsq_entry* entry) {
+   struct mt_tsq_queue* tsq_queue = &tsqm->tsq_queues[entry->queue_id];
+ 
+   tsq_lock(tsq_queue);
+-  rte_eth_tx_done_cleanup(tsq_queue->port_id, tsq_queue->queue_id, 0);
++  if (!mt_dev_port_restarting(tsq_queue->port_id))
++    rte_eth_tx_done_cleanup(tsq_queue->port_id, tsq_queue->queue_id, 0);
+   tsq_unlock(tsq_queue);
+ 
+   return 0;
+@@ -642,6 +645,8 @@ uint16_t mt_tsq_burst(struct mt_tsq_entry* entry, struct rte_mbuf** tx_pkts,
+   rte_spinlock_lock(&tsq_queue->tx_mutex);
+   if (tsq_queue->xdp)
+     tx = mt_tx_xdp_burst(tsq_queue->xdp, tx_pkts, nb_pkts);
++  else if (mt_dev_port_restarting(tsq_queue->port_id))
++    tx = 0;
+   else
+     tx = rte_eth_tx_burst(tsq_queue->port_id, tsq_queue->queue_id, tx_pkts, nb_pkts);
+   tsq_queue->stat_pkts_send += tx;
+diff --git a/lib/src/datapath/mt_shared_rss.c b/lib/src/datapath/mt_shared_rss.c
+index eda98ad..90db27a 100644
+--- a/lib/src/datapath/mt_shared_rss.c
++++ b/lib/src/datapath/mt_shared_rss.c
+@@ -84,6 +84,8 @@ static int srss_sch_tasklet_handler(void* priv) {
+     uint16_t rx;
+     if (srss->xdps) {
+       rx = mt_rx_xdp_burst(srss->xdps[queue], pkts, MT_SRSS_BURST_SIZE);
++    } else if (mt_dev_port_restarting(mt_port_id(impl, srss->port))) {
++      rx = 0;
+     } else {
+       rx =
+           rte_eth_rx_burst(mt_port_id(impl, srss->port), queue, pkts, MT_SRSS_BURST_SIZE);
+diff --git a/lib/src/dev/mt_dev.c b/lib/src/dev/mt_dev.c
+index a044035..2d92ff4 100644
+--- a/lib/src/dev/mt_dev.c
++++ b/lib/src/dev/mt_dev.c
+@@ -737,6 +737,8 @@ static int dev_init_ratelimit_all(struct mt_interface* inf) {
+   return ret;
+ }
+ 
++uint8_t mt_dev_port_restarting_flags[RTE_MAX_ETHPORTS];
++
+ static int dev_tx_queue_set_rl_rate(struct mt_interface* inf, uint16_t queue,
+                                     uint64_t bytes_per_sec) {
+   uint16_t port_id = inf->port_id;
+@@ -795,9 +797,16 @@ static int dev_tx_queue_set_rl_rate(struct mt_interface* inf, uint16_t queue,
+          shaper->shaper_profile_id, shaper->rl_bps);
+   }
+   rte_atomic32_set(&inf->resetting, true);
++  /* The ice PMD commits on a started port with rte_eth_dev_stop/rte_eth_dev_start: the
++   * port's fast-path ops and queues change under any lcore polling it. Mark the port, let
++   * every scheduler pass its loop top once (bursts in flight end, later ones see the mark
++   * and skip this port), commit, unmark. The other port keeps running. */
++  mt_dev_port_set_restarting(port_id, true);
++  if (mt_sch_pause_all(inf->parent)) mt_sch_resume_all(inf->parent);
+   mt_pthread_mutex_lock(&inf->vf_cmd_mutex);
+   ret = rte_tm_hierarchy_commit(port_id, 1, &error);
+   mt_pthread_mutex_unlock(&inf->vf_cmd_mutex);
++  mt_dev_port_set_restarting(port_id, false);
+   rte_atomic32_set(&inf->resetting, false);
+   if (ret < 0) {
+     err("%s(%d), commit error (%d)%s\n", __func__, port, ret,
+@@ -1841,6 +1850,7 @@ int mt_dev_tx_done_cleanup(struct mtl_main_impl* impl, struct mt_tx_queue* queue
+   uint16_t queue_id = queue->queue_id;
+   MTL_MAY_UNUSED(impl);
+ 
++  if (mt_dev_port_restarting(port_id)) return 0;
+   return rte_eth_tx_done_cleanup(port_id, queue_id, 0);
+ }
+ 
+diff --git a/lib/src/dev/mt_dev.h b/lib/src/dev/mt_dev.h
+index ebd2645..23983e1 100644
+--- a/lib/src/dev/mt_dev.h
++++ b/lib/src/dev/mt_dev.h
+@@ -90,6 +90,7 @@ int mt_dpdk_flush_tx_queue(struct mtl_main_impl* impl, struct mt_tx_queue* queue
+ int mt_dev_tx_done_cleanup(struct mtl_main_impl* impl, struct mt_tx_queue* queue);
+ static inline uint16_t mt_dpdk_tx_burst(struct mt_tx_queue* queue,
+                                         struct rte_mbuf** tx_pkts, uint16_t nb_pkts) {
++  if (mt_dev_port_restarting(queue->port_id)) return 0;
+   return rte_eth_tx_burst(queue->port_id, queue->queue_id, tx_pkts, nb_pkts);
+ }
+ uint16_t mt_dpdk_tx_burst_busy(struct mtl_main_impl* impl, struct mt_tx_queue* queue,
+@@ -105,6 +106,7 @@ static inline uint16_t mt_dev_rx_queue_id(struct mt_rx_queue* queue) {
+ static inline uint16_t mt_dpdk_rx_burst(struct mt_rx_queue* queue,
+                                         struct rte_mbuf** rx_pkts,
+                                         const uint16_t nb_pkts) {
++  if (mt_dev_port_restarting(queue->port_id)) return 0;
+   return rte_eth_rx_burst(queue->port_id, queue->queue_id, rx_pkts, nb_pkts);
+ }
+ 
+diff --git a/lib/src/mt_main.h b/lib/src/mt_main.h
+index fb342aa..d0b22bf 100644
+--- a/lib/src/mt_main.h
++++ b/lib/src/mt_main.h
+@@ -572,6 +572,9 @@ struct mtl_sch_impl {
+   rte_atomic32_t started;
+   rte_atomic32_t request_stop;
+   rte_atomic32_t stopped;
++  /* mt_sch_pause_all: the sch waits outside its tasklets while request_pause is set */
++  rte_atomic32_t request_pause;
++  rte_atomic32_t paused;
+   rte_atomic32_t active; /* if this sch is active */
+   rte_atomic32_t ref_cnt;
+   enum mt_sch_type type;
+@@ -1798,6 +1801,19 @@ static inline int mt_socket_id(struct mtl_main_impl* impl, enum mtl_port port) {
+   return mt_if(impl, port)->socket_id;
+ }
+ 
++/* Set while the driver restarts the DPDK port (the ice PMD for a rate-limiter commit): its
++ * fast-path ops are rewritten, so no rx/tx burst may run on it meanwhile. */
++extern uint8_t mt_dev_port_restarting_flags[RTE_MAX_ETHPORTS];
++
++static inline bool mt_dev_port_restarting(uint16_t port_id) {
++  return __atomic_load_n(&mt_dev_port_restarting_flags[port_id], __ATOMIC_ACQUIRE) != 0;
++}
++
++static inline void mt_dev_port_set_restarting(uint16_t port_id, bool restarting) {
++  __atomic_store_n(&mt_dev_port_restarting_flags[port_id], restarting ? 1 : 0,
++                   __ATOMIC_SEQ_CST);
++}
++
+ static inline bool mt_started(struct mtl_main_impl* impl) {
+   if (rte_atomic32_read(&impl->instance_started))
+     return true;
+diff --git a/lib/src/mt_sch.c b/lib/src/mt_sch.c
+index 9d29919..428b22a 100644
+--- a/lib/src/mt_sch.c
++++ b/lib/src/mt_sch.c
+@@ -156,6 +156,21 @@ static void sch_restore_default_mempolicy(bool local) {
+ #endif
+ }
+ 
++/* Wait outside the tasklets while mt_sch_pause_all holds this sch; sch_stop still ends it. */
++static void sch_pause_wait(struct mtl_sch_impl* sch) {
++  rte_smp_mb(); /* the tasklets' accesses are done before paused is seen */
++  rte_atomic32_set(&sch->paused, 1);
++  while (rte_atomic32_read(&sch->request_pause) &&
++         !rte_atomic32_read(&sch->request_stop)) {
++    if (sch->run_in_thread)
++      mt_sleep_us(10);
++    else
++      rte_pause();
++  }
++  rte_smp_mb(); /* the port state of the resume is seen by the next tasklets */
++  rte_atomic32_set(&sch->paused, 0);
++}
++
+ static int sch_tasklet_func(struct mtl_sch_impl* sch) {
+   struct mtl_main_impl* impl = sch->parent;
+   int idx = sch->idx;
+@@ -192,6 +207,11 @@ static int sch_tasklet_func(struct mtl_sch_impl* sch) {
+ 
+     if (time_measure) tm_sch_tsc_s = mt_get_tsc(impl);
+ 
++    if (rte_atomic32_read(&sch->request_pause)) {
++      sch_pause_wait(sch);
++      continue;
++    }
++
+     num_tasklet = sch->max_tasklet_idx;
+     for (i = 0; i < num_tasklet; i++) {
+       tasklet = sch->tasklet[i];
+@@ -1228,6 +1248,60 @@ int mt_sch_start_all(struct mtl_main_impl* impl) {
+   return 0;
+ }
+ 
++/* The caller's own sch (a tasklet calling in) is not paused: it cannot wait for itself. */
++static bool sch_is_current_thread(struct mtl_sch_impl* sch) {
++  return pthread_equal(sch->tid, pthread_self()) != 0;
++}
++
++bool mt_sch_pause_all(struct mtl_main_impl* impl) {
++  struct mt_sch_mgr* mgr = mt_sch_get_mgr(impl);
++  struct mtl_sch_impl* sch;
++
++  /* no sch yet (mtl_init): nothing polls, and the mgr lock is not initialized */
++  if (!rte_atomic32_read(&mgr->sch_cnt)) return false;
++
++  /* held until mt_sch_resume_all: mt_sch_get_by_socket starts no new sch meanwhile */
++  sch_mgr_lock(mgr);
++  for (int i = 0; i < MT_MAX_SCH_NUM; i++) {
++    sch = mt_sch_instance(impl, i);
++    if (!mt_sch_started(sch) || sch_is_current_thread(sch)) continue;
++    rte_atomic32_set(&sch->request_pause, 1);
++    if (sch->allow_sleep) sch_sleep_wakeup(sch);
++  }
++  for (int i = 0; i < MT_MAX_SCH_NUM; i++) {
++    sch = mt_sch_instance(impl, i);
++    if (!rte_atomic32_read(&sch->request_pause)) continue;
++    uint64_t start = mt_get_monotonic_time();
++    while (!rte_atomic32_read(&sch->paused) && !rte_atomic32_read(&sch->stopped)) {
++      if ((mt_get_monotonic_time() - start) > NS_PER_S) {
++        err("%s(%d), sch did not pause within 1s\n", __func__, i);
++        break;
++      }
++      mt_sleep_us(1);
++    }
++  }
++  rte_smp_mb();
++  dbg("%s, succ\n", __func__);
++  return true;
++}
++
++void mt_sch_resume_all(struct mtl_main_impl* impl) {
++  struct mt_sch_mgr* mgr = mt_sch_get_mgr(impl);
++  struct mtl_sch_impl* sch;
++
++  rte_smp_mb(); /* the port changes are done before any sch resumes */
++  for (int i = 0; i < MT_MAX_SCH_NUM; i++) {
++    sch = mt_sch_instance(impl, i);
++    if (!rte_atomic32_read(&sch->request_pause)) continue;
++    rte_atomic32_set(&sch->request_pause, 0);
++    /* left its wait before a next pause request can see a stale paused flag */
++    while (rte_atomic32_read(&sch->paused) && !rte_atomic32_read(&sch->stopped))
++      rte_pause();
++  }
++  sch_mgr_unlock(mgr);
++  dbg("%s, succ\n", __func__);
++}
++
+ int mt_sch_stop_all(struct mtl_main_impl* impl) {
+   int ret;
+   struct mtl_sch_impl* sch;
+diff --git a/lib/src/mt_sch.h b/lib/src/mt_sch.h
+index b5b08e0..405fe41 100644
+--- a/lib/src/mt_sch.h
++++ b/lib/src/mt_sch.h
+@@ -68,6 +68,13 @@ int mt_sch_put(struct mtl_sch_impl* sch, int quota_mbs);
+ int mt_sch_start_all(struct mtl_main_impl* impl);
+ int mt_sch_stop_all(struct mtl_main_impl* impl);
+ 
++/* Hold every running sch outside its tasklets (no lcore in a burst on any port) until
++ * mt_sch_resume_all; both together let every sch pass its loop top once. Blocks new sch
++ * starts meanwhile. Returns false when there is no sch yet; mt_sch_resume_all only after
++ * true. */
++bool mt_sch_pause_all(struct mtl_main_impl* impl);
++void mt_sch_resume_all(struct mtl_main_impl* impl);
++
+ static inline void mt_sch_set_cpu_busy(struct mtl_sch_impl* sch, bool busy) {
+   sch->cpu_busy = busy;
+ }
