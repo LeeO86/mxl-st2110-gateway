@@ -1,0 +1,16 @@
+diff --git a/lib/src/mt_sch.c b/lib/src/mt_sch.c
+index 16964cb..9d29919 100644
+--- a/lib/src/mt_sch.c
++++ b/lib/src/mt_sch.c
+@@ -713,7 +713,10 @@ int mt_sch_get_lcore(struct mtl_main_impl* impl, unsigned int* lcore,
+   if (mt_user_not_bind_numa(impl)) skip_numa_check = true;
+ 
+ again:
+-  cur_lcore = 0;
++  /* rte_get_next_lcore() returns the lcore after the given one: start before lcore 0. With
++   * --remap-lcore-ids lcore 0 is the lowest listed CPU, a worker when the main lcore is not
++   * that CPU; starting at 0 left it unused (one scheduler less). The main lcore is skipped. */
++  cur_lcore = (unsigned int)-1;
+   if (mt_is_manager_connected(impl)) {
+     do {
+       cur_lcore = rte_get_next_lcore(cur_lcore, 1, 0);

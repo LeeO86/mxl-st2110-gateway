@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-10-08
+
+### Fixed
+
+- All MTL lcores carry schedulers again. Since 1.0.10 DPDK numbers the lcores from the lowest CPU and the main lcore is an app CPU, so lcore 0 is the first MTL lcore; MTL's scheduler search never handed out lcore 0, and with `nic.lcores` 1-3,9 only 3 schedulers existed (platform: with `nic.sch_quota_mbs` 5000 the fourth video session failed with `mt_sch_add_quota fail -12`). MTL patch `0006-sch-lcore-zero.patch`.
+
 ## [1.0.11] - 2026-10-08
 
 ### Added
