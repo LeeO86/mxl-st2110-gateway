@@ -459,6 +459,22 @@ TEST_CASE("node tags")
     CHECK(hasError(parse(j), "/node/tags/bad/0"));
 }
 
+TEST_CASE("DPDK main lcore inside the affinity")
+{
+    // Platform, Guaranteed pod: exclusive CPUs 1-3,9-11, CPU 0 reserved. MTL's default main lcore 0
+    // made EAL fail ("Cannot set affinity"); the first app CPU takes it.
+    CHECK(config::mainLcoreFor({1, 2, 3, 9}, {10, 11}, {1, 2, 3, 9, 10, 11}) == 10);
+    // CPU 0 allowed (Burstable pod, whole host) or affinity unknown: MTL's default as before.
+    CHECK(config::mainLcoreFor({1, 2, 3, 9}, {10, 11}, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}) == 0);
+    CHECK(config::mainLcoreFor({1, 2}, {}, {}) == 0);
+    // No app CPUs: the first allowed CPU that is no lcore.
+    CHECK(config::mainLcoreFor({24, 26}, {}, {24, 26, 28, 30}) == 28);
+    // An app CPU outside the affinity is skipped.
+    CHECK(config::mainLcoreFor({1, 2}, {12, 3}, {1, 2, 3}) == 3);
+    // Every allowed CPU is an lcore: the first lcore.
+    CHECK(config::mainLcoreFor({5, 6}, {}, {5, 6}) == 5);
+}
+
 TEST_CASE("CPU placement from the affinity (Kubernetes cpuset)")
 {
     config::Nic nic;

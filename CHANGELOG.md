@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-10-08
+
+### Fixed
+
+- The gateway starts in a Kubernetes Guaranteed pod with exclusive CPUs (static CPU manager). MTL always puts its DPDK main lcore first in EAL's core list, CPU 0 unless set, and EAL pins its init thread there; with CPU 0 reserved and not in the pod's CPUs, EAL failed with `Cannot set affinity` and the gateway exited (`media_backend_failed`, CrashLoopBackOff). The main lcore is now the first app CPU of the affinity (else the first allowed CPU that is no MTL lcore); with CPU 0 allowed (Burstable pod, bare host) nothing changes. `mtl_init` logs `main_lcore`.
+
 ## [1.0.8] - 2026-10-08
 
 ### Fixed
