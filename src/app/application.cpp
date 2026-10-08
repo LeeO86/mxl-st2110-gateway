@@ -336,6 +336,10 @@ namespace mxlgw::app
             }
             cfg.nic.lcores = placement.lcores;
             cfg.nic.appCpus = placement.appCpus;
+            if (lcoreSet)
+            {
+                cfg.nic.mainLcore = config::mainLcoreFor(*lcoreSet, appSet.value_or(std::set<int>{}), util::allowedCpus());
+            }
             try
             {
                 _backend = media::createBackend(cfg);

@@ -170,6 +170,8 @@ namespace mxlgw::config
         std::string appCpus;
         std::optional<int> hugepageSocket; // nullopt = auto
         std::vector<PortPair> portPairs;
+        // Set at start, not configured: the CPU of DPDK's main lcore (mainLcoreFor), 0 = MTL's default.
+        int mainLcore = 0;
     };
 
     struct Ptp
@@ -301,6 +303,13 @@ namespace mxlgw::config
         bool appCpusDerived = false;
     };
     CpuPlacement resolveCpuPlacement(Nic const& nic, std::set<int> const& allowedCpus);
+
+    /// The CPU for DPDK's main lcore. MTL always puts its main lcore first in the EAL core list,
+    /// CPU 0 unless set, and EAL pins its init thread there. Without CPU 0 in the affinity (a
+    /// Kubernetes Guaranteed pod, CPU 0 reserved) that fails ("EAL: Cannot set affinity"). Returns
+    /// 0 (MTL's default) when CPU 0 is allowed or the affinity is unknown, else the first app CPU,
+    /// else the first allowed CPU that is no lcore, else the first lcore.
+    int mainLcoreFor(std::set<int> const& lcores, std::set<int> const& appCpus, std::set<int> const& allowedCpus);
 
     /// Converts a schema-valid configuration JSON into the typed model, filling defaults.
     /// Throws std::invalid_argument for type errors (callers validate with the schema first).

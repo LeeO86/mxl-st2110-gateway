@@ -413,6 +413,9 @@ namespace mxlgw::media
                 {
                     _lcores = cfg.nic.lcores;
                     p.lcores = _lcores.data();
+                    // MTL puts the main lcore first in EAL's core list (CPU 0 unless set); it must be a CPU
+                    // the process may use (config::mainLcoreFor).
+                    p.main_lcore = static_cast<std::uint32_t>(cfg.nic.mainLcore);
                 }
                 // auto tries the NIC rate limiter first. On E810 that restarts the port, and when the restart fails
                 // (ice "Failed to add lan txq") MTL's fallback to TSC did not always recover; tsc never tries it.
@@ -461,7 +464,8 @@ namespace mxlgw::media
                                        {"ports", _ctx.portNames[0] + (_ctx.redundantPort ? "," + _ctx.portNames[1] : std::string())},
                                        {"ptp", builtinPtp ? config::toName(cfg.ptp.mode) : "external"},
                                        {"tx_pacing", config::toName(cfg.nic.txPacing)},
-                                       {"lcores", cfg.nic.lcores}});
+                                       {"lcores", cfg.nic.lcores},
+                                       {"main_lcore", std::to_string(cfg.nic.mainLcore)}});
                 _ctx.mt = mtl_init(&p);
                 if (_ctx.mt == nullptr)
                 {

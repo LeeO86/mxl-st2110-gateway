@@ -773,6 +773,31 @@ namespace mxlgw::config
         return p;
     }
 
+    int mainLcoreFor(std::set<int> const& lcores, std::set<int> const& appCpus, std::set<int> const& allowedCpus)
+    {
+        if (allowedCpus.empty() || allowedCpus.count(0) != 0)
+        {
+            return 0;
+        }
+        for (auto const cpu : appCpus)
+        {
+            if (allowedCpus.count(cpu) != 0 && lcores.count(cpu) == 0)
+            {
+                return cpu;
+            }
+        }
+        for (auto const cpu : allowedCpus)
+        {
+            if (lcores.count(cpu) == 0)
+            {
+                return cpu;
+            }
+        }
+        // Every allowed CPU is an MTL lcore: the main lcore takes the first of them (MTL then has
+        // one worker lcore less), which still beats a CPU outside the affinity.
+        return lcores.empty() ? *allowedCpus.begin() : *lcores.begin();
+    }
+
     nlohmann::ordered_json toJson(Group const& g)
     {
         nlohmann::ordered_json j;
