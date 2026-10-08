@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-10-08
+
+### Fixed
+
+- The gateway starts in a Kubernetes Guaranteed pod with exclusive CPUs (completes 1.0.9). MTL v26.09 passes `--remap-lcore-ids` to DPDK 25.11, which numbers the CPUs of the core list from 0, but gave `--main-lcore` the CPU number; the main lcore that 1.0.9 moves into the pod's CPUs (for example CPU 10) therefore failed with "Main lcore is not enabled for DPDK". MTL patch `0005-main-lcore-remap.patch` passes the renumbered id. With CPU 0 allowed (Burstable pod, bare host) nothing changes.
+
 ## [1.0.9] - 2026-10-08
 
 ### Fixed
