@@ -86,8 +86,8 @@ All `mxl_st2110_gateway_ptp_*` series exist only while MTL runs PTP (`ptp.mode` 
 | `mxl_st2110_gateway_mxl_read_lag_grains` | gauge | essence labels | writer head index minus read index; audio in grains of the group cadence |
 | `mxl_st2110_gateway_mxl_reader_info` | gauge = 1 | essence labels, `domain_id, domain_path, domain_kind, flow_id` | resolved domain of an enabled MXL Receiver; `domain_kind` ∈ `configured`, `discovered`, `mirror`; replaced when the resolution changes |
 | `mxl_st2110_gateway_tx_frames_total` | counter | essence labels | frames/blocks handed to MTL |
-| `mxl_st2110_gateway_tx_late_frames_total` | counter | essence labels | frames that missed their transmit time |
-| `mxl_st2110_gateway_egress_lead_ns` | gauge | essence labels | time from data available to the TX deadline; negative = late |
+| `mxl_st2110_gateway_tx_late_frames_total` | counter | essence labels | frames that missed their transmit time: dropped by MTL as late, or not handed over by the gateway (transmit time passed, sender queue full); each counted once since 1.0.8 |
+| `mxl_st2110_gateway_egress_lead_ns` | gauge | essence labels | time from handing the last frame (audio: block) to MTL to its transmit time; negative = late |
 
 ## NMOS and MXL domains
 

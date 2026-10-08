@@ -41,4 +41,28 @@ namespace mxlgw::timing
         std::uint32_t rtp; // ticks of `transmit` mod 2^32
     };
     EgressTiming egressTiming(Rational rate, std::uint64_t index, std::int64_t outputDelayNs, std::int64_t clockHz);
+
+    /// Egress audio schedule (§5.7). Block `k` holds the samples [k·n, (k+1)·n).
+    struct AudioBlockSchedule
+    {
+        std::int64_t samplesPerBlock = 0;
+        std::int64_t sampleRate = 48'000;
+        std::int64_t readOffsetNs = 0;
+        std::int64_t outputDelayNs = 0;
+        /// How long before its transmit time a block must reach MTL at the latest.
+        std::int64_t marginNs = 0;
+
+        struct Times
+        {
+            TaiNs start;    // T(k), TAI of the first sample
+            TaiNs due;      // the block's end plus the read offset: its data is read from here on
+            TaiNs giveUp;   // transmit - margin (not before due): no data by then sends silence
+            TaiNs transmit; // T(k) + output delay
+        };
+        Times times(std::int64_t block) const;
+        /// The last block whose data is due at `now` (where a worker starting at `now` begins).
+        std::int64_t lastDue(TaiNs now) const;
+        /// The first block whose transmit time is after `now` (earlier blocks can no longer be sent).
+        std::int64_t firstUnsent(TaiNs now) const;
+    };
 }

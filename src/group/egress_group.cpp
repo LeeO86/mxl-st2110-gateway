@@ -41,7 +41,6 @@ namespace mxlgw::group
         struct Cache
         {
             std::optional<ReaderInfo> reader;
-            media::SessionStats tx;
             bool mxlReceiverActive = false;
             bool rtpSenderActive = false;
         };
@@ -53,8 +52,9 @@ namespace mxlgw::group
 
         std::mutex mutex;
         std::condition_variable cv;
-        bool stop = false;
-        std::uint64_t generation = 0;
+        // Written under `mutex`; atomic so the audio worker can poll them without taking it every block.
+        std::atomic<bool> stop{false};
+        std::atomic<std::uint64_t> generation{0};
         std::map<util::Uuid, MxlReceiverTarget> rx;
         std::map<util::Uuid, RtpTarget> tx;
         std::map<util::Uuid, Result> results;
@@ -120,6 +120,8 @@ namespace mxlgw::group
         std::optional<std::uint64_t> lastGoodIndex;
         std::optional<std::uint64_t> lastMissed;
         std::int64_t lastGoodSteady = 0;
+        std::optional<std::int64_t> nextBlock; // audio: the next block to hand to MTL
+        bool isAudio() const { return type == config::EssenceType::Audio; }
 
         // counters
         std::atomic<std::uint64_t> grainsRead{0};
@@ -183,6 +185,8 @@ namespace mxlgw::group
             auto& e = *_essences.back();
             e.audio = g.audio[i].format;
             e.rate = {e.audio.sampleRate, 1};
+            auto const block = e.audio.blockDurationNs();
+            _audioTickNs = _audioTickNs == 0 ? block : std::min(_audioTickNs, block);
         }
         for (std::size_t i = 0; i < g.anc.size(); ++i)
         {
@@ -216,6 +220,10 @@ namespace mxlgw::group
         }
         _outputDelayNs = g.effectiveOutputDelayNs(maxReadOffsetNs);
         _thread = std::thread([this] { run(); });
+        if (_audioTickNs > 0)
+        {
+            _audioThread = std::thread([this] { runAudio(); });
+        }
     }
 
     EgressGroup::~EgressGroup()
@@ -226,6 +234,10 @@ namespace mxlgw::group
         }
         _mailbox->cv.notify_all();
         _thread.join();
+        if (_audioThread.joinable())
+        {
+            _audioThread.join();
+        }
     }
 
     void EgressGroup::setReceiver(util::Uuid const& essenceUid, MxlReceiverTarget const& target)
@@ -285,6 +297,20 @@ namespace mxlgw::group
         e.lastMissed.reset();
         e.lastGoodIndex.reset();
         e.haveLag.store(false);
+    }
+
+    void EgressGroup::stopTx(Essence& e)
+    {
+        std::unique_ptr<media::VideoTxSession> vtx;
+        std::unique_ptr<media::AudioTxSession> atx;
+        std::unique_ptr<media::AncTxSession> ntx;
+        {
+            std::lock_guard const lock{_sessionMutex};
+            vtx = std::move(e.vtx);
+            atx = std::move(e.atx);
+            ntx = std::move(e.ntx);
+        }
+        // Freed outside the lock: MTL flushes (and sleeps) while it frees a session.
     }
 
     void EgressGroup::scheduleRetry(Essence& e, std::int64_t steadyNow, char const* reason)
@@ -407,9 +433,7 @@ namespace mxlgw::group
         e.haveTx = want;
         if (!want.masterEnable)
         {
-            e.vtx.reset();
-            e.atx.reset();
-            e.ntx.reset();
+            stopTx(e);
             e.txError.clear();
             e.applyState();
             log::info("egress_sender_stopped", {{"group", _spec.group.label}, {"essence", e.label}});
@@ -423,9 +447,7 @@ namespace mxlgw::group
             {
                 return;
             }
-            e.vtx.reset();
-            e.atx.reset();
-            e.ntx.reset();
+            stopTx(e);
         }
         if (e.hasTx() || steadyNs() < e.txNextAttempt)
         {
@@ -441,19 +463,27 @@ namespace mxlgw::group
                 case config::EssenceType::Video:
                 {
                     media::VideoTxParams p{e.label, e.video, e.payloadType, e.pacing, e.packing, want.legs, grainsAhead};
-                    e.vtx = _backend.createVideoTx(p);
+                    auto vtx = _backend.createVideoTx(p);
+                    std::lock_guard const lock{_sessionMutex};
+                    e.vtx = std::move(vtx);
                     break;
                 }
                 case config::EssenceType::Audio:
                 {
+                    // A block waits in the sender from its read (due time or later) until MTL builds its packet, at
+                    // most the output delay: the queue holds that plus one grain and a few blocks.
                     auto const block = e.audio.blockDurationNs();
                     auto const depth = static_cast<int>(ceilDiv(_outputDelayNs + _cadenceNs, block)) + 4;
-                    e.atx = _backend.createAudioTx({e.label, e.audio, e.payloadType, want.legs, depth});
+                    auto atx = _backend.createAudioTx({e.label, e.audio, e.payloadType, want.legs, depth});
+                    std::lock_guard const lock{_sessionMutex};
+                    e.atx = std::move(atx);
                     break;
                 }
                 case config::EssenceType::Anc:
                 {
-                    e.ntx = _backend.createAncTx({e.label, e.anc, e.payloadType, want.legs, grainsAhead});
+                    auto ntx = _backend.createAncTx({e.label, e.anc, e.payloadType, want.legs, grainsAhead});
+                    std::lock_guard const lock{_sessionMutex};
+                    e.ntx = std::move(ntx);
                     break;
                 }
             }
@@ -559,12 +589,15 @@ namespace mxlgw::group
         }
     }
 
-    void EgressGroup::reconcile(std::int64_t steadyNow)
+    void EgressGroup::reconcile(std::int64_t steadyNow, bool audio)
     {
         for (auto& e : _essences)
         {
-            reconcileTx(*e);
-            reconcileRx(*e, steadyNow);
+            if (e->isAudio() == audio)
+            {
+                reconcileTx(*e);
+                reconcileRx(*e, steadyNow);
+            }
         }
     }
 
@@ -741,52 +774,59 @@ namespace mxlgw::group
         markData(e, good, steadyNs());
     }
 
-    void EgressGroup::processAudio(Essence& e, std::int64_t periodOrigin, std::int64_t deadline)
+    void EgressGroup::processAudio(Essence& e, std::int64_t now)
     {
         auto const n = static_cast<std::int64_t>(e.audio.samplesPerBlock());
-        if (n <= 0)
+        if (n <= 0 || (!e.atx && !e.samples))
         {
+            e.nextBlock.reset();
             return;
         }
-        util::Rational const sr{e.audio.sampleRate, 1};
-        auto const sStart = static_cast<std::int64_t>(timing::timestampToIndex(sr, periodOrigin));
-        auto const sEnd = static_cast<std::int64_t>(timing::timestampToIndex(sr, periodOrigin + _cadenceNs));
-        bool anyGood = false;
-        for (auto k = ceilDiv(sStart, n); k < ceilDiv(sEnd, n); ++k)
+        // A block reaches MTL at the latest one block plus the TX lead before its transmit time: st30p drops a
+        // block that its transport picks up one block period after that time.
+        timing::AudioBlockSchedule const plan{n, e.audio.sampleRate, e.readOffsetNs.load(), _outputDelayNs, _spec.txLeadNs + e.audio.blockDurationNs()};
+        if (!e.nextBlock)
         {
-            auto const end = static_cast<std::uint64_t>((k + 1) * n);
-            std::uint8_t* buffer = e.atx ? e.atx->acquire(std::chrono::milliseconds(1)) : nullptr;
-            if (e.atx && buffer == nullptr)
+            e.nextBlock = plan.lastDue(now);
+        }
+        // Blocks whose transmit time has passed (the worker was held up) can no longer be sent.
+        if (auto const first = plan.firstUnsent(now); *e.nextBlock < first)
+        {
+            if (e.atx)
             {
-                e.txDropped.fetch_add(1, std::memory_order_relaxed);
+                e.txDropped.fetch_add(static_cast<std::uint64_t>(first - *e.nextBlock), std::memory_order_relaxed);
             }
+            e.nextBlock = first;
+        }
+        bool any = false;
+        bool anyGood = false;
+        // §5.7: every block that is due is handed to MTL now, with its data or, once its give-up time has
+        // passed, with silence. Nothing here waits: a block whose data is not there yet is tried again on
+        // the next tick, so one late source never holds up the other essences or the following blocks.
+        while (true)
+        {
+            auto const k = *e.nextBlock;
+            auto const t = plan.times(k);
+            if (now < t.due)
+            {
+                break;
+            }
+            auto const end = static_cast<std::uint64_t>((k + 1) * n);
+            mxlWrappedMultiBufferSlice slices{};
             bool good = false;
             if (e.samples)
             {
-                auto const now = media::hostTaiNs();
-                auto const timeout = e.inSync ? std::max<std::int64_t>(0, deadline - now) : 0;
-                mxlWrappedMultiBufferSlice slices{};
-                auto const status = e.samples->get(end, static_cast<std::size_t>(n), static_cast<std::uint64_t>(timeout), slices);
+                auto const status = e.samples->getNonBlocking(end, static_cast<std::size_t>(n), slices);
+                if (status == MXL_ERR_OUT_OF_RANGE_TOO_EARLY && now < t.giveUp)
+                {
+                    break;
+                }
                 switch (status)
                 {
                     case MXL_STATUS_OK:
-                    {
                         good = true;
                         e.grainsRead.fetch_add(1, std::memory_order_relaxed);
-                        if (buffer != nullptr)
-                        {
-                            codec::ConstChannelSlices src;
-                            for (int f = 0; f < 2; ++f)
-                            {
-                                src.fragments[f].pointer = slices.base.fragments[f].pointer;
-                                src.fragments[f].size = slices.base.fragments[f].size;
-                            }
-                            src.stride = slices.stride;
-                            src.count = slices.count;
-                            codec::floatToPcm(src, static_cast<std::size_t>(n), e.audio.channels, e.audio.bitDepth, buffer);
-                        }
                         break;
-                    }
                     case MXL_ERR_OUT_OF_RANGE_TOO_EARLY: e.readTimeouts.fetch_add(1, std::memory_order_relaxed); break;
                     case MXL_ERR_OUT_OF_RANGE_TOO_LATE: e.lateReads.fetch_add(1, std::memory_order_relaxed); break;
                     case MXL_ERR_FLOW_INVALID:
@@ -806,20 +846,44 @@ namespace mxlgw::group
                     }
                 }
             }
-            anyGood = anyGood || good;
-            if (buffer != nullptr)
+            if (e.atx)
             {
-                if (!good)
+                if (auto* buffer = e.atx->acquire(); buffer == nullptr)
                 {
-                    codec::pcmSilence(buffer, static_cast<std::size_t>(n), e.audio.channels, e.audio.bitDepth);
+                    // Every frame of the sender is queued: MTL is behind; the block is lost, the worker goes on.
+                    e.txDropped.fetch_add(1, std::memory_order_relaxed);
                 }
-                auto const txTai = timing::taiOfTicks(k * n, e.audio.sampleRate) + _outputDelayNs;
-                e.leadNs.store(txTai - media::hostTaiNs(), std::memory_order_relaxed);
-                e.haveLead.store(true, std::memory_order_relaxed);
-                e.atx->send(txTai);
+                else
+                {
+                    if (good)
+                    {
+                        codec::ConstChannelSlices src;
+                        for (int f = 0; f < 2; ++f)
+                        {
+                            src.fragments[f].pointer = slices.base.fragments[f].pointer;
+                            src.fragments[f].size = slices.base.fragments[f].size;
+                        }
+                        src.stride = slices.stride;
+                        src.count = slices.count;
+                        codec::floatToPcm(src, static_cast<std::size_t>(n), e.audio.channels, e.audio.bitDepth, buffer);
+                    }
+                    else
+                    {
+                        codec::pcmSilence(buffer, static_cast<std::size_t>(n), e.audio.channels, e.audio.bitDepth);
+                    }
+                    e.leadNs.store(t.transmit - now, std::memory_order_relaxed);
+                    e.haveLead.store(true, std::memory_order_relaxed);
+                    e.atx->send(t.transmit);
+                }
             }
+            any = true;
+            anyGood = anyGood || good;
+            e.nextBlock = k + 1;
         }
-        markData(e, anyGood, steadyNs());
+        if (any)
+        {
+            markData(e, anyGood, steadyNs());
+        }
     }
 
     void EgressGroup::processPeriod(std::uint64_t i)
@@ -835,11 +899,7 @@ namespace mxlgw::group
         }
         for (auto& e : _essences)
         {
-            if (e->type == config::EssenceType::Audio)
-            {
-                processAudio(*e, origin, deadline);
-            }
-            else
+            if (!e->isAudio())
             {
                 processGrain(*e, origin, deadline);
             }
@@ -879,7 +939,6 @@ namespace mxlgw::group
             if (auto const it = cache.find(e->uid); it != cache.end())
             {
                 s.reader = it->second.reader;
-                s.tx = it->second.tx;
                 s.mxlReceiverActive = it->second.mxlReceiverActive;
                 s.rtpSenderActive = it->second.rtpSenderActive;
             }
@@ -899,6 +958,14 @@ namespace mxlgw::group
             }
             s.readOffsetNs = e->readOffsetNs.load();
             g.essences.push_back(std::move(s));
+        }
+        // MTL's session stats spin on a lock its scheduler holds while it serves the session: read them here,
+        // on the caller's (non-real-time) thread, never on a worker.
+        std::lock_guard const lock{_sessionMutex};
+        for (std::size_t i = 0; i < _essences.size(); ++i)
+        {
+            auto const& e = *_essences[i];
+            g.essences[i].tx = e.vtx ? e.vtx->stats() : e.atx ? e.atx->stats() : e.ntx ? e.ntx->stats() : media::SessionStats{};
         }
         return g;
     }
@@ -924,19 +991,8 @@ namespace mxlgw::group
             log::error("mxl_sync_group_failed", {{"group", _spec.group.label}, {"error", ex.what()}});
         }
         tlsSync = sync.get();
-
-        auto publish = [&]
-        {
-            std::lock_guard const lock{_mailbox->mutex};
-            for (auto const& e : _essences)
-            {
-                auto& c = _mailbox->cache[e->uid];
-                c.reader = e->readerInfo;
-                c.mxlReceiverActive = e->haveRx.masterEnable;
-                c.rtpSenderActive = e->hasTx();
-                c.tx = e->vtx ? e->vtx->stats() : e->atx ? e->atx->stats() : e->ntx ? e->ntx->stats() : media::SessionStats{};
-            }
-        };
+        // Audio-only group: the audio worker does everything; this one only waits for the stop.
+        bool const grains = std::any_of(_essences.begin(), _essences.end(), [](auto const& e) { return !e->isAudio(); });
 
         std::uint64_t seenGeneration = ~std::uint64_t{0};
         auto lastPublish = steadyNs();
@@ -944,13 +1000,18 @@ namespace mxlgw::group
         while (true)
         {
             {
-                std::lock_guard const lock{_mailbox->mutex};
+                std::unique_lock lock{_mailbox->mutex};
                 if (_mailbox->stop)
                 {
                     break;
                 }
+                if (!grains)
+                {
+                    _mailbox->cv.wait_for(lock, std::chrono::milliseconds(200));
+                    continue;
+                }
             }
-            reconcile(steadyNs());
+            reconcile(steadyNs(), false);
             auto const origin = timing::indexToTimestamp(_rate, i);
             auto const readOffset = maxReadOffset();
             auto const readStart = origin + _cadenceNs + readOffset;
@@ -973,7 +1034,7 @@ namespace mxlgw::group
                 {
                     seenGeneration = _mailbox->generation;
                     lock.unlock();
-                    reconcile(steadyNs());
+                    reconcile(steadyNs(), false);
                     continue;
                 }
                 _mailbox->cv.wait_for(lock, std::chrono::nanoseconds(std::min<std::int64_t>(readStart - now, 20'000'000)));
@@ -1003,18 +1064,88 @@ namespace mxlgw::group
             ++i;
             if (steadyNs() - lastPublish > publishEveryNs)
             {
-                publish();
+                publish(false);
                 lastPublish = steadyNs();
             }
         }
         for (auto& e : _essences)
         {
-            detach(*e);
-            e->vtx.reset();
-            e->atx.reset();
-            e->ntx.reset();
+            if (!e->isAudio())
+            {
+                detach(*e);
+                stopTx(*e);
+            }
         }
         tlsSync = nullptr;
         sync.reset();
+    }
+
+    void EgressGroup::runAudio()
+    {
+        util::setThreadName("egress-a-" + _spec.group.label.substr(0, 6));
+        if (!_spec.appCpus.empty())
+        {
+            if (auto const cpus = util::parseCpuList(_spec.appCpus))
+            {
+                util::pinToCpus(*cpus);
+            }
+        }
+        util::tryRealtime(20);
+        // No sync group on this thread (tlsSync stays null): audio readers are polled block by block.
+        std::uint64_t seenGeneration = ~std::uint64_t{0};
+        std::int64_t lastReconcile = 0;
+        auto lastPublish = steadyNs();
+        while (!_mailbox->stop.load())
+        {
+            auto const steady = steadyNs();
+            // Target changes, resolver results and retry timers (checked once per grain period).
+            if (auto const generation = _mailbox->generation.load(); generation != seenGeneration || steady - lastReconcile >= _cadenceNs)
+            {
+                seenGeneration = generation;
+                reconcile(steady, true);
+                lastReconcile = steady;
+            }
+            auto const now = media::hostTaiNs();
+            for (auto& e : _essences)
+            {
+                if (e->isAudio())
+                {
+                    processAudio(*e, now);
+                }
+            }
+            if (steady - lastPublish > publishEveryNs)
+            {
+                publish(true);
+                lastPublish = steady;
+            }
+            // One tick per (shortest) block, half a block after the block boundary, when a writer that commits
+            // block by block has just written it.
+            auto const phase = _audioTickNs / 2;
+            media::sleepUntilTai(((media::hostTaiNs() - phase) / _audioTickNs + 1) * _audioTickNs + phase);
+        }
+        for (auto& e : _essences)
+        {
+            if (e->isAudio())
+            {
+                detach(*e);
+                stopTx(*e);
+            }
+        }
+    }
+
+    void EgressGroup::publish(bool audio)
+    {
+        std::lock_guard const lock{_mailbox->mutex};
+        for (auto const& e : _essences)
+        {
+            if (e->isAudio() != audio)
+            {
+                continue;
+            }
+            auto& c = _mailbox->cache[e->uid];
+            c.reader = e->readerInfo;
+            c.mxlReceiverActive = e->haveRx.masterEnable;
+            c.rtpSenderActive = e->hasTx();
+        }
     }
 }

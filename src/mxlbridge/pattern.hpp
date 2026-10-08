@@ -30,6 +30,9 @@ namespace mxlgw::mxlbridge
         config::AncFormat anc;
         double toneHz = 997.0;
         float level = 0.1f;
+        /// Commits each audio block this long after its end (a source that delivers late, e.g. in 20 ms
+        /// chunks with `audio.blockUs` = 20000).
+        std::int64_t audioDelayNs = 0;
     };
 
     class PatternWriter

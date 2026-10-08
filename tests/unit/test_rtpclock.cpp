@@ -112,3 +112,49 @@ TEST_CASE("egress transmit-time RTP (owner decision Q1)")
     // Ingest of the egress stream lands two grains later.
     CHECK(timestampToIndex(rate, unwrapRtp(e.rtp, videoClockHz, e.transmit)) == i + 2);
 }
+
+TEST_CASE("egress audio block schedule (§5.7)")
+{
+    // 48 kHz, 1 ms blocks, output delay 40 ms, MTL margin 2 ms.
+    AudioBlockSchedule plan{48, 48000, 0, 40'000'000, 2'000'000};
+    auto const k = epoch2026 / 1'000'000; // the block starting at epoch2026
+    auto const t = plan.times(k);
+    CHECK(t.start == epoch2026);
+    CHECK(t.due == epoch2026 + 1'000'000);
+    CHECK(t.transmit == epoch2026 + 40'000'000);
+    CHECK(t.giveUp == epoch2026 + 38'000'000);
+    CHECK(plan.times(k + 1).transmit - t.transmit == 1'000'000);
+
+    // A read offset moves due and give-up, never the transmit time (lip-sync).
+    plan.readOffsetNs = 20'000'000;
+    CHECK(plan.times(k).due == epoch2026 + 21'000'000);
+    CHECK(plan.times(k).transmit == epoch2026 + 40'000'000);
+    // The give-up time is never before the due time.
+    plan.readOffsetNs = 39'000'000;
+    CHECK(plan.times(k).giveUp == plan.times(k).due);
+
+    for (auto const ro : {std::int64_t{0}, std::int64_t{20'000'000}, std::int64_t{80'000'000}})
+    {
+        plan.readOffsetNs = ro;
+        plan.outputDelayNs = ro + 22'000'000;
+        for (auto const now : {epoch2026, epoch2026 + 1, epoch2026 + 999'999, epoch2026 + 1'000'000, epoch2026 + 123'456'789})
+        {
+            auto const due = plan.lastDue(now);
+            CHECK(plan.times(due).due <= now);
+            CHECK(plan.times(due + 1).due > now);
+            auto const first = plan.firstUnsent(now);
+            CHECK(plan.times(first).transmit > now);
+            CHECK(plan.times(first - 1).transmit <= now);
+            // A worker starting at `now` begins with a block it can still send.
+            CHECK(due >= first);
+        }
+    }
+
+    // 2 ms blocks (96 samples).
+    AudioBlockSchedule const two{96, 48000, 0, 40'000'000, 3'000'000};
+    auto const k2 = epoch2026 / 2'000'000;
+    CHECK(two.times(k2).start == epoch2026);
+    CHECK(two.times(k2).due == epoch2026 + 2'000'000);
+    CHECK(two.lastDue(epoch2026 + 2'000'000) == k2);
+    CHECK(two.lastDue(epoch2026 + 1'999'999) == k2 - 1);
+}

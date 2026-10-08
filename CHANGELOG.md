@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-10-08
+
+### Fixed
+
+- Egress audio sends exactly one packet per packet time. On the platform the four audio essences of a TX group sent ~850–900 packets/s instead of 1000 (fewer with more active MXL sources), and the receiving gateway wrote only 41.5–44 k samples/s with gaps. The group's single worker read all essences once per grain period, after the video, and only after the end of the period plus the group's largest read offset; with a read offset close to the output delay (a mirrored flow, 1.0.5 default output delay = one grain + read offset + 2 ms) the first audio blocks of every period reached MTL less than one block before their transmit time, behind the video conversion and the other essences' reads, and `st30p` drops a block that its transport picks up one block period after that time. Audio now has its own worker per egress group: once per block it hands each block to MTL when its data is due (block end + the essence's own read offset), at the latest with silence one block + 1 ms before its transmit time; reads never wait, so a late source only delays its own blocks.
+- An audio sender no longer waits up to 1 ms per block for a free frame when MTL's queue is full; the block is counted as late and the worker goes on.
+- The media workers no longer call MTL's session statistics. They spin on a lock that MTL's scheduler holds while it serves the session; a real-time worker on the scheduler's CPU could spin until the kernel's real-time throttling stopped it (lab: audio down to 160 packets/s). The status API and `/metrics` read them now.
+- Late frames are counted once and no longer touch MTL's memory. MTL v26.09 also hands the `notify_frame_late` callback to its transport sessions, with the pipeline's context as argument: a frame the transport sent late incremented a field inside MTL's pipeline context, and a frame dropped as late was counted twice in `late_frames` / `mxl_st2110_gateway_tx_late_frames_total`. The callback is not registered any more; MTL's session statistics count the drops.
+
+### Added
+
+- `mxl-pattern-writer --audio-delay-us`: commits each audio block that much after its end; with `--block-us 20000` it behaves like a frame-based source that delivers 20 ms chunks late (tests).
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.8` image.
+
 ## [1.0.7] - 2026-10-07
 
 ### Fixed

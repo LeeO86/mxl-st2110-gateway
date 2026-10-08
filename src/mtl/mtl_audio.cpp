@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 // ST 2110-30 PCM with MTL st30p (§6.2).
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 
 #include "mtl/mtl_sessions.hpp"
@@ -149,8 +148,14 @@ namespace mxlgw::media::mtlimpl
                 // VERIFIED: OpenVisualCloud/Media-Transport-Library@v26.09 include/st30_pipeline_api.h:28-62 — st30p has no
                 // USER_TIMESTAMP flag; with USER_PACING the RTP timestamp follows the pacing TAI
                 // (lib/src/st2110/st_tx_audio_session.c:331-341), i.e. T(s) + output_delay (§5.4, Q1).
-                ops.flags = ST30P_TX_FLAG_USER_PACING | ST30P_TX_FLAG_BLOCK_GET | ST30P_TX_FLAG_DROP_WHEN_LATE;
-                ops.notify_frame_late = &AudioTx::onLate;
+                // VERIFIED: OpenVisualCloud/Media-Transport-Library@v26.09 lib/src/st2110/pipeline/st30_pipeline_tx.c:101-150 — with
+                // DROP_WHEN_LATE a block that the transport picks up one block period (frame_period = 1 / frames_per_sec) after
+                // its pacing time is dropped: a block must reach MTL ahead of its transmit time, which the egress audio
+                // worker ensures (§5.7). No BLOCK_GET: acquire() never waits (st30p_tx_get_frame returns NULL at once).
+                ops.flags = ST30P_TX_FLAG_USER_PACING | ST30P_TX_FLAG_DROP_WHEN_LATE;
+                // No notify_frame_late: MTL v26.09 hands it to the transport session with the pipeline's own context as
+                // priv (lib/src/st2110/pipeline/st30_pipeline_tx.c, ops_tx.priv = ctx), so a late frame in the transport
+                // called it with a foreign pointer. Frames dropped as late are in the session stats (stat_frames_dropped).
                 _handle = st30p_tx_create(ctx.mt, &ops);
                 if (_handle == nullptr)
                 {
@@ -167,13 +172,12 @@ namespace mxlgw::media::mtlimpl
                 st30p_tx_free(_handle);
             }
 
-            std::uint8_t* acquire(std::chrono::nanoseconds timeout) override
+            std::uint8_t* acquire() override
             {
                 if (_current != nullptr)
                 {
                     return static_cast<std::uint8_t*>(_current->addr);
                 }
-                st30p_tx_set_block_timeout(_handle, static_cast<std::uint64_t>(std::max<std::int64_t>(1, timeout.count())));
                 _current = st30p_tx_get_frame(_handle);
                 return _current == nullptr ? nullptr : static_cast<std::uint8_t*>(_current->addr);
             }
@@ -204,23 +208,14 @@ namespace mxlgw::media::mtlimpl
                 {
                     return {};
                 }
-                auto out = txStats(s.common);
-                out.framesLate += _late.load(std::memory_order_relaxed);
-                return out;
+                return txStats(s.common);
             }
 
         private:
-            static int onLate(void* priv, std::uint64_t)
-            {
-                static_cast<AudioTx*>(priv)->_late.fetch_add(1, std::memory_order_relaxed);
-                return 0;
-            }
-
             Context _ctx;
             AudioParams _params;
             st30p_tx_handle _handle = nullptr;
             st30_frame* _current = nullptr;
-            std::atomic<std::uint64_t> _late{0};
         };
     }
 

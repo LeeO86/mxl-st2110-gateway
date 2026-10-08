@@ -144,8 +144,9 @@ namespace mxlgw::media
     {
     public:
         virtual ~AudioTxSession() = default;
-        /// Gets a block buffer to fill (`samplesPerBlock` × channels × bytes) or nullptr on timeout.
-        virtual std::uint8_t* acquire(std::chrono::nanoseconds timeout) = 0;
+        /// Gets a block buffer to fill (`samplesPerBlock` × channels × bytes), or nullptr at once when every
+        /// buffer is queued for transmission (never waits).
+        virtual std::uint8_t* acquire() = 0;
         /// Sends the acquired block at `transmitTai` (RTP derived from the pacing time, §5.4).
         virtual void send(std::int64_t transmitTai) = 0;
         virtual bool updateDestination(std::vector<LegAddress> const& legs) = 0;

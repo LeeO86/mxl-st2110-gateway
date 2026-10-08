@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 // ST 2110-40 with MTL st40p (§6.3).
 #include <algorithm>
-#include <atomic>
 
 #include "mtl/mtl_sessions.hpp"
 
@@ -113,7 +112,9 @@ namespace mxlgw::media::mtlimpl
                 ops.framebuff_cnt = queueDepth(_params.queueDepth, 4, 16);
                 ops.max_udw_buff_size = udwBufferSize;
                 ops.flags = ST40P_TX_FLAG_USER_PACING | ST40P_TX_FLAG_USER_TIMESTAMP | ST40P_TX_FLAG_DROP_WHEN_LATE | ST40P_TX_FLAG_BLOCK_GET;
-                ops.notify_frame_late = &AncTx::onLate;
+                // No notify_frame_late: MTL v26.09 hands it to the transport session with the pipeline's own context as
+                // priv (lib/src/st2110/pipeline/st40_pipeline_tx.c, ops_tx.priv = ctx), so a late frame in the transport
+                // called it with a foreign pointer. Frames dropped as late are in the session stats (stat_frames_dropped).
                 _handle = st40p_tx_create(ctx.mt, &ops);
                 if (_handle == nullptr)
                 {
@@ -177,22 +178,13 @@ namespace mxlgw::media::mtlimpl
                 {
                     return {};
                 }
-                auto out = txStats(s.common);
-                out.framesLate += _late.load(std::memory_order_relaxed);
-                return out;
+                return txStats(s.common);
             }
 
         private:
-            static int onLate(void* priv, std::uint64_t)
-            {
-                static_cast<AncTx*>(priv)->_late.fetch_add(1, std::memory_order_relaxed);
-                return 0;
-            }
-
             Context _ctx;
             AncParams _params;
             st40p_tx_handle _handle = nullptr;
-            std::atomic<std::uint64_t> _late{0};
         };
     }
 
