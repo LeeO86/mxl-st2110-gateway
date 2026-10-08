@@ -55,7 +55,7 @@ docker compose up -d
 ```yaml
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.10}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.11}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
@@ -195,6 +195,7 @@ Every setting except the per-group fields (groups and essences, see [`docs/confi
 | `MXLGW_NIC_BACKEND` | `nic.backend` | `"dpdk"` | dpdk (production), kernel and mock are test-only. |
 | `MXLGW_NIC_LCORES` | `nic.lcores` | `null` | MTL lcores as a CPU list (e.g. "4-9"); disjoint from app_cpus. null = dpdk backend: the first nic.lcore_count CPUs of the process's CPU affinity (Kubernetes cpuset); kernel/mock: MTL's choice. |
 | `MXLGW_NIC_LCORE_COUNT` | `nic.lcore_count` | `4` | Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend). |
+| `MXLGW_NIC_SCH_QUOTA_MBS` | `nic.sch_quota_mbs` | `0` | Data quota of one MTL scheduler lcore in Mbit/s (MTL data_quota_mbs_per_sch): a new session goes to another lcore when it does not fit. 0 = MTL's default (about 12 TX or 8 RX 1080p sessions per lcore, so all sessions of a gateway share one lcore). A 1080p50 session counts about 2700 (TX) or 4000 (RX); 5000 gives each video session its own lcore. |
 | `MXLGW_NIC_TX_PACING` | `nic.tx_pacing` | `"auto"` | MTL TX pacing (dpdk backend): auto = NIC rate limiter where the driver has one, else TSC; rl = rate limiter only; tsc = software (TSC) pacing, never touches the NIC rate limiter. Use tsc when MTL fails to start with ice "Failed to add lan txq". |
 | `MXLGW_NIC_APP_CPUS` | `nic.app_cpus` | `null` | CPU list for the gateway worker threads; null = dpdk backend: the CPUs of the affinity not used as lcores. |
 | `MXLGW_NIC_HUGEPAGE_SOCKET` | `nic.hugepage_socket` | `"auto"` | NUMA socket for hugepage memory; auto = the NIC's socket. |
@@ -407,6 +408,7 @@ Other frequent issues:
 
 - **Essence `waiting_for_flow`** (egress): the MXL flow or domain does not exist (yet). It starts automatically once it appears; check the flow id, `mxl.scan_path` and, for remote flows, the agent. **`no_signal`**: the flow exists but no grains arrive in time.
 - **Ingest essence `no_signal` / `no_packets` while the source sends**: before 1.0.7 the RTP receiver listened for the essence's configured `payload_type`, not the SDP's (MTL drops other payload types; VideoIPath audio often uses 98). 1.0.7 takes it from the staged SDP; `ingest_receiver_started` logs the payload type in use.
+- **RX `rx_missed` / incomplete frames and TX `late_frames` while only one `mtl_sched` thread is busy** (the other lcores idle): MTL's default quota puts up to ~12 TX / 8 RX 1080p sessions on one scheduler lcore. Set `nic.sch_quota_mbs` (`MXLGW_NIC_SCH_QUOTA_MBS`), e.g. 5000 for one 1080p50 video session per lcore (1.0.11).
 - **CrashLoopBackOff with `EAL: Cannot set affinity` and `media_backend_failed`** in a Guaranteed pod (exclusive CPUs, CPU 0 reserved): before 1.0.10 DPDK's main lcore was CPU 0, outside the pod's CPUs (1.0.9 moved it but MTL still passed the CPU number). 1.0.10 puts it on the first app CPU; `mtl_init` logs `main_lcore`.
 - **TX audio below 1000 packets/s (ptime 1 ms), gaps at the receiver, `late_frames` growing**: before 1.0.8 the audio blocks of a TX group were handed to MTL once per grain period behind the video, and with a read offset close to the output delay MTL dropped the first blocks of every period as late. 1.0.8 hands each block over when its data is due; `mxl_st2110_gateway_egress_lead_ns` shows the remaining lead (about output delay − read offset − 1 ms for an on-time source).
 - **Essence `error` / `format_mismatch`**: the flow or SDP format differs from the essence configuration (size, rate, scan, channels, packet time).

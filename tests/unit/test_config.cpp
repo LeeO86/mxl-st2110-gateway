@@ -60,6 +60,20 @@ TEST_CASE("sample configuration parses with defaults")
     CHECK(c.findGroup(g.uid) == &c.groups[0]);
     CHECK(c.mxl.findDomain("main") != nullptr);
     CHECK(c.mxl.findDomain("other") == nullptr);
+    CHECK(c.nic.schQuotaMbs == 0); // MTL's default scheduler quota
+}
+
+TEST_CASE("MTL scheduler quota")
+{
+    auto j = testutil::sampleConfig();
+    j["nic"]["sch_quota_mbs"] = 5000;
+    auto const r = parse(j);
+    INFO(config::formatErrors(r.errors));
+    REQUIRE(r.ok());
+    CHECK(r.config->nic.schQuotaMbs == 5000);
+    CHECK(config::toJson(*r.config)["nic"]["sch_quota_mbs"] == 5000);
+    j["nic"]["sch_quota_mbs"] = -1;
+    CHECK_FALSE(parse(j).ok());
 }
 
 TEST_CASE("minimal example is setup mode")

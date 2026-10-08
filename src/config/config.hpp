@@ -166,6 +166,8 @@ namespace mxlgw::config
         Backend backend = Backend::Dpdk;
         std::string lcores;
         int lcoreCount = 4;
+        // MTL data_quota_mbs_per_sch (Mbit/s per scheduler lcore); 0 = MTL's default (~12 TX 1080p per lcore).
+        int schQuotaMbs = 0;
         TxPacing txPacing = TxPacing::Auto;
         std::string appCpus;
         std::optional<int> hugepageSocket; // nullopt = auto

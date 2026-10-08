@@ -457,6 +457,13 @@
           "description": "Number of MTL lcores taken from the CPU affinity when nic.lcores is null (dpdk backend).",
           "default": 4
         },
+        "sch_quota_mbs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "description": "Data quota of one MTL scheduler lcore in Mbit/s (MTL data_quota_mbs_per_sch): a new session goes to another lcore when it does not fit. 0 = MTL's default (about 12 TX or 8 RX 1080p sessions per lcore, so all sessions of a gateway share one lcore). A 1080p50 session counts about 2700 (TX) or 4000 (RX); 5000 gives each video session its own lcore.",
+          "default": 0
+        },
         "tx_pacing": {
           "enum": [
             "auto",
