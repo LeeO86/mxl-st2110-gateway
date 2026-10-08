@@ -1105,12 +1105,11 @@ namespace mxlgw::group
                 reconcile(steady, true);
                 lastReconcile = steady;
             }
-            auto const now = media::hostTaiNs();
             for (auto& e : _essences)
             {
                 if (e->isAudio())
                 {
-                    processAudio(*e, now);
+                    processAudio(*e, media::hostTaiNs());
                 }
             }
             if (steady - lastPublish > publishEveryNs)
