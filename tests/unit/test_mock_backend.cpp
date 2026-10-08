@@ -98,7 +98,7 @@ TEST_CASE("mock audio and ANC")
     ap.legs = {{"239.1.1.2", "", 20000, true}};
     auto arx = backend->createAudioRx(ap);
     auto atx = backend->createAudioTx(ap);
-    auto* buf = atx->acquire(10ms);
+    auto* buf = atx->acquire();
     REQUIRE(buf);
     buf[0] = 0x7F;
     auto const when = media::hostTaiNs();

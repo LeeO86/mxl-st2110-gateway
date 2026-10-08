@@ -22,7 +22,8 @@ namespace
     {
         std::puts("usage: mxl-pattern-writer --domain <path> [--video-flow <uuid>] [--audio-flow <uuid>] [--anc-flow <uuid>]\n"
                   "                          [--width 1920] [--height 1080] [--rate 50/1] [--interlace progressive|interlaced_tff|interlaced_bff]\n"
-                  "                          [--channels 2] [--block-us 1000] [--tone-hz 997] [--label pattern] [--duration-ms 0]");
+                  "                          [--channels 2] [--block-us 1000] [--audio-delay-us 0] [--tone-hz 997] [--label pattern]\n"
+                  "                          [--duration-ms 0]");
     }
 }
 
@@ -49,6 +50,7 @@ int main(int argc, char** argv)
     pc.audio = args.audio();
     pc.anc = args.anc();
     pc.toneHz = static_cast<double>(args.integer("tone-hz", 997));
+    pc.audioDelayNs = args.integer("audio-delay-us", 0) * 1000;
     if (!pc.videoFlow && !pc.audioFlow && !pc.ancFlow)
     {
         std::fputs("at least one of --video-flow, --audio-flow, --anc-flow is required\n", stderr);

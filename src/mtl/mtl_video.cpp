@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 // ST 2110-20 <-> v210 with MTL st20p (§6.1).
-#include <atomic>
 #include <cerrno>
 #include <chrono>
 
@@ -180,7 +179,9 @@ namespace mxlgw::media::mtlimpl
                 // §5.7: user pacing at T(i) + output_delay with the same TAI as RTP timestamp (Q1).
                 ops.flags =
                     ST20P_TX_FLAG_EXT_FRAME | ST20P_TX_FLAG_USER_PACING | ST20P_TX_FLAG_USER_TIMESTAMP | ST20P_TX_FLAG_DROP_WHEN_LATE | ST20P_TX_FLAG_BLOCK_GET;
-                ops.notify_frame_late = &VideoTx::onLate;
+                // No notify_frame_late: MTL v26.09 hands it to the transport session with the pipeline's own context as
+                // priv (lib/src/st2110/pipeline/st20_pipeline_tx.c, ops_tx.priv = ctx), so a late frame in the transport
+                // called it with a foreign pointer. Frames dropped as late are in the session stats (stat_frames_dropped).
                 _handle = st20p_tx_create(ctx.mt, &ops);
                 if (_handle == nullptr)
                 {
@@ -225,22 +226,13 @@ namespace mxlgw::media::mtlimpl
                 {
                     return {};
                 }
-                auto out = txStats(s.common);
-                out.framesLate += _late.load(std::memory_order_relaxed);
-                return out;
+                return txStats(s.common);
             }
 
         private:
-            static int onLate(void* priv, std::uint64_t)
-            {
-                static_cast<VideoTx*>(priv)->_late.fetch_add(1, std::memory_order_relaxed);
-                return 0;
-            }
-
             Context _ctx;
             VideoTxParams _params;
             st20p_tx_handle _handle = nullptr;
-            std::atomic<std::uint64_t> _late{0};
         };
     }
 

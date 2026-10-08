@@ -2,9 +2,12 @@
 // End-to-end pipeline tests: real MXL v1.1.0 + the in-process mock network (§17.2).
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <functional>
+#include <map>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <thread>
@@ -25,13 +28,13 @@ namespace
 {
     constexpr std::int64_t historyNs = 160'000'000;
 
-    nlohmann::json videoJson(int uid, std::string const& label, std::string const& mcast)
+    nlohmann::json videoJson(int uid, std::string const& label, std::string const& mcast, std::string const& rate = "25/1")
     {
         return {{"uid", testutil::uid(uid)},
                 {"label", label},
                 {"width", 1920},
                 {"height", 1080},
-                {"rate", "25/1"},
+                {"rate", rate},
                 {"defaults", {{"legs", {{{"multicast", mcast}, {"port", 20000}}}}}}};
     }
     nlohmann::json audioJson(int uid, std::string const& label, std::string const& mcast)
@@ -77,6 +80,77 @@ namespace
         }
         std::unique_ptr<media::AudioRxSession> createAudioRx(media::AudioParams const& p) override { return inner->createAudioRx(p); }
         std::unique_ptr<media::AudioTxSession> createAudioTx(media::AudioParams const& p) override { return inner->createAudioTx(p); }
+        std::unique_ptr<media::AncRxSession> createAncRx(media::AncParams const& p) override { return inner->createAncRx(p); }
+        std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
+    };
+
+    /// Every audio block handed to a sender: its transmit time and when it was handed over (host TAI).
+    struct AudioSendLog
+    {
+        struct Send
+        {
+            std::int64_t transmit = 0;
+            std::int64_t handed = 0;
+        };
+        std::mutex mutex;
+        std::map<std::string, std::vector<Send>> byName;
+
+        std::vector<Send> of(std::string const& name)
+        {
+            std::lock_guard const lock{mutex};
+            return byName[name];
+        }
+    };
+
+    struct RecordingAudioTx final : media::AudioTxSession
+    {
+        std::unique_ptr<media::AudioTxSession> inner;
+        AudioSendLog& log;
+        std::string name;
+
+        RecordingAudioTx(std::unique_ptr<media::AudioTxSession> session, AudioSendLog& sendLog, std::string label)
+            : inner(std::move(session))
+            , log(sendLog)
+            , name(std::move(label))
+        {}
+
+        std::uint8_t* acquire() override { return inner->acquire(); }
+        void send(std::int64_t transmitTai) override
+        {
+            {
+                std::lock_guard const lock{log.mutex};
+                log.byName[name].push_back({transmitTai, media::hostTaiNs()});
+            }
+            inner->send(transmitTai);
+        }
+        bool updateDestination(std::vector<media::LegAddress> const& legs) override { return inner->updateDestination(legs); }
+        media::SessionStats stats() const override { return inner->stats(); }
+    };
+
+    /// Mock backend whose audio senders record what they are handed.
+    struct RecordingAudioBackend final : media::MediaBackend
+    {
+        std::unique_ptr<media::MediaBackend> inner;
+        AudioSendLog& log;
+
+        RecordingAudioBackend(std::unique_ptr<media::MediaBackend> backend, AudioSendLog& sendLog)
+            : inner(std::move(backend))
+            , log(sendLog)
+        {}
+
+        std::string name() const override { return inner->name(); }
+        std::int64_t ptpTimeNs() const override { return inner->ptpTimeNs(); }
+        media::BackendStatus status() const override { return inner->status(); }
+        std::unique_ptr<media::VideoRxSession> createVideoRx(media::VideoRxParams const& p, media::VideoRxHandler& h) override
+        {
+            return inner->createVideoRx(p, h);
+        }
+        std::unique_ptr<media::VideoTxSession> createVideoTx(media::VideoTxParams const& p) override { return inner->createVideoTx(p); }
+        std::unique_ptr<media::AudioRxSession> createAudioRx(media::AudioParams const& p) override { return inner->createAudioRx(p); }
+        std::unique_ptr<media::AudioTxSession> createAudioTx(media::AudioParams const& p) override
+        {
+            return std::make_unique<RecordingAudioTx>(inner->createAudioTx(p), log, p.name);
+        }
         std::unique_ptr<media::AncRxSession> createAncRx(media::AncParams const& p) override { return inner->createAncRx(p); }
         std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
     };
@@ -384,4 +458,109 @@ TEST_CASE("pipeline: a video sender that cannot be created is error/egress_sende
     std::this_thread::sleep_for(200ms);
     CHECK(h.essence(521).state.state == group::EssenceState::Running);
     source.stop();
+}
+
+TEST_CASE("pipeline: egress audio sends one block per packet time ahead of its transmit time, whatever the sources do (§5.7)")
+{
+    // Like the platform's TX groups: 1080p50 (output delay 40 ms) and four audio essences, ptime 1 ms.
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back({{"uid", testutil::uid(600)},
+                      {"label", "PACE"},
+                      {"direction", "egress"},
+                      {"domain", "main"},
+                      {"video", {videoJson(601, "PACE V", "239.40.0.1", "50/1")}},
+                      {"audio",
+                       {audioJson(602, "PACE A1", "239.40.0.2"), audioJson(603, "PACE A2", "239.40.0.3"), audioJson(604, "PACE A3", "239.40.0.4"),
+                        audioJson(605, "PACE A4", "239.40.0.5")}}});
+    AudioSendLog sends;
+    Harness h(groups, [&](std::unique_ptr<media::MediaBackend> inner) { return std::make_unique<RecordingAudioBackend>(std::move(inner), sends); });
+
+    // A1: on time, 1 ms blocks (with the video). A2: 20 ms chunks committed 15 ms late (a frame-based writer
+    // behind real time). A3: 60 ms late, always after its give-up time. A4: no source (silence).
+    struct Source
+    {
+        mxlbridge::PatternConfig config;
+        std::unique_ptr<mxlbridge::PatternWriter> writer;
+    };
+    auto source = [&](int blockUs, std::int64_t delayNs, bool video)
+    {
+        Source s;
+        if (video)
+        {
+            s.config.videoFlow = util::uuidV4();
+            s.config.video.rate = {50, 1};
+        }
+        s.config.audioFlow = util::uuidV4();
+        s.config.audio.channels = 2;
+        s.config.audio.blockUs = blockUs;
+        s.config.audioDelayNs = delayNs;
+        s.writer = std::make_unique<mxlbridge::PatternWriter>(h.main.instance, s.config);
+        s.writer->start();
+        return s;
+    };
+    auto const prompt = source(1000, 0, true);
+    auto const chunked = source(20'000, 15'000'000, false);
+    auto const late = source(1000, 60'000'000, false);
+    h.groups->setMxlReceiver(uuidOf(601), {true, h.main.id, prompt.config.videoFlow});
+    h.groups->setMxlReceiver(uuidOf(602), {true, h.main.id, prompt.config.audioFlow});
+    h.groups->setMxlReceiver(uuidOf(603), {true, h.main.id, chunked.config.audioFlow});
+    h.groups->setMxlReceiver(uuidOf(604), {true, h.main.id, late.config.audioFlow});
+    for (int uid = 601; uid <= 605; ++uid)
+    {
+        h.groups->setRtpSender(uuidOf(uid), Harness::rtp("239.40.0." + std::to_string(uid - 600)));
+    }
+    REQUIRE(
+        waitFor([&] { return h.essence(602).state.state == group::EssenceState::Running && h.essence(603).state.state == group::EssenceState::Running; }, 5s));
+    std::map<int, group::EssenceSnapshot> const before{{602, h.essence(602)}, {603, h.essence(603)}, {604, h.essence(604)}};
+    auto const from = media::hostTaiNs();
+    std::this_thread::sleep_for(2s);
+    auto const to = media::hostTaiNs();
+
+    for (std::string const label : {"PACE A1", "PACE A2", "PACE A3", "PACE A4"})
+    {
+        INFO(label);
+        std::vector<AudioSendLog::Send> window;
+        for (auto const& s : sends.of(label))
+        {
+            if (s.handed >= from && s.handed < to)
+            {
+                window.push_back(s);
+            }
+        }
+        REQUIRE(window.size() > 1500);
+        // One block per packet time on the clock: consecutive transmit times, none twice, (almost) none skipped.
+        std::int64_t gaps = 0;
+        for (std::size_t i = 1; i < window.size(); ++i)
+        {
+            auto const step = window[i].transmit - window[i - 1].transmit;
+            CHECK(step > 0);
+            gaps += step / 1'000'000 - 1;
+        }
+        CHECK(gaps <= static_cast<std::int64_t>(window.size() / 100));
+        CHECK(static_cast<double>(window.size()) == doctest::Approx(static_cast<double>(to - from) / 1e6).epsilon(0.03));
+        // Every block reaches its sender before its transmit time (a shared CI runner may preempt the worker for
+        // a moment: up to 0.5 % may miss); a late source (A3) only costs its own lead.
+        std::vector<std::int64_t> leads;
+        for (auto const& s : window)
+        {
+            leads.push_back(s.transmit - s.handed);
+        }
+        std::sort(leads.begin(), leads.end());
+        CHECK(std::count_if(leads.begin(), leads.end(), [](std::int64_t lead) { return lead <= 0; }) <= static_cast<std::ptrdiff_t>(leads.size() / 200));
+        // A block is handed over when its data is due (A1, A4: ~38 ms ahead), arrives (A2: 20 ms chunks 35 ms
+        // after their start, 3.5..22.5 ms ahead) or is given up (A3: 2 ms ahead), never when another essence's is.
+        auto const p1 = leads[leads.size() / 100];
+        std::map<std::string, std::int64_t> const minimum{{"PACE A1", 20'000'000}, {"PACE A2", 2'000'000}, {"PACE A3", 500'000}, {"PACE A4", 20'000'000}};
+        CHECK(p1 >= minimum.at(label));
+    }
+    auto delta = [&](int uid, std::uint64_t group::EssenceSnapshot::*field) { return h.essence(uid).*field - before.at(uid).*field; };
+    // The chunked late source arrives before its give-up time and is read; the 60 ms late one never is.
+    CHECK(delta(603, &group::EssenceSnapshot::grainsRead) > 1800);
+    CHECK(delta(603, &group::EssenceSnapshot::readTimeouts) < 40);
+    CHECK(delta(604, &group::EssenceSnapshot::readTimeouts) > 1800);
+    CHECK(delta(602, &group::EssenceSnapshot::txDropped) == 0);
+    for (auto const* s : {&prompt, &chunked, &late})
+    {
+        s->writer->stop();
+    }
 }

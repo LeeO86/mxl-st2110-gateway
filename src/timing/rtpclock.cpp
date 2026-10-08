@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "timing/rtpclock.hpp"
 
+#include <algorithm>
+
 namespace mxlgw::timing
 {
     namespace
@@ -78,5 +80,25 @@ namespace mxlgw::timing
         t.transmit = t.origin + outputDelayNs;
         t.rtp = rtpAt(t.transmit, clockHz);
         return t;
+    }
+
+    AudioBlockSchedule::Times AudioBlockSchedule::times(std::int64_t block) const
+    {
+        Times t{};
+        t.start = taiOfTicks(block * samplesPerBlock, sampleRate);
+        t.due = taiOfTicks((block + 1) * samplesPerBlock, sampleRate) + readOffsetNs;
+        t.transmit = t.start + outputDelayNs;
+        t.giveUp = std::max(t.due, t.transmit - marginNs);
+        return t;
+    }
+
+    std::int64_t AudioBlockSchedule::lastDue(TaiNs now) const
+    {
+        return static_cast<std::int64_t>(floorDiv(ticksAt(now - readOffsetNs, sampleRate), samplesPerBlock)) - 1;
+    }
+
+    std::int64_t AudioBlockSchedule::firstUnsent(TaiNs now) const
+    {
+        return static_cast<std::int64_t>(floorDiv(ticksAt(now - outputDelayNs, sampleRate), samplesPerBlock)) + 1;
     }
 }

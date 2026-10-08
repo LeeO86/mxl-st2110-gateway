@@ -490,7 +490,7 @@ namespace mxlgw::media
                 , _buffer(static_cast<std::size_t>(_params.format.samplesPerBlock() * _params.format.channels * _params.format.bytesPerSample()))
             {}
 
-            std::uint8_t* acquire(std::chrono::nanoseconds) override { return _buffer.data(); }
+            std::uint8_t* acquire() override { return _buffer.data(); }
 
             void send(std::int64_t transmitTai) override
             {

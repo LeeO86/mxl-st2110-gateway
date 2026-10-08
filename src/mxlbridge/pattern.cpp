@@ -181,7 +181,7 @@ namespace mxlgw::mxlbridge
             }
             if (audio)
             {
-                while (timing::taiOfTicks(nextAudioEnd + n, sr) <= now)
+                while (timing::taiOfTicks(nextAudioEnd + n, sr) + _config.audioDelayNs <= now)
                 {
                     auto const end = nextAudioEnd + n;
                     mxlMutableWrappedMultiBufferSlice slices{};
