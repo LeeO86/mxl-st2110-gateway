@@ -759,6 +759,7 @@ namespace mxlgw::group
             {
                 data = anc->next(workerPoll);
             }
+            auto const woke = steadyNs();
             lock.lock();
             _inNext = false;
             if (_quiesce > 0)
@@ -797,6 +798,11 @@ namespace mxlgw::group
                 publishLocked();
                 lastState = now;
             }
+            // Busy time of this iteration: everything after the wait for the next frame (§12.1).
+            auto const busy = steadyNs() - woke;
+            auto const bucket = std::lower_bound(workerLoopBoundsNs.begin(), workerLoopBoundsNs.end(), busy) - workerLoopBoundsNs.begin();
+            _loopBuckets[static_cast<std::size_t>(bucket)].fetch_add(1, std::memory_order_relaxed);
+            _loopNs.fetch_add(busy, std::memory_order_relaxed);
         }
     }
 
@@ -826,6 +832,11 @@ namespace mxlgw::group
         {
             s.originAgeNs = _originAgeNs.load(std::memory_order_relaxed);
         }
+        for (std::size_t i = 0; i < s.workerLoop.size(); ++i)
+        {
+            s.workerLoop[i] = _loopBuckets[i].load(std::memory_order_relaxed);
+        }
+        s.workerLoopNs = _loopNs.load(std::memory_order_relaxed);
         return s;
     }
 }

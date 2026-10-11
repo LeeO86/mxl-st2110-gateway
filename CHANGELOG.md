@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `mxl_st2110_gateway_ingest_worker_loop_seconds` (histogram, essence labels): how long each ingest worker is busy per frame or audio block, outside its wait for the next one. A stalled real-time worker shows here before it costs frames. Grafana: *Ingest* → *Worker busy time p99.9*.
+
 ## [1.0.13] - 2026-10-08
 
 ### Fixed

@@ -306,6 +306,9 @@ namespace
         iv.rx.framesComplete = 5;
         iv.rx.legs[0].packets = 100;
         iv.originAgeNs = 1500;
+        iv.workerLoop.front() = 3;
+        iv.workerLoop.back() = 1;
+        iv.workerLoopNs = 200'000'000;
         ingest.essences.push_back(iv);
         in.groups.push_back(ingest);
 
@@ -396,6 +399,9 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
                              "mxl_st2110_gateway_rx_packets_total",
                              "mxl_st2110_gateway_rx_leg_seq_lost_total",
                              "mxl_st2110_gateway_ingest_origin_age_ns",
+                             "mxl_st2110_gateway_ingest_worker_loop_seconds_bucket",
+                             "mxl_st2110_gateway_ingest_worker_loop_seconds_sum",
+                             "mxl_st2110_gateway_ingest_worker_loop_seconds_count",
                              "mxl_st2110_gateway_mxl_grains_written_total",
                              "mxl_st2110_gateway_mxl_samples_written_total",
                              "mxl_st2110_gateway_mxl_write_errors_total",
@@ -421,6 +427,9 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
     CHECK(text.find(R"(group="CAM \"1\"")") != std::string::npos);
     CHECK(text.find(R"(domain_kind="mirror")") != std::string::npos);
     CHECK(text.find(R"(mxl_st2110_gateway_mxl_discovered_domains{kind="mirror"} 1)") != std::string::npos);
+    CHECK(text.find(R"(direction="ingest",le="1e-05"} 3)") != std::string::npos);
+    CHECK(text.find(R"(direction="ingest",le="+Inf"} 4)") != std::string::npos);
+    CHECK(text.find(R"(direction="ingest"} 0.2)") != std::string::npos);
 
     // One-hot essence state: exactly one series per essence has value 1.
     std::regex const stateLine(R"re(^mxl_st2110_gateway_essence_state\{.*uid="([^"]+)".*\} ([01])$)re");

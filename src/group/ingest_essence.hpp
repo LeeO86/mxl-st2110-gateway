@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <memory>
@@ -137,6 +138,8 @@ namespace mxlgw::group
         std::atomic<std::uint64_t> _framesDropped{0};
         std::atomic<std::int64_t> _originAgeNs{0};
         std::atomic<bool> _haveOriginAge{false};
+        std::array<std::atomic<std::uint64_t>, workerLoopBoundsNs.size() + 1> _loopBuckets{};
+        std::atomic<std::int64_t> _loopNs{0};
 
         std::thread _thread;
     };

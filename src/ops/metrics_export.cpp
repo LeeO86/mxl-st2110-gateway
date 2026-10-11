@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "ops/metrics_export.hpp"
 
+#include <array>
+
 #include "timing/ptp.hpp"
 #include "version.hpp"
 
@@ -127,6 +129,13 @@ namespace mxlgw::ops
                 out.counter("mxl_st2110_gateway_mxl_grains_written_total", "MXL grains committed", l, d(e.grainsWritten));
                 out.counter("mxl_st2110_gateway_mxl_samples_written_total", "MXL audio samples committed", l, d(e.samplesWritten));
                 out.counter("mxl_st2110_gateway_mxl_write_errors_total", "MXL writes rejected", l, d(e.writeErrors));
+                std::array<double, group::workerLoopBoundsNs.size()> bounds{};
+                for (std::size_t i = 0; i < bounds.size(); ++i)
+                {
+                    bounds[i] = static_cast<double>(group::workerLoopBoundsNs[i]) / 1e9;
+                }
+                out.histogram("mxl_st2110_gateway_ingest_worker_loop_seconds", "Ingest worker busy time per iteration (outside its wait for the next frame)", l,
+                              bounds, e.workerLoop, static_cast<double>(e.workerLoopNs) / 1e9);
                 return;
             }
             out.counter("mxl_st2110_gateway_mxl_grains_read_total", "MXL grains (or audio blocks) read", l, d(e.grainsRead));
