@@ -50,7 +50,10 @@ ENV VCPKG_ROOT=/opt/vcpkg
 # MXL (Apache-2.0), Fabrics OFF, tools ON (mxl-info, mxl-data-probe). No GStreamer is
 # installed, so the optional mxl-gst tools are skipped by MXL's CMake.
 ARG MXL_REVISION
-RUN git clone --depth 1 --branch "${MXL_REF}" https://github.com/dmf-mxl/mxl /tmp/mxl \
+# A branch moves on: build the pinned commit MXL_REVISION, which must be on MXL_REF.
+RUN git clone --filter=blob:none --branch "${MXL_REF}" https://github.com/dmf-mxl/mxl /tmp/mxl \
+    && git -C /tmp/mxl merge-base --is-ancestor "${MXL_REVISION}" HEAD \
+    && git -C /tmp/mxl checkout -q --detach "${MXL_REVISION}" \
     && actual="$(git -C /tmp/mxl rev-parse HEAD)" \
     && if [ "$actual" != "${MXL_REVISION}" ]; then echo "MXL ${MXL_REF} is ${actual}, MXL_REVISION says ${MXL_REVISION}" >&2; exit 1; fi \
     && cmake -S /tmp/mxl -B /tmp/mxl/build -G Ninja \
