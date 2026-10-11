@@ -30,7 +30,7 @@ METRICS = {
     "mxl_st2110_gateway_nic_rx_packets_total", "mxl_st2110_gateway_nic_tx_packets_total", "mxl_st2110_gateway_nic_rx_bytes_total",
     "mxl_st2110_gateway_nic_tx_bytes_total", "mxl_st2110_gateway_nic_rx_errors_total", "mxl_st2110_gateway_nic_rx_missed_total",
     "mxl_st2110_gateway_essence_state", "mxl_st2110_gateway_rx_frames_total", "mxl_st2110_gateway_rx_leg_packets_total", "mxl_st2110_gateway_rx_packets_total",
-    "mxl_st2110_gateway_rx_leg_seq_lost_total", "mxl_st2110_gateway_ingest_origin_age_ns",
+    "mxl_st2110_gateway_rx_leg_seq_lost_total", "mxl_st2110_gateway_ingest_origin_age_ns", "mxl_st2110_gateway_ingest_worker_loop_seconds",
     "mxl_st2110_gateway_mxl_grains_written_total", "mxl_st2110_gateway_mxl_samples_written_total", "mxl_st2110_gateway_mxl_write_errors_total",
     "mxl_st2110_gateway_mxl_grains_read_total", "mxl_st2110_gateway_mxl_read_timeouts_total", "mxl_st2110_gateway_mxl_late_reads_total",
     "mxl_st2110_gateway_mxl_grains_invalid_total", "mxl_st2110_gateway_mxl_flow_not_found_total", "mxl_st2110_gateway_mxl_read_lag_grains",
@@ -285,6 +285,11 @@ def build():
         (f"rate(mxl_st2110_gateway_mxl_samples_written_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} samples"),
         (f"rate(mxl_st2110_gateway_mxl_write_errors_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} errors"),
     ], unit="ops", min_zero=True), 8, 7)
+    L.add(timeseries("Worker busy time p99.9", [
+        (f"histogram_quantile(0.999, sum by (instance, group, essence, le) (rate(mxl_st2110_gateway_ingest_worker_loop_seconds_bucket{{{ingest}}}[$__rate_interval])))",
+         "{{group}} / {{essence}}"),
+    ], unit="s", min_zero=True,
+        description="Time an ingest worker is busy per frame or audio block, outside its wait for the next one. Spikes are stalls of the real-time worker."), 24, 7)
 
     # ------------------------------------------------------------------ Egress
     L.row("Egress (MXL → ST 2110)")

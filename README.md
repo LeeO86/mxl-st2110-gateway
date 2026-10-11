@@ -55,7 +55,7 @@ docker compose up -d
 ```yaml
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.13}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.14}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
@@ -357,6 +357,8 @@ Further rules: the gateway never writes into mirror domains; new flow UUIDs (for
 
 `/metrics` (Prometheus text format) on the web port (`NMOS_PORT` unless `WEB_PORT` is set); every metric starts with `mxl_st2110_gateway_` and is listed in [`docs/metrics.md`](docs/metrics.md). Metric names and labels are a stable public interface. Dashboard: [`monitoring/grafana/mxl-st2110-gateway.json`](monitoring/grafana/mxl-st2110-gateway.json) (Grafana ≥ 11; variables `datasource`, `instance`, `group`, `essence`; rows Overview, PTP, NIC, Ingest, Egress, NMOS, MXL domains). Scrape example: [`monitoring/prometheus/scrape-example.yaml`](monitoring/prometheus/scrape-example.yaml); Prometheus Operator: [`deploy/k8s/servicemonitor.yaml`](deploy/k8s/servicemonitor.yaml).
 
+`mxl_st2110_gateway_ingest_worker_loop_seconds` (histogram per ingest essence, since 1.0.14) shows how long each real-time ingest worker is busy per frame or audio block, outside its wait for the next one (Grafana *Ingest* → *Worker busy time p99.9*). Tens of microseconds are normal; milliseconds mean the worker was held up and frames are at risk. The counters that come from MTL's session statistics (`mxl_st2110_gateway_rx_*`, `_tx_frames_total`, `_tx_late_frames_total`) are read by one stats thread every 250 ms, so they can be up to 250 ms old.
+
 Logs are JSON lines on stdout (`ts`, `level`, `event`, fields; `MXLGW_LOG_FORMAT=text` for text) with stable event names (`essence_state`, `nmos_activation`, `mxl_flow_not_found`, `mxl_domain_discovered`, `ptp_gm_changed`, …). MTL and DPDK output is included with `component=mtl` / `dpdk`. The UI shows the last 500 lines.
 
 ## Limitations
@@ -409,6 +411,7 @@ Other frequent issues:
 - **Essence `waiting_for_flow`** (egress): the MXL flow or domain does not exist (yet). It starts automatically once it appears; check the flow id, `mxl.scan_path` and, for remote flows, the agent. **`no_signal`**: the flow exists but no grains arrive in time.
 - **Ingest essence `no_signal` / `no_packets` while the source sends**: before 1.0.7 the RTP receiver listened for the essence's configured `payload_type`, not the SDP's (MTL drops other payload types; VideoIPath audio often uses 98). 1.0.7 takes it from the staged SDP; `ingest_receiver_started` logs the payload type in use.
 - **RX `rx_missed` / incomplete frames and TX `late_frames` while only one `mtl_sched` thread is busy** (the other lcores idle): MTL's default quota puts up to ~12 TX / 8 RX 1080p sessions on one scheduler lcore. Set `nic.sch_quota_mbs` (`MXLGW_NIC_SCH_QUOTA_MBS`), e.g. 5000 for one 1080p50 video session per lcore (1.0.11).
+- **Ingest `incomplete` / `dropped` frames on a loaded host, with millisecond spikes in `mxl_st2110_gateway_ingest_worker_loop_seconds`**: before 1.0.14 every ingest worker read MTL's session statistics every 250 ms on its real-time thread; the call waits until MTL's scheduler has finished with the session, which held up the worker for milliseconds, and for more than 100 ms when the worker ran on an MTL lcore's CPU. 1.0.14 reads them on one stats thread. Keep `nic.app_cpus` disjoint from `nic.lcores`.
 - **Segmentation fault (exit 139, CrashLoopBackOff) at start or when a sender starts, after `ETHDEV: lcore N called rx_pkt_burst for not ready port P`** (E810 PF, `nic.tx_pacing` `auto` or `rl`): before 1.0.13 the ice PMD restarted the port to set the TX rate limiter while MTL's schedulers kept polling it. Fixed in 1.0.13; on older versions `nic.tx_pacing = tsc` avoids the restart.
 - **CrashLoopBackOff with `EAL: Cannot set affinity` and `media_backend_failed`** in a Guaranteed pod (exclusive CPUs, CPU 0 reserved): before 1.0.10 DPDK's main lcore was CPU 0, outside the pod's CPUs (1.0.9 moved it but MTL still passed the CPU number). 1.0.10 puts it on the first app CPU; `mtl_init` logs `main_lcore`.
 - **TX audio below 1000 packets/s (ptime 1 ms), gaps at the receiver, `late_frames` growing**: before 1.0.8 the audio blocks of a TX group were handed to MTL once per grain period behind the video, and with a read offset close to the output delay MTL dropped the first blocks of every period as late. 1.0.8 hands each block over when its data is due; `mxl_st2110_gateway_egress_lead_ns` shows the remaining lead (about output delay − read offset − 1 ms for an on-time source).

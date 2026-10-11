@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -54,6 +55,12 @@ namespace mxlgw::group
         util::Uuid flowId;
     };
 
+    /// Bucket upper bounds of `mxl_st2110_gateway_ingest_worker_loop_seconds` (§12.1), in ns.
+    inline constexpr std::array<std::int64_t, 12> workerLoopBoundsNs{10'000,    25'000,    50'000,    100'000,    250'000,    500'000,
+                                                                     1'000'000, 2'500'000, 5'000'000, 10'000'000, 25'000'000, 100'000'000};
+    /// Observations per bucket of workerLoopBoundsNs; the last one counts those above every bound.
+    using WorkerLoopBuckets = std::array<std::uint64_t, workerLoopBoundsNs.size() + 1>;
+
     /// Point-in-time view of one essence for /api/status and /metrics.
     struct EssenceSnapshot
     {
@@ -76,6 +83,8 @@ namespace mxlgw::group
         std::uint64_t writerResyncs = 0;
         std::uint64_t framesDropped = 0; // gateway-side drops (busy writer, no slot)
         std::optional<std::int64_t> originAgeNs;
+        WorkerLoopBuckets workerLoop{}; // worker busy time per iteration (outside its wait for the next frame)
+        std::int64_t workerLoopNs = 0;  // sum of those times
 
         // egress
         bool mxlReceiverActive = false;

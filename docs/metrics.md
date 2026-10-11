@@ -70,6 +70,7 @@ All `mxl_st2110_gateway_ptp_*` series exist only while MTL runs PTP (`ptp.mode` 
 | `mxl_st2110_gateway_rx_packets_total` | counter | essence labels | packets after the 2022-7 merge |
 | `mxl_st2110_gateway_rx_leg_seq_lost_total` | counter | essence labels, `leg` | sequence gaps on a leg (loss on one leg is harmless while the other is clean) |
 | `mxl_st2110_gateway_ingest_origin_age_ns` | gauge | essence labels | TAI now minus the origin time of the last frame written |
+| `mxl_st2110_gateway_ingest_worker_loop_seconds` | histogram | essence labels (+ `le`) | time the essence's real-time worker is busy per frame or audio block, outside its wait for the next one (MXL write, audio conversion, state updates); buckets 10 µs … 100 ms. A stall of the worker shows as a high quantile here and later as `dropped` or `incomplete` frames. Since 1.0.14 |
 | `mxl_st2110_gateway_mxl_grains_written_total` | counter | essence labels | grains committed (video, ANC) |
 | `mxl_st2110_gateway_mxl_samples_written_total` | counter | essence labels | audio samples committed |
 | `mxl_st2110_gateway_mxl_write_errors_total` | counter | essence labels | writes MXL rejected (e.g. index not after the last committed one, §5.6) |

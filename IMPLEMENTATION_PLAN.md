@@ -83,6 +83,12 @@ Every **VERIFY** item touched in a phase MUST be resolved in that phase: confirm
 
 **Accept:** all §19 items pass → tag `v1.0.0`.
 
+## Maintenance (patch releases after v1.0.0)
+
+Every patch release is listed in `CHANGELOG.md`; behaviour changes also go to `docs/decisions.md`.
+
+- **1.0.14** — MTL session statistics on one stats thread, never on a media worker (§3.6); `mxl_st2110_gateway_ingest_worker_loop_seconds` (§12.1, §12.2). **Accept:** unit test that only the stats thread reads session statistics; CI green; lab before/after (ingest worker busy time, RX incomplete frames, TX audio packets/s with 0, 1, 3, 4 sources under CPU load) in the PR and `docs/decisions.md`.
+
 ---
 
 ## Platform guideline G1–G14 (MXL PoC platform, v1.0.0 contract)

@@ -390,22 +390,14 @@ namespace mxlgw::group
         std::lock_guard const lock{_snapMutex};
         _rxActive = _receiver.masterEnable;
         _writerActive = _writer != nullptr;
-        if (_videoRx)
-        {
-            _rxStats = _videoRx->stats();
-        }
-        else if (_audioRx)
-        {
-            _rxStats = _audioRx->stats();
-        }
-        else if (_ancRx)
-        {
-            _rxStats = _ancRx->stats();
-        }
-        else
-        {
-            _rxStats = {};
-        }
+    }
+
+    void IngestEssence::pollStats()
+    {
+        // MTL's stats calls spin on a lock its scheduler holds while it serves the session: never on the worker.
+        auto const stats = _videoRx ? _videoRx->stats() : _audioRx ? _audioRx->stats() : _ancRx ? _ancRx->stats() : media::SessionStats{};
+        std::lock_guard const lock{_snapMutex};
+        _rxStats = stats;
     }
 
     void IngestEssence::releaseWriterLocked()
@@ -759,6 +751,7 @@ namespace mxlgw::group
             {
                 data = anc->next(workerPoll);
             }
+            auto const woke = steadyNs();
             lock.lock();
             _inNext = false;
             if (_quiesce > 0)
@@ -797,6 +790,11 @@ namespace mxlgw::group
                 publishLocked();
                 lastState = now;
             }
+            // Busy time of this iteration: everything after the wait for the next frame (§12.1).
+            auto const busy = steadyNs() - woke;
+            auto const bucket = std::lower_bound(workerLoopBoundsNs.begin(), workerLoopBoundsNs.end(), busy) - workerLoopBoundsNs.begin();
+            _loopBuckets[static_cast<std::size_t>(bucket)].fetch_add(1, std::memory_order_relaxed);
+            _loopNs.fetch_add(busy, std::memory_order_relaxed);
         }
     }
 
@@ -826,6 +824,11 @@ namespace mxlgw::group
         {
             s.originAgeNs = _originAgeNs.load(std::memory_order_relaxed);
         }
+        for (std::size_t i = 0; i < s.workerLoop.size(); ++i)
+        {
+            s.workerLoop[i] = _loopBuckets[i].load(std::memory_order_relaxed);
+        }
+        s.workerLoopNs = _loopNs.load(std::memory_order_relaxed);
         return s;
     }
 }

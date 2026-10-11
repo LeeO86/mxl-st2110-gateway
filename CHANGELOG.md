@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.14] - 2026-10-11
+
+### Fixed
+
+- The ingest workers no longer read MTL's session statistics. Every ingest worker (real time, pinned to the app CPUs) called `st20p/st30p/st40p_rx_get_session_stats` every 250 ms; the call spins on the session lock that MTL's scheduler holds while it serves the session, so the worker stalled for as long as the scheduler held it, and on a CPU shared with an MTL lcore until the kernel's real-time throttling stopped it. One stats thread (normal priority, no pinning of its own) now reads the statistics of every RX and TX session every 250 ms; the workers only count. The status API and `/metrics` show its last values (at most 250 ms old) and no longer call MTL themselves (1.0.8–1.0.13 read the TX statistics once per request). Metric names and meanings are unchanged. Lab (kernel backend, 1080p25 + 14 audio receivers, 2022-7, CPU load): RX video worker p99.9 busy time 1–5 ms → ≤ 50 µs, about one iteration per second above 100 µs → none; with the workers on the MTL lcores' CPUs 0 complete / 630–835 incomplete video frames and 460–480 dropped audio blocks per 20 s → all complete, none dropped. TX audio unchanged at 1000 packets/s with 0, 1, 3 and 4 active sources.
+
+### Added
+
+- `mxl_st2110_gateway_ingest_worker_loop_seconds` (histogram, essence labels): how long each ingest worker is busy per frame or audio block, outside its wait for the next one. A stalled real-time worker shows here before it costs frames. Grafana: *Ingest* → *Worker busy time p99.9*.
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.14` image.
+
 ## [1.0.13] - 2026-10-08
 
 ### Fixed

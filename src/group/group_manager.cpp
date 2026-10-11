@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include "util/logging.hpp"
+#include "util/threading.hpp"
 
 namespace mxlgw::group
 {
@@ -74,12 +75,43 @@ namespace mxlgw::group
         , _resolver(resolver)
         , _domains(std::move(domains))
         , _appCpus(std::move(appCpus))
-    {}
+    {
+        _statsThread = std::thread([this] { runStats(); });
+    }
 
     GroupManager::~GroupManager()
     {
+        {
+            std::lock_guard const lock{_statsMutex};
+            _statsStop = true;
+        }
+        _statsCv.notify_all();
+        _statsThread.join();
         std::lock_guard const lock{_mutex};
         _groups.clear();
+    }
+
+    void GroupManager::runStats()
+    {
+        // Normal priority (no SCHED_FIFO, no pinning of its own): MTL's session stats calls spin on a lock its scheduler
+        // holds while it serves the session, so no media worker (and no status or metrics request) makes them (§3.6).
+        util::setThreadName("session-stats");
+        std::unique_lock wait{_statsMutex};
+        while (!_statsCv.wait_for(wait, std::chrono::milliseconds(250), [this] { return _statsStop; }))
+        {
+            std::lock_guard const lock{_mutex};
+            for (auto const& [uid, entry] : _groups)
+            {
+                for (auto const& e : entry->ingest)
+                {
+                    e->pollStats();
+                }
+                if (entry->egress)
+                {
+                    entry->egress->pollStats();
+                }
+            }
+        }
     }
 
     DomainRuntime const* GroupManager::domainByName(std::string const& name) const

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include <doctest/doctest.h>
 
+#include <array>
+
 #include "ops/health.hpp"
 #include "ops/http.hpp"
 #include "ops/metrics.hpp"
@@ -81,6 +83,20 @@ TEST_CASE("metrics exposition format")
     reg.remove(id);
     CHECK(reg.scrape().empty());
     CHECK(escapeLabelValue("a\\b\n") == "a\\\\b\\n");
+}
+
+TEST_CASE("metrics histogram: cumulative buckets, +Inf, sum and count")
+{
+    MetricsWriter w;
+    std::array<double, 2> const bounds{0.001, 0.01};
+    std::array<std::uint64_t, 3> const buckets{2, 0, 1};
+    w.histogram("x_seconds", "X", {{"a", "b"}}, bounds, buckets, 0.5);
+    CHECK(w.render() == "# HELP x_seconds X\n# TYPE x_seconds histogram\n"
+                        "x_seconds_bucket{a=\"b\",le=\"0.001\"} 2\n"
+                        "x_seconds_bucket{a=\"b\",le=\"0.01\"} 2\n"
+                        "x_seconds_bucket{a=\"b\",le=\"+Inf\"} 3\n"
+                        "x_seconds_sum{a=\"b\"} 0.5\n"
+                        "x_seconds_count{a=\"b\"} 3\n");
 }
 
 TEST_CASE("readiness reasons (§10)")

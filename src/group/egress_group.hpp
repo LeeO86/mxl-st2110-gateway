@@ -47,6 +47,8 @@ namespace mxlgw::group
         void setSender(util::Uuid const& essenceUid, RtpTarget const& target);
         /// Live read-offset edit (§9.3); applied from the next grain.
         void setReadOffset(util::Uuid const& essenceUid, std::int64_t readOffsetNs);
+        /// Reads the TX sessions' MTL statistics for snapshot() (§3.6; GroupManager's stats thread).
+        void pollStats();
         GroupSnapshot snapshot() const;
         util::Uuid const& uid() const { return _spec.group.uid; }
         /// Transmit time after the grain time, fixed for the group's lifetime (§5.7).
@@ -83,8 +85,8 @@ namespace mxlgw::group
         std::int64_t _outputDelayNs = 0;
         /// Audio worker tick: the shortest audio block of the group (0 = no audio).
         std::int64_t _audioTickNs = 0;
-        /// Guards the TX session pointers between their worker (create/reset) and snapshot() (stats): MTL's
-        /// stats calls spin on a lock the MTL scheduler holds, so they never run on a real-time worker.
+        /// Guards the TX session pointers between their worker (create/reset) and pollStats(), and the stats it
+        /// reads: MTL's stats calls spin on a lock the MTL scheduler holds, so they never run on a real-time worker.
         mutable std::mutex _sessionMutex;
         log::RateLimiter _notFoundLog{std::chrono::seconds(30)};
         log::RateLimiter _behindLog{std::chrono::seconds(10)};
