@@ -8,6 +8,8 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <numeric>
+#include <pthread.h>
 #include <set>
 #include <stdexcept>
 #include <thread>
@@ -155,6 +157,111 @@ namespace
         std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
     };
 
+    /// Names of the threads that read session statistics.
+    struct StatsReaders
+    {
+        std::mutex mutex;
+        std::set<std::string> names;
+
+        void note()
+        {
+            char name[16] = {};
+            pthread_getname_np(pthread_self(), name, sizeof(name));
+            std::lock_guard const lock{mutex};
+            names.insert(name);
+        }
+        std::set<std::string> all()
+        {
+            std::lock_guard const lock{mutex};
+            return names;
+        }
+    };
+
+    struct NotingVideoRx final : media::VideoRxSession
+    {
+        std::unique_ptr<media::VideoRxSession> inner;
+        StatsReaders& readers;
+        NotingVideoRx(std::unique_ptr<media::VideoRxSession> session, StatsReaders& r)
+            : inner(std::move(session))
+            , readers(r)
+        {}
+        std::optional<media::FrameMeta> next(std::chrono::nanoseconds timeout) override { return inner->next(timeout); }
+        void release() override { inner->release(); }
+        bool updateSource(std::vector<media::LegAddress> const& legs) override { return inner->updateSource(legs); }
+        media::SessionStats stats() const override
+        {
+            readers.note();
+            return inner->stats();
+        }
+    };
+
+    struct NotingAudioRx final : media::AudioRxSession
+    {
+        std::unique_ptr<media::AudioRxSession> inner;
+        StatsReaders& readers;
+        NotingAudioRx(std::unique_ptr<media::AudioRxSession> session, StatsReaders& r)
+            : inner(std::move(session))
+            , readers(r)
+        {}
+        std::optional<media::AudioBlock> next(std::chrono::nanoseconds timeout) override { return inner->next(timeout); }
+        void release() override { inner->release(); }
+        bool updateSource(std::vector<media::LegAddress> const& legs) override { return inner->updateSource(legs); }
+        media::SessionStats stats() const override
+        {
+            readers.note();
+            return inner->stats();
+        }
+    };
+
+    struct NotingAudioTx final : media::AudioTxSession
+    {
+        std::unique_ptr<media::AudioTxSession> inner;
+        StatsReaders& readers;
+        NotingAudioTx(std::unique_ptr<media::AudioTxSession> session, StatsReaders& r)
+            : inner(std::move(session))
+            , readers(r)
+        {}
+        std::uint8_t* acquire() override { return inner->acquire(); }
+        void send(std::int64_t transmitTai) override { inner->send(transmitTai); }
+        bool updateDestination(std::vector<media::LegAddress> const& legs) override { return inner->updateDestination(legs); }
+        media::SessionStats stats() const override
+        {
+            readers.note();
+            return inner->stats();
+        }
+    };
+
+    /// Mock backend that notes which threads read the statistics of the RX video/audio and TX audio sessions.
+    struct StatsReadersBackend final : media::MediaBackend
+    {
+        std::unique_ptr<media::MediaBackend> inner;
+        StatsReaders& readers;
+
+        StatsReadersBackend(std::unique_ptr<media::MediaBackend> backend, StatsReaders& r)
+            : inner(std::move(backend))
+            , readers(r)
+        {}
+
+        std::string name() const override { return inner->name(); }
+        std::int64_t ptpTimeNs() const override { return inner->ptpTimeNs(); }
+        media::BackendStatus status() const override { return inner->status(); }
+        std::unique_ptr<media::VideoRxSession> createVideoRx(media::VideoRxParams const& p, media::VideoRxHandler& h) override
+        {
+            return std::make_unique<NotingVideoRx>(inner->createVideoRx(p, h), readers);
+        }
+        std::unique_ptr<media::VideoTxSession> createVideoTx(media::VideoTxParams const& p) override { return inner->createVideoTx(p); }
+        std::unique_ptr<media::AudioRxSession> createAudioRx(media::AudioParams const& p) override
+        {
+            return std::make_unique<NotingAudioRx>(inner->createAudioRx(p), readers);
+        }
+        std::unique_ptr<media::AudioTxSession> createAudioTx(media::AudioParams const& p) override
+        {
+            return std::make_unique<NotingAudioTx>(inner->createAudioTx(p), readers);
+        }
+        std::unique_ptr<media::AncRxSession> createAncRx(media::AncParams const& p) override { return inner->createAncRx(p); }
+        std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
+    };
+
     using BackendWrap = std::function<std::unique_ptr<media::MediaBackend>(std::unique_ptr<media::MediaBackend>)>;
 
     /// Gateway core (domains, resolver, mock backend, groups) without NMOS.
@@ -260,7 +367,8 @@ TEST_CASE("pipeline: MXL -> egress -> ST 2110 (mock) -> ingest -> MXL keeps cont
                       {"video", {videoJson(301, "LOOP V", "239.10.0.1")}},
                       {"audio", {audioJson(302, "LOOP A", "239.10.0.2")}},
                       {"anc", {ancJson(303, "LOOP ANC", "239.10.0.3")}}});
-    Harness h(groups);
+    StatsReaders readers;
+    Harness h(groups, [&](std::unique_ptr<media::MediaBackend> inner) { return std::make_unique<StatsReadersBackend>(std::move(inner), readers); });
 
     mxlbridge::PatternConfig pc;
     pc.videoFlow = util::uuidV4();
@@ -315,6 +423,12 @@ TEST_CASE("pipeline: MXL -> egress -> ST 2110 (mock) -> ingest -> MXL keeps cont
     CHECK(ingest.writeErrors == 0);
     CHECK(ingest.originAgeNs.has_value());
     CHECK(h.essence(302).samplesWritten > 48 * 2000);
+    // §3.6: the session statistics arrive, read by the stats thread only, never by a media worker or a snapshot.
+    CHECK(ingest.rx.packets > 0);
+    CHECK(h.essence(302).rx.packets > 0);
+    CHECK(h.essence(202).tx.packets > 0);
+    CHECK(std::accumulate(ingest.workerLoop.begin(), ingest.workerLoop.end(), std::uint64_t{0}) > 50);
+    CHECK(readers.all() == std::set<std::string>{"session-stats"});
     source.stop();
 }
 
@@ -367,7 +481,7 @@ TEST_CASE("pipeline: late flow in a mirror domain — waiting_for_flow, running,
     CHECK(h.essence(401).reader->domainKind == "mirror");
     CHECK(h.essence(401).reader->domainId == mirrorId);
     // Replacement data kept the ST 2110 output going while the flow was missing.
-    CHECK(h.essence(401).tx.packets > txBefore);
+    CHECK(waitFor([&] { return h.essence(401).tx.packets > txBefore; }, 1s));
 
     // Writer stops (MXL deletes the flow on a clean stop): no_signal, not error; retries continue and the
     // ST 2110 output keeps going with replacement data.

@@ -113,6 +113,7 @@ namespace mxlgw::group
         std::unique_ptr<media::VideoTxSession> vtx;
         std::unique_ptr<media::AudioTxSession> atx;
         std::unique_ptr<media::AncTxSession> ntx;
+        media::SessionStats txStats; // last pollStats(), guarded by _sessionMutex
         util::Backoff txBackoff{std::chrono::seconds(1), std::chrono::seconds(30), 0.1};
         std::int64_t txNextAttempt = 0;
         std::unique_ptr<VideoReplacement> replacement;
@@ -959,15 +960,22 @@ namespace mxlgw::group
             s.readOffsetNs = e->readOffsetNs.load();
             g.essences.push_back(std::move(s));
         }
-        // MTL's session stats spin on a lock its scheduler holds while it serves the session: read them here,
-        // on the caller's (non-real-time) thread, never on a worker.
         std::lock_guard const lock{_sessionMutex};
         for (std::size_t i = 0; i < _essences.size(); ++i)
         {
-            auto const& e = *_essences[i];
-            g.essences[i].tx = e.vtx ? e.vtx->stats() : e.atx ? e.atx->stats() : e.ntx ? e.ntx->stats() : media::SessionStats{};
+            g.essences[i].tx = _essences[i]->txStats;
         }
         return g;
+    }
+
+    void EgressGroup::pollStats()
+    {
+        // MTL's session stats spin on a lock its scheduler holds while it serves the session: never on a worker.
+        std::lock_guard const lock{_sessionMutex};
+        for (auto& e : _essences)
+        {
+            e->txStats = e->vtx ? e->vtx->stats() : e->atx ? e->atx->stats() : e->ntx ? e->ntx->stats() : media::SessionStats{};
+        }
     }
 
     void EgressGroup::run()

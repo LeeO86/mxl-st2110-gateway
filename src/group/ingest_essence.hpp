@@ -49,6 +49,9 @@ namespace mxlgw::group
 
         void setReceiver(RtpTarget const& target);
         void setSender(MxlSenderTarget const& target);
+        /// Reads the RX session's MTL statistics for snapshot() (§3.6). Only from GroupManager's stats thread under the
+        /// manager's lock, which also serialises setReceiver() and the destructor, the only writers of the sessions.
+        void pollStats();
         EssenceSnapshot snapshot() const;
         util::Uuid const& uid() const { return _uid; }
         util::Uuid const& flowId() const { return _ids.flow; }

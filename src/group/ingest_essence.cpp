@@ -390,22 +390,14 @@ namespace mxlgw::group
         std::lock_guard const lock{_snapMutex};
         _rxActive = _receiver.masterEnable;
         _writerActive = _writer != nullptr;
-        if (_videoRx)
-        {
-            _rxStats = _videoRx->stats();
-        }
-        else if (_audioRx)
-        {
-            _rxStats = _audioRx->stats();
-        }
-        else if (_ancRx)
-        {
-            _rxStats = _ancRx->stats();
-        }
-        else
-        {
-            _rxStats = {};
-        }
+    }
+
+    void IngestEssence::pollStats()
+    {
+        // MTL's stats calls spin on a lock its scheduler holds while it serves the session: never on the worker.
+        auto const stats = _videoRx ? _videoRx->stats() : _audioRx ? _audioRx->stats() : _ancRx ? _ancRx->stats() : media::SessionStats{};
+        std::lock_guard const lock{_snapMutex};
+        _rxStats = stats;
     }
 
     void IngestEssence::releaseWriterLocked()

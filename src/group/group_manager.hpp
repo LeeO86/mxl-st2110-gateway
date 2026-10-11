@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <condition_variable>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "config/config.hpp"
@@ -30,7 +32,8 @@ namespace mxlgw::group
 
     /// Owns all groups and routes IS-05 targets to their essences (control thread only, except
     /// snapshot()). Group edits tear down and rebuild only the affected group (§9.3); the last target
-    /// of every essence is kept and re-applied to the rebuilt objects.
+    /// of every essence is kept and re-applied to the rebuilt objects. Its stats thread reads the MTL session
+    /// statistics of every group every 250 ms (§3.6).
     class GroupManager
     {
     public:
@@ -67,6 +70,7 @@ namespace mxlgw::group
         void reapplyTargets(GroupEntry& entry);
         GroupEntry* groupOfEssence(util::Uuid const& essenceUid);
         IngestEssence* ingestEssence(util::Uuid const& essenceUid);
+        void runStats();
 
         util::Uuid _nodeId;
         media::MediaBackend& _backend;
@@ -80,6 +84,10 @@ namespace mxlgw::group
         std::map<util::Uuid, MxlSenderTarget> _mxlSenders;
         std::map<util::Uuid, MxlReceiverTarget> _mxlReceivers;
         std::map<util::Uuid, RtpTarget> _rtpSenders;
+        std::mutex _statsMutex;
+        std::condition_variable _statsCv;
+        bool _statsStop = false;
+        std::thread _statsThread;
     };
 
     /// Group JSON without the live-editable read offsets (§9.3).
