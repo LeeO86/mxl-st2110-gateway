@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.15] - 2026-10-11
+
+### Changed
+
+- Built on MXL `release/v1.1` at `218ddaa` (was tag `v1.1.0`, `8f3f1096`), the revision the other media functions use. It adds the writer fix `b8ec4bb6` ("Reset validSlices when opening a new grain": a reused ring slot no longer shows the previous grain's slice count to slice-reading consumers) and the reader check `d66dcf3c` (`Instance::getFlowReader` checks the flow id). The shared-memory format is unchanged. No code change in the gateway; `io.dmf.mxl.revision` is `218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7`.
+
 ## [1.0.14] - 2026-10-11
 
 ### Fixed

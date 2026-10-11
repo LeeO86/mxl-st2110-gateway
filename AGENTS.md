@@ -12,7 +12,7 @@ Instructions for coding agents (Claude Code) working on `mxl-st2110-gateway`.
 
 - **No GStreamer**, anywhere.
 - **Never write RFC 4175 wire data into a `video/v210` grain.** Intel's `ecosystem/MTL_with_MXL` PoC does exactly that — do not copy that part.
-- Keep the pins (`MTL v26.09`, `DPDK 26.07`, `MXL v1.1.0`, `nmos-cpp fe303849527394b03bdedc8f161f377fe458bb62`, nmos-testing `90018513…`) in exactly two places: `docker/Dockerfile` build args and `.github/workflows/ci.yaml` (with a "keep in sync" comment).
+- Keep the pins (`MTL v26.09`, `DPDK 26.07`, `MXL release/v1.1 @ 218ddaa`, `nmos-cpp fe303849527394b03bdedc8f161f377fe458bb62`, nmos-testing `90018513…`) in exactly two places: `docker/Dockerfile` build args and `.github/workflows/ci.yaml` (with a "keep in sync" comment).
 - All media-path time is TAI since the ST 2059-1 epoch. Never add or subtract the UTC offset in the media path.
 - MTL lcore callbacks must not block, allocate, log synchronously or take contended locks.
 - Never overwrite an existing `domain_def.json` or `options.json`.

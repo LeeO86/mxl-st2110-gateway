@@ -8,7 +8,7 @@ Pinned versions of the documents and sources the implementation was checked agai
 |---|---|---|
 | [Intel MTL](https://github.com/OpenVisualCloud/Media-Transport-Library) | `v26.09` (`VERSION` 26.09.0.REL) | st20p/st30p/st40p pipelines, external frames, kernel-socket backend, built-in PTP; `doc/design.md`, `doc/external_frame.md`, `doc/run.md`, `doc/e800_series_drivers.md`, `doc/kernel_socket.md` |
 | [DPDK](https://github.com/DPDK/dpdk) | `v26.07` + MTL `patches/dpdk/26.07` | ice PMD DDP loading (`drivers/net/intel/ice/ice_ethdev.h`, `ice_load_pkg`), ethdev |
-| [MXL SDK](https://github.com/dmf-mxl/mxl) | `v1.1.0` | flow API, sync groups, index conversion; `docs/Architecture.md`, `docs/Timing.md`, `docs/Configuration.md`, `docs/Tools.md`, `docs/Addressability.md` |
+| [MXL SDK](https://github.com/dmf-mxl/mxl) | `release/v1.1` @ `218ddaa` (was `v1.1.0` until 1.0.14) | flow API, sync groups, index conversion; `docs/Architecture.md`, `docs/Timing.md`, `docs/Configuration.md`, `docs/Tools.md`, `docs/Addressability.md` |
 | [Sony nmos-cpp](https://github.com/sony/nmos-cpp) | `fe303849527394b03bdedc8f161f377fe458bb62` | node server, IS-05 MXL transport (`nmos/mxl.h`), `make_connection_mxl_sender/receiver`, SDP utilities |
 | [AMWA nmos-testing](https://github.com/AMWA-TV/nmos-testing) | `90018513758e6fbc096c26d7ef001f700b28b510` | IS-04-01, IS-05-01, IS-05-02, BCP-007-03-01 (`nmostesting/suites/BCP0070301Test.py`) |
 | Intel `ice` driver tarball | 2.6.7 (download id 923747) | E810 DDP package `ice-1.3.59.0.pkg` |
