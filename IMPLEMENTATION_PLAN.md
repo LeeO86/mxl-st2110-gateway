@@ -88,6 +88,7 @@ Every **VERIFY** item touched in a phase MUST be resolved in that phase: confirm
 Every patch release is listed in `CHANGELOG.md`; behaviour changes also go to `docs/decisions.md`.
 
 - **1.0.14** — MTL session statistics on one stats thread, never on a media worker (§3.6); `mxl_st2110_gateway_ingest_worker_loop_seconds` (§12.1, §12.2). **Accept:** unit test that only the stats thread reads session statistics; CI green; lab before/after (ingest worker busy time, RX incomplete frames, TX audio packets/s with 0, 1, 3, 4 sources under CPU load) in the PR and `docs/decisions.md`.
+- **1.0.15** — MXL `release/v1.1` at `218ddaa`; the egress sync group on a private MXL instance (crash fix, §3.6, §5.7). **Accept:** unit test (sync groups created and released while another thread releases readers of the same domain) crashes without the fix and passes with it; CI green; lab bench (TX 1080p25 + 14 audio, 4 sources) with RX video and 14 audio running, TX audio 1000 packets/s, 0 errors.
 
 ---
 

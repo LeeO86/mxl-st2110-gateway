@@ -25,7 +25,7 @@ namespace mxlgw::group
         /// Effective read offset per essence uid (§5.7, essence value or mxl.default_read_offset_*).
         std::map<util::Uuid, std::int64_t> readOffsetNs;
         std::string appCpus;
-        /// Instance that owns the group's sync group (the group's configured domain).
+        /// The group's configured domain; its sync group lives on a private instance of it (mxlbridge::SyncGroup).
         std::shared_ptr<mxlbridge::Instance> owner;
         /// Margin between the read deadline and the transmit time (MTL needs the frame before T_tx).
         std::int64_t txLeadNs = 1'000'000;

@@ -4,9 +4,9 @@
 # Pins: keep in sync with .github/workflows/ci.yaml (the only other place they live).
 ARG MTL_REF=v26.09
 ARG DPDK_VER=26.07
-ARG MXL_REF=v1.1.0
+ARG MXL_REF=release/v1.1
 # Commit of MXL_REF, verified against the clone and published as the io.dmf.mxl.revision label.
-ARG MXL_REVISION=8f3f1096e804bfb822eb959cdf2fc23199a7d15d
+ARG MXL_REVISION=218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7
 ARG NMOS_CPP_REF=fe303849527394b03bdedc8f161f377fe458bb62
 ARG ICE_VER=2.6.7
 ARG ICE_DMID=923747
@@ -50,7 +50,10 @@ ENV VCPKG_ROOT=/opt/vcpkg
 # MXL (Apache-2.0), Fabrics OFF, tools ON (mxl-info, mxl-data-probe). No GStreamer is
 # installed, so the optional mxl-gst tools are skipped by MXL's CMake.
 ARG MXL_REVISION
-RUN git clone --depth 1 --branch "${MXL_REF}" https://github.com/dmf-mxl/mxl /tmp/mxl \
+# A branch moves on: build the pinned commit MXL_REVISION, which must be on MXL_REF.
+RUN git clone --filter=blob:none --branch "${MXL_REF}" https://github.com/dmf-mxl/mxl /tmp/mxl \
+    && git -C /tmp/mxl merge-base --is-ancestor "${MXL_REVISION}" HEAD \
+    && git -C /tmp/mxl checkout -q --detach "${MXL_REVISION}" \
     && actual="$(git -C /tmp/mxl rev-parse HEAD)" \
     && if [ "$actual" != "${MXL_REVISION}" ]; then echo "MXL ${MXL_REF} is ${actual}, MXL_REVISION says ${MXL_REVISION}" >&2; exit 1; fi \
     && cmake -S /tmp/mxl -B /tmp/mxl/build -G Ninja \

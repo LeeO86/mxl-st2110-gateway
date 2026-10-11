@@ -18,8 +18,8 @@ env:
   # the only places the pins live (AGENTS.md); the "pins" step below fails if they differ.
   MTL_REF: v26.09
   DPDK_VER: "26.07"
-  MXL_REF: v1.1.0
-  MXL_REVISION: 8f3f1096e804bfb822eb959cdf2fc23199a7d15d # commit of MXL_REF (image label io.dmf.mxl.revision)
+  MXL_REF: release/v1.1
+  MXL_REVISION: 218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7 # commit of MXL_REF (image label io.dmf.mxl.revision)
   NMOS_CPP_REF: fe303849527394b03bdedc8f161f377fe458bb62
   ICE_VER: 2.6.7
   ICE_DMID: "923747"

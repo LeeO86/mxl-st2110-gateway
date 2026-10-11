@@ -992,7 +992,7 @@ namespace mxlgw::group
         std::unique_ptr<mxlbridge::SyncGroup> sync;
         try
         {
-            sync = std::make_unique<mxlbridge::SyncGroup>(_spec.owner);
+            sync = std::make_unique<mxlbridge::SyncGroup>(_spec.owner->path());
         }
         catch (std::exception const& ex)
         {

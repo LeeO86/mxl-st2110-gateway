@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.15] - 2026-10-12
+
+### Fixed
+
+- No more segmentation fault in egress groups when an MXL reader is released while a group's sync group changes. The grain worker kept its MXL flow synchronization group on the domain's shared MXL instance. MXL removes a released reader from every sync group of its instance (`Instance::releaseReader`, under the instance mutex), but it creates and releases sync groups without that mutex, and a sync group has no lock of its own. When the audio worker (or another group's grain worker) released a reader (flow re-created or removed, route change, group stop) while the grain worker released or changed its sync group, MXL walked freed memory: SIGSEGV in `FlowSynchronizationGroup::removeReader`. CI hit it in the unit test `pipeline: egress audio sends one block per packet time ahead of its transmit time` while the group stopped. In the lab that test crashed about once in 60–240 runs, with MXL `v1.1.0` as well, so the MXL update did not cause it. The race exists inside one group since 1.0.8 (audio readers on their own worker), and between egress groups of one domain since 1.0.0. Each egress group's sync group now lives on a private MXL instance of the domain that holds no readers. This costs one more MXL instance per egress group: an inotify watcher thread and three file descriptors. New unit test: sync groups are created and released while another thread releases readers of the same domain. It crashed on every run with the group on the shared instance. Lab bench (kernel backend, 1080p25 and 14 audio essences, 4 sources): TX audio 1000 packets/s on all 14, RX video and 14 audio running with no incomplete or dropped frames, as with 1.0.14.
+
+### Changed
+
+- Built on MXL `release/v1.1` at `218ddaa` (was tag `v1.1.0`, `8f3f1096`), the revision the other media functions use. It adds the writer fix `b8ec4bb6` ("Reset validSlices when opening a new grain": a reused ring slot no longer shows the previous grain's slice count to slice-reading consumers) and the reader check `d66dcf3c` (`Instance::getFlowReader` checks the flow id). The shared-memory format is unchanged. Neither commit changes what the gateway does: it always commits complete grains, and MXL's C API already rejected invalid flow ids. `io.dmf.mxl.revision` is `218ddaa0a08c12ffe75fc475ae65aa3d9eef16d7`.
+
 ## [1.0.14] - 2026-10-11
 
 ### Fixed
