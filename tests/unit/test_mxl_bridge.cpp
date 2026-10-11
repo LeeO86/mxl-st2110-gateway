@@ -2,6 +2,8 @@
 // Tests against the real MXL v1.1.0 library (Phase 2, VERIFY items R2/R3).
 #include <doctest/doctest.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <thread>
 
@@ -229,7 +231,7 @@ TEST_CASE("mxl: one sync group spans readers of different domains (R3)")
     auto ra = mxlbridge::SampleReader::open(b.instance, ab.toString(), status);
     REQUIRE(rv);
     REQUIRE(ra);
-    mxlbridge::SyncGroup sync(a.instance);
+    mxlbridge::SyncGroup sync(a.path());
     REQUIRE(sync.add(*rv) == MXL_STATUS_OK);
     REQUIRE(sync.add(*ra) == MXL_STATUS_OK);
 
@@ -247,6 +249,42 @@ TEST_CASE("mxl: one sync group spans readers of different domains (R3)")
     CHECK(sync.waitForDataAt(t, 50'000'000) == MXL_STATUS_OK);
     CHECK(sync.remove(*ra) == MXL_STATUS_OK);
     CHECK(sync.remove(*rv) == MXL_STATUS_OK);
+}
+
+TEST_CASE("mxl: sync groups come and go while another worker releases readers of the same domain")
+{
+    // An egress grain worker creates and releases its sync group (group start/stop) while the audio worker
+    // releases readers of the same domain (re-created flow, route change, stop). With the group on the domain's
+    // shared instance, MXL walked a group being released: SIGSEGV in FlowSynchronizationGroup::removeReader.
+    Domain dom;
+    auto const id = util::uuidV4();
+    config::AudioFormat af;
+    mxlbridge::SampleWriter audio(dom.instance, mxlbridge::audioFlowDef(ident(id), af), mxlbridge::writerOptions(48, 48));
+    std::atomic<bool> stop{false};
+    std::atomic<std::uint64_t> released{0};
+    std::thread worker(
+        [&]
+        {
+            while (!stop)
+            {
+                mxlStatus status = MXL_ERR_UNKNOWN;
+                if (mxlbridge::SampleReader::open(dom.instance, id.toString(), status))
+                {
+                    ++released;
+                }
+            }
+        });
+    std::uint64_t groups = 0;
+    auto const until = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (std::chrono::steady_clock::now() < until)
+    {
+        mxlbridge::SyncGroup sync(dom.path());
+        ++groups;
+    }
+    stop = true;
+    worker.join();
+    CHECK(groups > 0);
+    CHECK(released > 0);
 }
 
 TEST_CASE("mxl: own-flow GC keeps flows with a live writer (Q9)")

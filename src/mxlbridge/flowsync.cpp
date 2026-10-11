@@ -3,10 +3,10 @@
 
 namespace mxlgw::mxlbridge
 {
-    SyncGroup::SyncGroup(std::shared_ptr<Instance> owner)
-        : _owner(std::move(owner))
+    SyncGroup::SyncGroup(std::string const& domainPath)
+        : _instance(domainPath)
     {
-        auto const status = ::mxlCreateFlowSynchronizationGroup(_owner->get(), &_group);
+        auto const status = ::mxlCreateFlowSynchronizationGroup(_instance.get(), &_group);
         if (status != MXL_STATUS_OK || _group == nullptr)
         {
             _group = nullptr;
@@ -18,7 +18,7 @@ namespace mxlgw::mxlbridge
     {
         if (_group != nullptr)
         {
-            ::mxlReleaseFlowSynchronizationGroup(_owner->get(), _group);
+            ::mxlReleaseFlowSynchronizationGroup(_instance.get(), _group);
         }
     }
 
