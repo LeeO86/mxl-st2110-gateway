@@ -174,6 +174,10 @@ namespace mxlgw::ops
         out.gauge("mxl_st2110_gateway_restart_required", "1 when persisted changes need a restart", {}, in.restartRequired ? 1 : 0);
         if (in.backend)
         {
+            if (!in.backend->mtlSimdLevel.empty())
+            {
+                out.gauge("mxl_st2110_gateway_mtl_simd", "SIMD level MTL detected for this CPU (1)", {{"level", in.backend->mtlSimdLevel}}, 1);
+            }
             exportPtp(out, *in.backend);
             exportNic(out, *in.backend);
         }

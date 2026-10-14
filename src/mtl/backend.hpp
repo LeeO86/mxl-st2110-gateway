@@ -231,6 +231,9 @@ namespace mxlgw::media
         std::uint64_t ptpSelectionChanges = 0;
         bool phc2sysLocked = false;
         std::string mtlVersion;
+        // SIMD level MTL detected for this CPU (mtl_get_simd_level: none, avx2, avx512, avx512_vbmi2).
+        // Empty without MTL (mock backend).
+        std::string mtlSimdLevel;
     };
 
     class MediaBackend

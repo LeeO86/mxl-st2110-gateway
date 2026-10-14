@@ -166,6 +166,7 @@ TEST_CASE("statusz rendering")
       "readiness": {"ready": false, "reasons": ["ptp_unlocked"]},
       "setup_mode": false,
       "nic": {"backend": "mock"},
+      "media": {"backend": "kernel", "mtl_simd_level": "avx512"},
       "ptp": {"mode": "external", "selected_port": null, "mtl_minus_host_tai_ns": 3},
       "domains": [{"kind": "configured", "id": "d", "path": "/p", "flow_count": 2}],
       "groups": [{"label": "CAM 1", "direction": "ingest", "enabled": true,
@@ -176,5 +177,7 @@ TEST_CASE("statusz rendering")
     CHECK(text.find("ptp_unlocked") != std::string::npos);
     CHECK(text.find("waiting_for_flow (domain_not_found)") != std::string::npos);
     CHECK(text.find("configured d /p flows=2") != std::string::npos);
+    CHECK(text.find(", MTL SIMD avx512\n") != std::string::npos);
     CHECK_FALSE(renderStatusz(nlohmann::json::object()).empty());
+    CHECK(renderStatusz(nlohmann::json::object()).find("MTL SIMD") == std::string::npos);
 }

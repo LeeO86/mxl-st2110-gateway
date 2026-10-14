@@ -128,6 +128,7 @@ TEST_CASE("running gateway: bootstrap, live groups, domains and metrics")
     CHECK(status["setup_mode"] == false);
     CHECK(status["groups"].size() == 2);
     CHECK(status["media"]["backend"] == "mock");
+    CHECK(status["media"]["mtl_simd_level"].is_null()); // no MTL behind the mock backend
 
     auto const domains = body(call(gw, "GET", "/api/domains"));
     CHECK(domains["configured"][0]["id"] == domainId);

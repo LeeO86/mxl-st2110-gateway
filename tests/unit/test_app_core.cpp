@@ -264,6 +264,7 @@ namespace
         media::BackendStatus b;
         b.backend = "dpdk";
         b.mtlVersion = "26.09";
+        b.mtlSimdLevel = "avx512";
         b.ptpAvailable = true;
         b.ptpSelectionChanges = 3;
         for (int i = 0; i < 2; ++i)
@@ -371,6 +372,7 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
     }
 
     for (auto const* name : {"mxl_st2110_gateway_build_info",
+                             "mxl_st2110_gateway_mtl_simd",
                              "mxl_st2110_gateway_ready",
                              "mxl_st2110_gateway_restart_required",
                              "mxl_st2110_gateway_ptp_locked",
@@ -425,6 +427,7 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
     }
 
     CHECK(text.find(R"(group="CAM \"1\"")") != std::string::npos);
+    CHECK(text.find("mxl_st2110_gateway_mtl_simd{level=\"avx512\"} 1\n") != std::string::npos);
     CHECK(text.find(R"(domain_kind="mirror")") != std::string::npos);
     CHECK(text.find(R"(mxl_st2110_gateway_mxl_discovered_domains{kind="mirror"} 1)") != std::string::npos);
     CHECK(text.find(R"(direction="ingest",le="1e-05"} 3)") != std::string::npos);
@@ -468,6 +471,13 @@ TEST_CASE("metrics without a backend still expose the process gauges")
     auto const ext = we.render();
     CHECK(ext.find("mxl_st2110_gateway_ptp_") == std::string::npos);
     CHECK(ext.find("mxl_st2110_gateway_nic_link_up{") != std::string::npos);
+
+    // No MTL (mock backend): no SIMD series rather than a made-up level.
+    auto mock = fullMetricsInput();
+    mock.backend->mtlSimdLevel.clear();
+    ops::MetricsWriter wm;
+    ops::exportMetrics(wm, mock);
+    CHECK(wm.render().find("mxl_st2110_gateway_mtl_simd") == std::string::npos);
     CHECK(std::string(ops::portLabel(0)) == "p");
     CHECK(std::string(ops::portLabel(1)) == "r");
 }
