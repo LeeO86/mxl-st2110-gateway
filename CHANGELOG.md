@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- `/statusz` showed `backend -`: it read the backend from `nic`, while the status has it under `media`. It now reads `media` (and `nic` as a fallback).
+
 ## [1.0.16] - 2026-10-14
 
 ### Added
