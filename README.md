@@ -263,7 +263,7 @@ Every field shows its provenance (default / file / environment); server-side val
 | `/api/v1/config/validate` | POST | validate a file without writing it |
 | `/api/v1/schema` | GET | the configuration JSON Schema |
 | `/api/v1/groups`, `/api/v1/groups/{uid}` | POST / PUT / DELETE | create (by counts), edit, delete groups — applied live |
-| `/api/v1/nic`, `/api/v1/ptp`, `/api/v1/domains`, `/api/v1/flows?domain=<id>`, `/api/v1/nmos` | GET | tab data; `/api/v1/nic` (and `media` in `/api/v1/status`) has `mtl_version`, `mtl_simd_level` and `mtl_v210_converter` (the SIMD level MTL detected, `null` with the mock backend); `/api/v1/nmos` lists both NMOS nodes and all Senders/Receivers |
+| `/api/v1/nic`, `/api/v1/ptp`, `/api/v1/domains`, `/api/v1/flows?domain=<id>`, `/api/v1/nmos` | GET | tab data; `/api/v1/nic` (and `media` in `/api/v1/status`) has `mtl_version`, `mtl_simd_level` (the SIMD level MTL detected) and `mtl_v210_converter` (the path of its v210 ↔ RFC 4175 converters: `avx512_vbmi2`, `avx512` or `scalar`); the last two are `null` with the mock backend; `/api/v1/nmos` lists both NMOS nodes and all Senders/Receivers |
 | `/api/v1/preflight`, `/api/v1/logs` | GET | preflight results, last log lines |
 | `/api/v1/restart` | POST | graceful exit 0 for the supervisor to restart |
 

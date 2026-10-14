@@ -434,6 +434,9 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
     CHECK(media::v210ConverterPath("avx2") == "scalar");
     CHECK(media::v210ConverterPath("none") == "scalar");
     CHECK(media::v210ConverterPath("avx512_vbmi2") == "avx512_vbmi2");
+    CHECK(media::v210ConverterPath("avx512") == "avx512");
+    CHECK(media::v210ConverterPath("unknown") == "unknown");
+    CHECK(media::v210ConverterPath("avx10") == "unknown");
     CHECK(media::v210ConverterPath("").empty());
     CHECK(text.find(R"(domain_kind="mirror")") != std::string::npos);
     CHECK(text.find(R"(mxl_st2110_gateway_mxl_discovered_domains{kind="mirror"} 1)") != std::string::npos);

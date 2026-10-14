@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- The path of MTL's v210 ↔ RFC 4175 converters is visible: `mxl_st2110_gateway_mtl_v210_converter{path}` (`avx512_vbmi2`, `avx512` or `scalar`), `mtl_v210_converter` in `/api/v1/nic` and `media` of `/api/v1/status`, and `, v210 converter <path>` on the `/statusz` mode line. MTL v26.09 has no AVX2 path for these converters, so a CPU with `mtl_simd{level="avx2"}` (e.g. an i9-9900K) converts in scalar code (lab Xeon: 0.16 instead of 0.046 core per 1080p50 stream and direction).
+- The path of MTL's v210 ↔ RFC 4175 converters is visible: `mxl_st2110_gateway_mtl_v210_converter{path}` (`avx512_vbmi2`, `avx512` or `scalar`; `unknown` for a SIMD level the gateway does not know), `mtl_v210_converter` in `/api/v1/nic` and `media` of `/api/v1/status`, and `, v210 converter <path>` on the `/statusz` mode line. MTL v26.09 has no AVX2 path for these converters, so a CPU with `mtl_simd{level="avx2"}` (e.g. an i9-9900K) converts in scalar code (lab Xeon: 0.16 instead of 0.046 core per 1080p50 stream and direction).
 - The Compose and Kubernetes examples use the `1.0.17` image.
 
 ### Fixed
