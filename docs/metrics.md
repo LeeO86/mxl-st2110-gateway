@@ -23,6 +23,7 @@
 |---|---|---|---|
 | `mxl_st2110_gateway_build_info` | gauge = 1 | `version, mtl, dpdk, mxl, nmos_cpp` | gateway version (git tag or `0.0.0-dev+<sha>`) and dependency pins |
 | `mxl_st2110_gateway_mtl_simd` | gauge = 1 | `level` | SIMD level MTL detected for this CPU (`mtl_get_simd_level`): `none`, `avx2`, `avx512` or `avx512_vbmi2`; absent with the `mock` backend. Visibility only: the gateway does not choose it |
+| `mxl_st2110_gateway_mtl_v210_converter` | gauge = 1 | `path` | Path of MTL's v210 ↔ RFC 4175 converters on this CPU: `avx512_vbmi2`, `avx512` or `scalar`. MTL v26.09 has no AVX2 path for them, so `level="avx2"` (e.g. an i9-9900K) means `scalar` (about 3.5× the CPU of the AVX-512 path per stream and direction). It is the path the CPU allows: MTL still converts a line in scalar code when its pixel-group count does not fit the AVX-512 kernels (a multiple of 12 for VBMI2, of 3 for AVX-512); full 1080p and 2160p lines fit. `unknown` for a SIMD level this gateway does not know. Absent with the `mock` backend. |
 | `mxl_st2110_gateway_ready` | gauge | — | 1 when `/readyz` is 200 |
 | `mxl_st2110_gateway_restart_required` | gauge | — | 1 when persisted changes (node, nic, ptp, mxl, import) need a restart |
 

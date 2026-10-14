@@ -796,6 +796,7 @@ Implement a minimal registry like mxl-decklink `src/ops/metrics.*` (no external 
 |---|---|---|
 | `mxl_st2110_gateway_build_info` | gauge=1 | `version, mtl, dpdk, mxl, nmos_cpp` |
 | `mxl_st2110_gateway_mtl_simd` | gauge=1 | `level` (`none\|avx2\|avx512\|avx512_vbmi2`, from `mtl_get_simd_level`; absent without MTL) |
+| `mxl_st2110_gateway_mtl_v210_converter` | gauge=1 | `path` (`avx512_vbmi2\|avx512\|scalar`: the v210 ↔ RFC 4175 converter MTL uses; no AVX2 path in MTL v26.09; absent without MTL) |
 | `mxl_st2110_gateway_ready` | gauge | — |
 | `mxl_st2110_gateway_restart_required` | gauge | — |
 | `mxl_st2110_gateway_ptp_locked` | gauge | `port` (`p\|r`; both ports run PTP when redundant, §4.3) |

@@ -21,7 +21,7 @@ OUTPUT = ROOT / "monitoring" / "grafana" / "mxl-st2110-gateway.json"
 
 # §12.1: the public metric names. Every query below may only use these.
 METRICS = {
-    "mxl_st2110_gateway_build_info", "mxl_st2110_gateway_mtl_simd", "mxl_st2110_gateway_ready", "mxl_st2110_gateway_restart_required",
+    "mxl_st2110_gateway_build_info", "mxl_st2110_gateway_mtl_simd", "mxl_st2110_gateway_mtl_v210_converter", "mxl_st2110_gateway_ready", "mxl_st2110_gateway_restart_required",
     "mxl_st2110_gateway_ptp_locked", "mxl_st2110_gateway_ptp_selected", "mxl_st2110_gateway_ptp_selection_changes_total", "mxl_st2110_gateway_ptp_info",
     "mxl_st2110_gateway_ptp_offset_ns", "mxl_st2110_gateway_ptp_path_delay_ns", "mxl_st2110_gateway_ptp_utc_offset_seconds",
     "mxl_st2110_gateway_ptp_gm_changes_total", "mxl_st2110_gateway_ptp_sync_total", "mxl_st2110_gateway_ptp_errors_total",

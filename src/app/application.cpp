@@ -987,6 +987,7 @@ namespace mxlgw::app
                 {"test_backend", st.testBackend},
                 {"mtl_version", st.mtlVersion},
                 {"mtl_simd_level", st.mtlSimdLevel.empty() ? json() : json(st.mtlSimdLevel)},
+                {"mtl_v210_converter", st.mtlSimdLevel.empty() ? json() : json(media::v210ConverterPath(st.mtlSimdLevel))},
                 {"ports", ports}};
     }
 
