@@ -208,7 +208,9 @@ restore_rejected() { [[ "$(essence_field "$BASE" "PGM V" reason)" == restore_rej
 wait_until 15 "essence reason restore_rejected" restore_rejected
 [[ "$(json "$BASE/x-nmos/connection/v1.2/single/receivers/$rid/active" 'j["master_enable"]')" == "False" ]] ||
     fail "the stale route came up enabled"
-docker logs "$GW" 2>&1 | grep -q '"event":"restored_activation_disabled"' || fail "restored_activation_disabled was not logged"
+# The log line can follow the status by a moment (stdout is flushed separately): wait for it.
+restored_logged() { docker logs "$GW" 2>&1 | grep -q '"event":"restored_activation_disabled"'; }
+wait_until 10 "restored_activation_disabled logged" restored_logged
 # The staged flow still does not fit; switching the receiver off must be accepted anyway.
 patch_staged "$BASE" receivers "$rid" '{"master_enable": false, "activation": {"mode": "activate_immediate"}}'
 pass "a stale saved route comes up disabled with restore_rejected; a disable is accepted"
