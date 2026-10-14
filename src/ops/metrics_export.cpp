@@ -178,7 +178,7 @@ namespace mxlgw::ops
             {
                 out.gauge("mxl_st2110_gateway_mtl_simd", "SIMD level MTL detected for this CPU (1)", {{"level", in.backend->mtlSimdLevel}}, 1);
                 out.gauge("mxl_st2110_gateway_mtl_v210_converter", "Path of MTL's v210 <-> RFC 4175 converters on this CPU (1)",
-                    {{"path", media::v210ConverterPath(in.backend->mtlSimdLevel)}}, 1);
+                          {{"path", media::v210ConverterPath(in.backend->mtlSimdLevel)}}, 1);
             }
             exportPtp(out, *in.backend);
             exportNic(out, *in.backend);
