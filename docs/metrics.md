@@ -22,6 +22,7 @@
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
 | `mxl_st2110_gateway_build_info` | gauge = 1 | `version, mtl, dpdk, mxl, nmos_cpp` | gateway version (git tag or `0.0.0-dev+<sha>`) and dependency pins |
+| `mxl_st2110_gateway_mtl_simd` | gauge = 1 | `level` | SIMD level MTL detected for this CPU (`mtl_get_simd_level`): `none`, `avx2`, `avx512` or `avx512_vbmi2`; absent with the `mock` backend. Visibility only: the gateway does not choose it |
 | `mxl_st2110_gateway_ready` | gauge | — | 1 when `/readyz` is 200 |
 | `mxl_st2110_gateway_restart_required` | gauge | — | 1 when persisted changes (node, nic, ptp, mxl, import) need a restart |
 

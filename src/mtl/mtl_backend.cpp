@@ -321,6 +321,22 @@ namespace mxlgw::media
             return text ? util::trim(*text) : std::string();
         }
 
+        // VERIFIED: Media-Transport-Library@v26.09 lib/src/mt_main.c:1285 — mtl_get_simd_level() checks
+        // the CPU flags with rte_cpu_get_flag_enabled (AVX512VBMI2, then AVX512VL, then AVX2) and needs no
+        // instance; mtl_init logs the same level (mt_main.c:619). mtl_get_simd_level_name() calls the
+        // VBMI2 level "avx512_vbmi", so the label is spelled out here.
+        std::string simdLevelName()
+        {
+            switch (auto const level = mtl_get_simd_level())
+            {
+                case MTL_SIMD_LEVEL_NONE: return "none";
+                case MTL_SIMD_LEVEL_AVX2: return "avx2";
+                case MTL_SIMD_LEVEL_AVX512: return "avx512";
+                case MTL_SIMD_LEVEL_AVX512_VBMI2: return "avx512_vbmi2";
+                default: return mtl_get_simd_level_name(level);
+            }
+        }
+
         std::uint64_t taiNowCallback(void*)
         {
             timespec ts{};
@@ -466,6 +482,7 @@ namespace mxlgw::media
                 }
                 _ptpBuiltin = builtinPtp;
                 log::info("mtl_init", {{"version", mtl_version()},
+                                       {"simd_level", _simdLevel},
                                        {"backend", config::toName(cfg.nic.backend)},
                                        {"ports", _ctx.portNames[0] + (_ctx.redundantPort ? "," + _ctx.portNames[1] : std::string())},
                                        {"ptp", builtinPtp ? config::toName(cfg.ptp.mode) : "external"},
@@ -522,6 +539,7 @@ namespace mxlgw::media
                 st.backend = name();
                 st.testBackend = _ctx.kernel;
                 st.mtlVersion = mtl_version();
+                st.mtlSimdLevel = _simdLevel;
                 for (std::size_t i = 0; i < _ports.size(); ++i)
                 {
                     auto const& cp = _ports[i];
@@ -650,6 +668,7 @@ namespace mxlgw::media
             std::vector<config::NicPort> _ports;
             std::string _lcores;
             bool _ptpBuiltin = false;
+            std::string _simdLevel = simdLevelName();
         };
     }
 

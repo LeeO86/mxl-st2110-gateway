@@ -31,7 +31,13 @@ namespace mxlgw::ops
         }
         out << "\n";
         out << "mode        " << (st.value("setup_mode", false) ? "setup" : "running") << ", backend "
-            << s(st.value("nic", nlohmann::json::object()), "backend") << "\n";
+            << s(st.value("nic", nlohmann::json::object()), "backend");
+        if (auto const media = st.value("media", nlohmann::json::object()); media.is_object() && media.contains("mtl_simd_level") &&
+                                                                         media["mtl_simd_level"].is_string())
+        {
+            out << ", MTL SIMD " << media["mtl_simd_level"].get<std::string>();
+        }
+        out << "\n";
         if (st.contains("ptp"))
         {
             auto const& p = st["ptp"];

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- MTL's SIMD level is visible. The gateway logs it at start (`simd_level` in the `mtl_init` line), exports `mxl_st2110_gateway_mtl_simd{level="avx512"} 1`, and reports `mtl_simd_level` in `/api/v1/nic`, in `media` of `/api/v1/status`, and in `/statusz`. The value is MTL's `mtl_get_simd_level()` for this CPU: `none`, `avx2`, `avx512` or `avx512_vbmi2` (MTL's own name for the last one is `avx512_vbmi`). With the `mock` backend there is no MTL, so the metric is absent and the field is `null`. Nothing else changes.
+
 ## [1.0.15] - 2026-10-12
 
 ### Fixed

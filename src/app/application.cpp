@@ -983,7 +983,8 @@ namespace mxlgw::app
                              {"rx_errors", p.rxErrors},
                              {"rx_missed", p.rxMissed}});
         }
-        return {{"backend", st.backend}, {"test_backend", st.testBackend}, {"mtl_version", st.mtlVersion}, {"ports", ports}};
+        return {{"backend", st.backend}, {"test_backend", st.testBackend}, {"mtl_version", st.mtlVersion},
+                {"mtl_simd_level", st.mtlSimdLevel.empty() ? json() : json(st.mtlSimdLevel)}, {"ports", ports}};
     }
 
     nlohmann::json Application::nic()
