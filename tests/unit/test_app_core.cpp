@@ -373,6 +373,7 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
 
     for (auto const* name : {"mxl_st2110_gateway_build_info",
                              "mxl_st2110_gateway_mtl_simd",
+                             "mxl_st2110_gateway_mtl_v210_converter",
                              "mxl_st2110_gateway_ready",
                              "mxl_st2110_gateway_restart_required",
                              "mxl_st2110_gateway_ptp_locked",
@@ -428,6 +429,12 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
 
     CHECK(text.find(R"(group="CAM \"1\"")") != std::string::npos);
     CHECK(text.find("mxl_st2110_gateway_mtl_simd{level=\"avx512\"} 1\n") != std::string::npos);
+    CHECK(text.find("mxl_st2110_gateway_mtl_v210_converter{path=\"avx512\"} 1\n") != std::string::npos);
+    // MTL v26.09 has no AVX2 path for the v210 converters: avx2 (an i9-9900K) and none convert scalar.
+    CHECK(media::v210ConverterPath("avx2") == "scalar");
+    CHECK(media::v210ConverterPath("none") == "scalar");
+    CHECK(media::v210ConverterPath("avx512_vbmi2") == "avx512_vbmi2");
+    CHECK(media::v210ConverterPath("").empty());
     CHECK(text.find(R"(domain_kind="mirror")") != std::string::npos);
     CHECK(text.find(R"(mxl_st2110_gateway_mxl_discovered_domains{kind="mirror"} 1)") != std::string::npos);
     CHECK(text.find(R"(direction="ingest",le="1e-05"} 3)") != std::string::npos);
@@ -478,6 +485,7 @@ TEST_CASE("metrics without a backend still expose the process gauges")
     ops::MetricsWriter wm;
     ops::exportMetrics(wm, mock);
     CHECK(wm.render().find("mxl_st2110_gateway_mtl_simd") == std::string::npos);
+    CHECK(wm.render().find("mxl_st2110_gateway_mtl_v210_converter") == std::string::npos);
     CHECK(std::string(ops::portLabel(0)) == "p");
     CHECK(std::string(ops::portLabel(1)) == "r");
 }

@@ -165,7 +165,7 @@ TEST_CASE("statusz rendering")
       "node": {"label": "GW", "id": "x"},
       "readiness": {"ready": false, "reasons": ["ptp_unlocked"]},
       "setup_mode": false,
-      "media": {"backend": "kernel", "mtl_simd_level": "avx512"},
+      "media": {"backend": "kernel", "mtl_simd_level": "avx2", "mtl_v210_converter": "scalar"},
       "ptp": {"mode": "external", "selected_port": null, "mtl_minus_host_tai_ns": 3},
       "domains": [{"kind": "configured", "id": "d", "path": "/p", "flow_count": 2}],
       "groups": [{"label": "CAM 1", "direction": "ingest", "enabled": true,
@@ -176,7 +176,7 @@ TEST_CASE("statusz rendering")
     CHECK(text.find("ptp_unlocked") != std::string::npos);
     CHECK(text.find("waiting_for_flow (domain_not_found)") != std::string::npos);
     CHECK(text.find("configured d /p flows=2") != std::string::npos);
-    CHECK(text.find(", MTL SIMD avx512\n") != std::string::npos);
+    CHECK(text.find(", MTL SIMD avx2, v210 converter scalar\n") != std::string::npos);
     CHECK(text.find("running, backend kernel,") != std::string::npos); // from media, as /api/v1/status has it (was "backend -")
     CHECK(renderStatusz(nlohmann::json::parse(R"({"nic": {"backend": "dpdk"}})")).find("backend dpdk") != std::string::npos);
     CHECK_FALSE(renderStatusz(nlohmann::json::object()).empty());

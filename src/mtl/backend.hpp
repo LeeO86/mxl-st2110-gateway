@@ -236,6 +236,26 @@ namespace mxlgw::media
         std::string mtlSimdLevel;
     };
 
+    /// The path MTL v26.09's v210 <-> RFC 4175 converters take for a SIMD level (st_convert.c): AVX-512 VBMI2,
+    /// AVX-512, else scalar. MTL has no AVX2 path for them, so "avx2" (e.g. an i9-9900K) converts scalar.
+    /// Empty for an empty level (no MTL).
+    inline std::string v210ConverterPath(std::string const& simdLevel)
+    {
+        if (simdLevel.empty())
+        {
+            return {};
+        }
+        if (simdLevel == "avx512_vbmi2")
+        {
+            return "avx512_vbmi2";
+        }
+        if (simdLevel == "avx512")
+        {
+            return "avx512";
+        }
+        return "scalar";
+    }
+
     class MediaBackend
     {
     public:

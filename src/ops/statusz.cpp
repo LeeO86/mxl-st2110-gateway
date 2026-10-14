@@ -38,6 +38,10 @@ namespace mxlgw::ops
         if (media.is_object() && media.contains("mtl_simd_level") && media["mtl_simd_level"].is_string())
         {
             out << ", MTL SIMD " << media["mtl_simd_level"].get<std::string>();
+            if (media.contains("mtl_v210_converter") && media["mtl_v210_converter"].is_string())
+            {
+                out << ", v210 converter " << media["mtl_v210_converter"].get<std::string>();
+            }
         }
         out << "\n";
         if (st.contains("ptp"))
