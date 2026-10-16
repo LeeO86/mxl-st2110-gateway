@@ -56,6 +56,7 @@ namespace mxlgw::app
                 j["grains_written"] = e.grainsWritten;
                 j["samples_written"] = e.samplesWritten;
                 j["write_errors"] = e.writeErrors;
+                j["grains_short"] = e.grainsShort;
                 j["writer_resyncs"] = e.writerResyncs;
                 j["origin_age_ns"] = e.originAgeNs ? json(*e.originAgeNs) : json();
             }

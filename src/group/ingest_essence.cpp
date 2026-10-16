@@ -435,8 +435,21 @@ namespace mxlgw::group
         {
             if (writer->grains->open(slot.index, slot.info, slot.payload) == MXL_STATUS_OK)
             {
-                slot.kind = SlotKind::Grain;
-                dst = slot.payload;
+                if (slot.info.grainSize < _scratch.size())
+                {
+                    // An existing flow whose grains are smaller than the format (it passed the definition check):
+                    // the backend writes _scratch.size() bytes, so it converts into scratch and the grain is dropped.
+                    // Cancelling only resets the writer's index (no lock, no allocation).
+                    writer->grains->cancel();
+                    _grainOpen.store(false, std::memory_order_release);
+                    slot.payload = nullptr;
+                    slot.kind = SlotKind::Short;
+                }
+                else
+                {
+                    slot.kind = SlotKind::Grain;
+                    dst = slot.payload;
+                }
             }
             else
             {
@@ -498,6 +511,22 @@ namespace mxlgw::group
             retireWriterLocked();
             openWriterLocked();
             _consecutiveRejects = 0;
+        }
+    }
+
+    void IngestEssence::noteShortGrain(std::size_t grainSize)
+    {
+        auto const count = _grainsShort.fetch_add(1, std::memory_order_relaxed) + 1;
+        auto const now = std::chrono::steady_clock::now();
+        if (count == 1 || now - _shortLogged >= std::chrono::seconds(10))
+        {
+            _shortLogged = now;
+            log::warn("mxl_grain_too_small", {{"group", _spec.group.label},
+                                              {"essence", _label},
+                                              {"flow_id", _ids.flow.toString()},
+                                              {"grain_size", grainSize},
+                                              {"expected_bytes", _scratch.size()},
+                                              {"grains_short", count}});
         }
     }
 
@@ -572,9 +601,16 @@ namespace mxlgw::group
                 mxlGrainInfo info{};
                 std::uint8_t* payload = nullptr;
                 auto status = _writer->grains->open(slot.index, info, payload);
+                if (status == MXL_STATUS_OK && info.grainSize < _scratch.size())
+                {
+                    _writer->grains->cancel();
+                    _grainOpen.store(false, std::memory_order_release);
+                    noteShortGrain(info.grainSize);
+                    break;
+                }
                 if (status == MXL_STATUS_OK)
                 {
-                    std::memcpy(payload, _scratch.data(), std::min<std::size_t>(_scratch.size(), info.grainSize));
+                    std::memcpy(payload, _scratch.data(), _scratch.size());
                     info.flags = flags;
                     info.validSlices = info.totalSlices;
                     status = _writer->grains->commit(info);
@@ -593,6 +629,7 @@ namespace mxlgw::group
                 break;
             }
             case SlotKind::Reject: noteRejected(); break;
+            case SlotKind::Short: noteShortGrain(slot.info.grainSize); break;
             case SlotKind::Discard:
             case SlotKind::Empty: break;
         }
@@ -818,6 +855,7 @@ namespace mxlgw::group
         s.grainsWritten = _grainsWritten.load(std::memory_order_relaxed);
         s.samplesWritten = _samplesWritten.load(std::memory_order_relaxed);
         s.writeErrors = _writeErrors.load(std::memory_order_relaxed);
+        s.grainsShort = _grainsShort.load(std::memory_order_relaxed);
         s.writerResyncs = _writerResyncs.load(std::memory_order_relaxed);
         s.framesDropped = _framesDropped.load(std::memory_order_relaxed);
         if (_haveOriginAge.load(std::memory_order_relaxed))

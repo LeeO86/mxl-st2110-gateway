@@ -94,7 +94,7 @@ namespace mxlgw::group
         std::uint64_t readTimeouts = 0;
         std::uint64_t lateReads = 0;
         std::uint64_t grainsInvalid = 0;
-        std::uint64_t grainsShort = 0; // video grains smaller than the format needs: replaced, never read
+        std::uint64_t grainsShort = 0; // video grains smaller than the format needs: egress replaces them, ingest drops them
         std::uint64_t flowNotFound = 0;
         std::uint64_t txDropped = 0;
         std::optional<double> readLagGrains;

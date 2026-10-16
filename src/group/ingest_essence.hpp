@@ -3,6 +3,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -65,6 +66,7 @@ namespace mxlgw::group
             Copy,    // converted into scratch; worker opens + copies
             Reject,  // index not after the last committed one
             Discard, // no writer
+            Short,   // the opened grain is smaller than the format: cancelled, converted into scratch
         };
         struct Slot;
         class Writer;
@@ -73,6 +75,8 @@ namespace mxlgw::group
         std::uint8_t* acquire(media::FrameMeta const& meta, std::uint64_t& tag) noexcept override;
         void run();
         void processVideo(media::FrameMeta const& meta);
+        /// Counts and logs (rate-limited) a grain of the writer's flow that is smaller than the format.
+        void noteShortGrain(std::size_t grainSize);
         void processAudio(media::AudioBlock const& block);
         void processAnc(media::AncReceived const& anc);
         void openWriterLocked();
@@ -137,6 +141,8 @@ namespace mxlgw::group
         std::atomic<std::uint64_t> _grainsWritten{0};
         std::atomic<std::uint64_t> _samplesWritten{0};
         std::atomic<std::uint64_t> _writeErrors{0};
+        std::atomic<std::uint64_t> _grainsShort{0};
+        std::chrono::steady_clock::time_point _shortLogged{}; // worker only
         std::atomic<std::uint64_t> _writerResyncs{0};
         std::atomic<std::uint64_t> _framesDropped{0};
         std::atomic<std::int64_t> _originAgeNs{0};
