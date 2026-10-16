@@ -400,6 +400,7 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
                              "mxl_st2110_gateway_rx_frames_total",
                              "mxl_st2110_gateway_rx_leg_packets_total",
                              "mxl_st2110_gateway_rx_packets_total",
+                             "mxl_st2110_gateway_rtp_wrong_payload_type_dropped_total",
                              "mxl_st2110_gateway_rx_leg_seq_lost_total",
                              "mxl_st2110_gateway_ingest_origin_age_ns",
                              "mxl_st2110_gateway_ingest_worker_loop_seconds_bucket",

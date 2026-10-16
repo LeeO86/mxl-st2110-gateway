@@ -512,7 +512,7 @@ Use nmos-cpp `make_connection_mxl_sender(id, domain_id, flow_id)` / `make_connec
 **Group enable and first start (owner decision Q7).**
 
 - `groups[].enabled = false`: the group's NMOS resources are not registered and no MTL/MXL objects exist. Toggling it is a group edit (§9.3).
-- `enabled = true` and a saved `/active` exists (`resume_connections=true`): the saved state is restored, including `sender_id` / `receiver_id`. A saved Receiver activation that the current staging checks reject (§6.4, for example a route made before the format check) comes up staged disabled: log `restored_activation_disabled` with the reason, essence state `idle` with reason `restore_rejected: …`.
+- `enabled = true` and a saved `/active` exists (`resume_connections=true`): the saved state is restored, including `sender_id` / `receiver_id` and, for a Receiver whose activation carried one, the SDP (`transport_file` with `data`; a saved transport file without data leaves the default). The restored RTP Receiver therefore uses the SDP's payload type (§7.5) and its format is checked as on a live PATCH; before 1.0.19 the SDP was not restored and the receiver fell back to the configured `payload_type`, so MTL dropped every packet of a sender with another one. A saved Receiver activation that the current staging checks reject (§6.4, for example a route made before the format check) comes up staged disabled: log `restored_activation_disabled` with the reason, essence state `idle` with reason `restore_rejected: …`.
 - `enabled = true` and no saved state (first start, new group, or `resume_connections=false`): the gateway stages and immediately activates its defaults — ST 2110 Receivers/Senders with `defaults.legs` and `master_enable=true`, MXL Senders with the group domain and flow id and `master_enable=true`, MXL Receivers with `mxl_domain_id = auto`, `mxl_flow_id = null` and `master_enable=false` (an MXL Receiver needs a flow id from a controller). A gateway therefore runs stand-alone without a controller. Essences without `defaults.legs` stay inactive.
 
 ### 7.7 Conformance Targets
@@ -817,6 +817,7 @@ Implement a minimal registry like mxl-decklink `src/ops/metrics.*` (no external 
 | `mxl_st2110_gateway_rx_frames_total` | counter | essence + `result` (`complete|incomplete|dropped`) |
 | `mxl_st2110_gateway_rx_leg_packets_total` | counter | essence + `leg` (`p|r`) |
 | `mxl_st2110_gateway_rx_packets_total` | counter | essence (after 2022-7 merge) |
+| `mxl_st2110_gateway_rtp_wrong_payload_type_dropped_total` | counter | essence (RTP packets MTL dropped because their payload type is not the receiver's, §7.5; MTL counts them per session) |
 | `mxl_st2110_gateway_rx_leg_seq_lost_total` | counter | essence + `leg` |
 | `mxl_st2110_gateway_ingest_origin_age_ns` | gauge | essence |
 | `mxl_st2110_gateway_ingest_worker_loop_seconds` | histogram | essence (busy time of the ingest worker per frame/block, outside its wait for the next one; buckets 10 µs … 100 ms) |

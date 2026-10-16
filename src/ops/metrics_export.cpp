@@ -122,6 +122,9 @@ namespace mxlgw::ops
                                 d(e.rx.legs[leg].lost));
                 }
                 out.counter("mxl_st2110_gateway_rx_packets_total", "Packets after the ST 2022-7 merge", l, d(e.rx.packets));
+                out.counter("mxl_st2110_gateway_rtp_wrong_payload_type_dropped_total",
+                            "RTP packets MTL dropped because their payload type is not the receiver's (the SDP's, else the configured one)", l,
+                            d(e.rx.wrongPayloadType));
                 if (e.originAgeNs)
                 {
                     out.gauge("mxl_st2110_gateway_ingest_origin_age_ns", "now_tai - origin time of the last frame", l, static_cast<double>(*e.originAgeNs));
