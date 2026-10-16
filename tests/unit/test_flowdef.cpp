@@ -45,6 +45,24 @@ TEST_CASE("video flow definition (BCP-007-03 example shape)")
     wrong = j;
     wrong["frame_width"] = 3840;
     CHECK(compareVideo(wrong, f).size() == 1);
+
+    // The field order must match exactly, not only interlaced vs progressive.
+    config::VideoFormat tff;
+    tff.rate = {25, 1};
+    tff.interlace = config::Interlace::InterlacedTff;
+    auto bff = tff;
+    bff.interlace = config::Interlace::InterlacedBff;
+    auto const jt = videoFlowDef(identity(), tff);
+    auto const jb = videoFlowDef(identity(), bff);
+    CHECK(jt["interlace_mode"] == "interlaced_tff");
+    CHECK(jb["interlace_mode"] == "interlaced_bff");
+    CHECK(compareVideo(jt, tff).empty());
+    CHECK(compareVideo(jb, bff).empty());
+    CHECK(compareVideo(jb, tff).size() == 1);
+    CHECK(compareVideo(jt, bff).size() == 1);
+    auto noMode = j;
+    noMode.erase("interlace_mode");
+    CHECK(compareVideo(noMode, f).empty()); // absent = progressive
 }
 
 TEST_CASE("audio and data flow definitions")

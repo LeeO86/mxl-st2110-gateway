@@ -25,7 +25,9 @@
 #include "mxlbridge/bootstrap.hpp"
 #include "mxlbridge/domaindef.hpp"
 #include "mxlbridge/domainscan.hpp"
+#include "mxlbridge/flowdef.hpp"
 #include "mxlbridge/pattern.hpp"
+#include "mxlbridge/writer.hpp"
 
 using namespace mxlgw;
 using namespace std::chrono_literals;
@@ -605,6 +607,27 @@ TEST_CASE("pipeline: unknown domain is accepted and waited for; format mismatch 
     wrong.stop();
 }
 
+namespace
+{
+    /// Rewrites frame_height in a flow's flow_def.json, so the definition passes the format check while
+    /// the flow's grains keep the size they were created with.
+    void claimHeight(std::string const& domainPath, util::Uuid const& flowId, int height)
+    {
+        auto const defPath = std::filesystem::path(domainPath) / (flowId.toString() + ".mxl-flow") / "flow_def.json";
+        REQUIRE(waitFor([&] { return std::filesystem::exists(defPath); }, 3s));
+        nlohmann::json def;
+        {
+            std::ifstream in(defPath);
+            def = nlohmann::json::parse(in);
+        }
+        REQUIRE(def.value("frame_height", 0) != height);
+        def["frame_height"] = height;
+        std::filesystem::permissions(defPath, std::filesystem::perms::owner_write, std::filesystem::perm_options::add);
+        std::ofstream out(defPath, std::ios::trunc);
+        out << def.dump();
+    }
+}
+
 TEST_CASE("egress: a video grain fits when it holds one field (interlaced) or the frame (progressive)")
 {
     config::VideoFormat p; // 1080p50
@@ -644,19 +667,9 @@ TEST_CASE("pipeline: video grains smaller than the format are never read: black,
     pc.videoFlow = util::uuidV4();
     pc.video.rate = {25, 1};
     pc.video.height = 540;
-    mxlbridge::PatternWriter source(h.main.instance, pc);
-    source.start();
-    auto const defPath = std::filesystem::path(h.main.path) / (pc.videoFlow->toString() + ".mxl-flow") / "flow_def.json";
-    REQUIRE(waitFor([&] { return std::filesystem::exists(defPath); }, 3s));
-    {
-        std::ifstream in(defPath);
-        auto def = nlohmann::json::parse(in);
-        REQUIRE(def.value("frame_height", 0) == 540);
-        def["frame_height"] = 1080;
-        std::filesystem::permissions(defPath, std::filesystem::perms::owner_write, std::filesystem::perm_options::add);
-        std::ofstream out(defPath, std::ios::trunc);
-        out << def.dump();
-    }
+    auto source = std::make_unique<mxlbridge::PatternWriter>(h.main.instance, pc);
+    source->start();
+    claimHeight(h.main.path, *pc.videoFlow, 1080);
     h.groups->setMxlReceiver(uuidOf(531), {true, h.main.id, pc.videoFlow});
     h.groups->setRtpSender(uuidOf(531), Harness::rtp("239.30.0.6"));
 
@@ -669,6 +682,61 @@ TEST_CASE("pipeline: video grains smaller than the format are never read: black,
     // Every frame sent is the black replacement; none was copied out of the short grains.
     REQUIRE(waitFor([&] { return sends.frames > 10; }, 3s));
     CHECK(sends.notBlack == 0);
+
+    // The writer comes back with grains that fit: the essence reads them and is running again.
+    source.reset(); // a cleanly stopped writer deletes its flow
+    pc.video.height = 1080;
+    mxlbridge::PatternWriter fitting(h.main.instance, pc);
+    fitting.start();
+    REQUIRE(waitFor([&] { return h.essence(531).state.state == group::EssenceState::Running; }, 10s));
+    CHECK(h.essence(531).state.reason.empty());
+    REQUIRE(waitFor([&] { return h.essence(531).grainsRead > 10; }, 3s));
+    CHECK(sends.notBlack > 0);
+    fitting.stop();
+}
+
+TEST_CASE("pipeline: ingest never writes into an existing flow whose grains are smaller than the format")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back(
+        {{"uid", testutil::uid(540)}, {"label", "SRC"}, {"direction", "egress"}, {"domain", "main"}, {"video", {videoJson(541, "SRC V", "239.30.0.7")}}});
+    groups.push_back(
+        {{"uid", testutil::uid(550)}, {"label", "SINK"}, {"direction", "ingest"}, {"domain", "main"}, {"video", {videoJson(551, "SINK V", "239.30.0.7")}}});
+    Harness h(groups);
+    auto const sinkFlow = h.essence(551).flowId;
+    REQUIRE_FALSE(sinkFlow.isNil());
+
+    // The ingest flow already exists, written by someone else with 540-line grains, and its definition says 1080
+    // lines, so the gateway re-uses it (§8.4). A second MXL instance keeps that writer apart from the gateway's.
+    auto other = std::make_shared<mxlbridge::Instance>(h.main.path);
+    config::VideoFormat small;
+    small.rate = {25, 1};
+    small.height = 540;
+    mxlbridge::FlowIdentity id;
+    id.flowId = sinkFlow;
+    id.sourceId = util::uuidV4();
+    id.deviceId = util::uuidV4();
+    id.label = "other writer";
+    id.description = "other writer";
+    id.groupHint = "OTHER:Video 1";
+    id.version = mxlbridge::nmosVersion(media::hostTaiNs());
+    mxlbridge::GrainWriter holder(other, mxlbridge::videoFlowDef(id, small), mxlbridge::writerOptions(540, 540));
+    claimHeight(h.main.path, sinkFlow, 1080);
+
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = util::uuidV4();
+    pc.video.rate = {25, 1};
+    mxlbridge::PatternWriter source(h.main.instance, pc);
+    source.start();
+    h.groups->setMxlReceiver(uuidOf(541), {true, h.main.id, pc.videoFlow});
+    h.groups->setRtpSender(uuidOf(541), Harness::rtp("239.30.0.7"));
+    h.groups->setRtpReceiver(uuidOf(551), Harness::rtp("239.30.0.7"));
+    h.groups->setMxlSender(uuidOf(551), {true});
+
+    REQUIRE(waitFor([&] { return h.essence(551).grainsShort > 10; }, 5s));
+    auto const e = h.essence(551);
+    CHECK(e.grainsWritten == 0);
+    CHECK(e.rx.framesComplete > 0);
     source.stop();
 }
 
