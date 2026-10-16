@@ -264,6 +264,25 @@ namespace mxlgw::config
             auto const base = slash == std::string::npos ? p : p.substr(slash + 1);
             return base.rfind("mirror-", 0) == 0;
         }
+
+        // Interlaced groups: the field rate that drives the cadence (first video, else ANC); {0, 1} if there is none.
+        Rational fieldRateOf(Group const& g)
+        {
+            return !g.video.empty() ? g.video.front().format.grainRate() : !g.anc.empty() ? g.anc.front().format.grainRate() : Rational{0, 1};
+        }
+
+        // Whole fields in `ns`: rounded to the nearest like MXL's timestamp -> index and MTL's user pacing, or up.
+        std::int64_t fieldsIn(std::int64_t ns, Rational field, bool up = false)
+        {
+            auto const unit = static_cast<__int128>(1'000'000'000) * field.den;
+            return static_cast<std::int64_t>((static_cast<__int128>(ns) * field.num + (up ? unit - 1 : unit / 2)) / unit);
+        }
+
+        // `fields` field periods in ns, like MXL's index -> timestamp.
+        std::int64_t fieldsToNs(std::int64_t fields, Rational field)
+        {
+            return static_cast<std::int64_t>((static_cast<__int128>(fields) * field.den * 1'000'000'000 + field.num / 2) / field.num);
+        }
     }
 
     char const* toName(Direction d)
@@ -372,9 +391,27 @@ namespace mxlgw::config
         return periodNs({50, 1});
     }
 
+    bool Group::interlaced() const
+    {
+        return std::any_of(video.begin(), video.end(), [](VideoEssence const& v) { return v.format.interlaced(); }) ||
+               std::any_of(anc.begin(), anc.end(), [](AncEssence const& n) { return n.format.interlace != Interlace::Progressive; });
+    }
+
     std::int64_t Group::effectiveOutputDelayNs(std::int64_t maxReadOffsetNs) const
     {
-        return outputDelayNs ? *outputDelayNs : std::max(2 * cadenceNs(), cadenceNs() + maxReadOffsetNs + 2'000'000);
+        auto const delay = outputDelayNs ? *outputDelayNs : std::max(2 * cadenceNs(), cadenceNs() + maxReadOffsetNs + 2'000'000);
+        auto const field = fieldRateOf(*this);
+        if (!interlaced() || field.num <= 0)
+        {
+            return delay;
+        }
+        // One field per grain (shared convention: grain 2k = the first field of frame k). A delay of an odd number of
+        // fields would put the first field's RTP timestamp on an odd field slot, so the delay is a whole number of
+        // frames: a configured value to the nearest even number of fields (an odd one fails validation), the default
+        // rounded up so it keeps its minimum.
+        auto fields = fieldsIn(delay, field, !outputDelayNs);
+        fields += fields % 2;
+        return fieldsToNs(fields, field);
     }
 
     Domain const* Mxl::findDomain(std::string const& name) const
@@ -1305,9 +1342,22 @@ namespace mxlgw::config
             if (g.direction == Direction::Egress && g.outputDelayNs)
             {
                 auto const minimum = cadence + maxReadOffsetNs + 2'000'000;
-                if (*g.outputDelayNs < minimum)
+                auto const field = fieldRateOf(g);
+                auto const fields = g.interlaced() && field.num > 0 ? fieldsIn(*g.outputDelayNs, field) : 0;
+                if (fields % 2 != 0)
                 {
-                    add(errors, gptr + "/output_delay_ns", "must be at least one grain + the largest read offset + 2 ms (" + std::to_string(minimum) + " ns)");
+                    add(errors, gptr + "/output_delay_ns",
+                        "must be a whole number of frames in a group with interlaced essences (" + std::to_string(*g.outputDelayNs) + " ns is " +
+                            std::to_string(fields) + " fields, an odd number, which puts the first field on an odd field slot); the nearest whole frames are " +
+                            std::to_string(fieldsToNs(fields - 1, field)) + " and " + std::to_string(fieldsToNs(fields + 1, field)) + " ns");
+                }
+                else if (g.effectiveOutputDelayNs(maxReadOffsetNs) < minimum)
+                {
+                    add(errors, gptr + "/output_delay_ns",
+                        "must be at least one grain + the largest read offset + 2 ms (" + std::to_string(minimum) + " ns)" +
+                            (g.interlaced()
+                                 ? std::string(" after rounding to whole frames (") + std::to_string(g.effectiveOutputDelayNs(maxReadOffsetNs)) + " ns)"
+                                 : ""));
                 }
             }
             if (g.direction == Direction::Egress && !g.video.empty())

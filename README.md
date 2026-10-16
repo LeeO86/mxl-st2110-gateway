@@ -55,7 +55,7 @@ docker compose up -d
 ```yaml
 services:
   mxl-st2110-gateway:
-    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.18}
+    image: ${MXLGW_IMAGE:-ghcr.io/leeo86/mxl-st2110-gateway:1.0.19}
     container_name: mxl-st2110-gateway
     restart: unless-stopped
     init: true
@@ -417,6 +417,8 @@ Other frequent issues:
 - **TX audio below 1000 packets/s (ptime 1 ms), gaps at the receiver, `late_frames` growing**: before 1.0.8 the audio blocks of a TX group were handed to MTL once per grain period behind the video, and with a read offset close to the output delay MTL dropped the first blocks of every period as late. 1.0.8 hands each block over when its data is due; `mxl_st2110_gateway_egress_lead_ns` shows the remaining lead (about output delay − read offset − 1 ms for an on-time source).
 - **Essence `error` / `format_mismatch`**: the flow or SDP format differs from the essence configuration (size, rate, scan, channels, packet time).
 - **Essence `error` / `grain_too_small`** (egress): the flow's grains are smaller than the essence format needs (`mxl_grain_too_small` in the log gives `grain_size` and `expected_bytes`; usually a writer whose grains do not match its `flow_def.json`). Black (or the last grain that fits) is sent; the essence runs again with the first grain that fits. On ingest the same case is counted in `mxl_st2110_gateway_mxl_grains_short_total` and nothing is written.
+- **`field_parity_corrected` in the log, `mxl_st2110_gateway_field_parity_corrected_total` growing** (ingest, interlaced): the sender's RTP timestamps are more than half a field off the ST 2059 frame grid (a fixed RTP offset, a non-2059-aligned device, or an upstream gateway with an odd output delay), or it stamps both fields alike. Since 1.0.19 the gateway writes each such field one grain later so that the first field (F = 0) stays on an even MXL grain index, as every MXL reader expects; the picture is correct, but the source is about one field later in MXL than its timestamps say. Before 1.0.19 the fields were written swapped across frames (one-line shift, combing on motion).
+- **`output_delay_ns` "must be a whole number of frames"** (exit 78 at start, a field error in the UI / `/api`): in an egress group with interlaced video or ANC, `output_delay_ns` must be an even number of fields (e.g. 40, 80, 120 ms at 1080i50); an odd number would put first fields on odd field slots downstream. The message names the two nearest valid values. Leave it unset for the default, which is rounded up to whole frames (1.0.19).
 - **Essence `error` / `egress_sender_failed`**: the ST 2110 sender could not be created (MTL error in the log just before `egress_sender_failed`); the MXL side may still read. Retried with a growing delay.
 - **`/readyz` `clock_mismatch`**: MTL PTP time and host `CLOCK_TAI` differ by more than `ptp.max_offset_ns` — fix host time sync.
 - **`/readyz` `nmos_not_registered`** / **`st2110_nmos_not_registered`**: the MXL node / ST 2110 node has a registry configured but is not registered; check `NMOS_REGISTRY_ADDRESS`/`_PORT` (or `MXLGW_NODE_ST2110_REGISTRY_*`), the registry's reachability, or Avahi when DNS-SD is on. Without a configured registry registration is not required.

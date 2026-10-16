@@ -225,6 +225,64 @@ TEST_CASE("semantic rules")
         j["groups"][1]["output_delay_ns"] = 200'000'000;
         CHECK(parse(j).ok());
     }
+    SUBCASE("interlaced egress: the output delay is a whole number of frames")
+    {
+        auto j = testutil::sampleConfig();
+        j["groups"][1]["video"][0]["rate"] = "25/1";
+        j["groups"][1]["video"][0]["interlace"] = "interlaced_tff";
+        auto r = parse(j);
+        INFO(config::formatErrors(r.errors));
+        REQUIRE(r.ok());
+        auto const& g = r.config->groups[1];
+        CHECK(g.interlaced());
+        CHECK_FALSE(r.config->groups[0].interlaced());
+        // Default: two fields = one frame; with a read offset of 2 fields 62 ms (3.1 fields) is rounded up to 4 fields.
+        CHECK(g.effectiveOutputDelayNs(0) == 40'000'000);
+        CHECK(g.effectiveOutputDelayNs(40'000'000) == 80'000'000);
+        CHECK(g.effectiveOutputDelayNs(80'000'000) == 120'000'000); // 102 ms -> 6 fields
+        // An explicit odd number of fields is rejected with a clear message.
+        j["groups"][1]["output_delay_ns"] = 60'000'000;
+        r = parse(j);
+        CHECK(hasError(r, "/groups/1/output_delay_ns"));
+        CHECK(config::formatErrors(r.errors).find("whole number of frames") != std::string::npos);
+        CHECK(config::formatErrors(r.errors).find("40000000 and 80000000") != std::string::npos);
+        j["groups"][1]["output_delay_ns"] = 50'000'000; // 2.5 fields rounds to 3, like MXL and MTL
+        CHECK(hasError(parse(j), "/groups/1/output_delay_ns"));
+        // An even number of fields is accepted and used as whole frames.
+        j["groups"][1]["output_delay_ns"] = 80'000'000;
+        r = parse(j);
+        CHECK(r.ok());
+        CHECK(r.config->groups[1].effectiveOutputDelayNs(0) == 80'000'000);
+        j["groups"][1]["output_delay_ns"] = 82'000'000; // 4.1 fields
+        r = parse(j);
+        CHECK(r.ok());
+        CHECK(r.config->groups[1].effectiveOutputDelayNs(0) == 80'000'000);
+        // The minimum applies to the rounded value: 40 ms is one frame, a read offset of 2 fields needs 62 ms.
+        j["groups"][1]["output_delay_ns"] = 40'000'000;
+        j["groups"][1]["video"][0]["read_offset_grains"] = 2;
+        CHECK(hasError(parse(j), "/groups/1/output_delay_ns"));
+        j["groups"][1].erase("output_delay_ns");
+        CHECK(parse(j).ok()); // the default (80 ms) fits
+        // 1080i59.94: whole frames of 1001/30 ms.
+        j = testutil::sampleConfig();
+        j["groups"][1]["video"][0]["rate"] = "30000/1001";
+        j["groups"][1]["video"][0]["interlace"] = "interlaced_tff";
+        r = parse(j);
+        REQUIRE(r.ok());
+        CHECK(r.config->groups[1].effectiveOutputDelayNs(0) == 33'366'667); // 2 fields (33 366 666.7 ns)
+        j["groups"][1]["output_delay_ns"] = 50'050'000;                     // 3 fields
+        CHECK(hasError(parse(j), "/groups/1/output_delay_ns"));
+        j["groups"][1]["output_delay_ns"] = 66'733'333; // 4 fields
+        r = parse(j);
+        CHECK(r.ok());
+        CHECK(r.config->groups[1].effectiveOutputDelayNs(0) == 66'733'333);
+        // Progressive groups are not rounded.
+        j = testutil::sampleConfig();
+        j["groups"][1]["output_delay_ns"] = 30'000'000;
+        r = parse(j);
+        CHECK(r.ok());
+        CHECK(r.config->groups[1].effectiveOutputDelayNs(0) == 30'000'000);
+    }
     SUBCASE("ANC needs a rate without video")
     {
         auto j = testutil::sampleConfig();

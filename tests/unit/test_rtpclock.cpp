@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include <doctest/doctest.h>
 
+#include <vector>
+
 #include "config/formats.hpp"
 #include "timing/rtpclock.hpp"
 
@@ -39,6 +41,63 @@ TEST_CASE("interlaced 25/1 uses the field rate")
     CHECK(rate == Rational{50, 1});
     auto const i = timestampToIndex(rate, epoch2026);
     CHECK(indexToTimestamp(rate, i + 1) - indexToTimestamp(rate, i) == 20'000'000);
+}
+
+TEST_CASE("interlaced ingest: the first field lands on an even index, indices stay monotonic")
+{
+    // Matching parity: unchanged.
+    CHECK(fieldIndex(100, false) == 100);
+    CHECK(fieldIndex(101, true) == 101);
+    // Wrong parity: one field later.
+    CHECK(fieldIndex(101, false) == 102);
+    CHECK(fieldIndex(100, true) == 101);
+
+    Rational const fieldRate{50, 1};
+    auto const k = timestampToIndex({25, 1}, epoch2026); // TAI frame k: fields 2k and 2k + 1
+    auto const frameStart = indexToTimestamp({25, 1}, k);
+    auto run = [&](std::int64_t offsetF1, std::int64_t offsetF2)
+    {
+        // Ten frames of a sender whose field timestamps are T(frame) + offset.
+        std::vector<std::uint64_t> out;
+        for (std::uint64_t f = 0; f < 10; ++f)
+        {
+            auto const t = frameStart + static_cast<std::int64_t>(f) * 40'000'000;
+            out.push_back(fieldIndex(timestampToIndex(fieldRate, t + offsetF1), false));
+            out.push_back(fieldIndex(timestampToIndex(fieldRate, t + offsetF2), true));
+        }
+        return out;
+    };
+    auto check = [](std::vector<std::uint64_t> const& out)
+    {
+        for (std::size_t i = 0; i < out.size(); ++i)
+        {
+            CHECK(out[i] % 2 == i % 2); // first field even, second odd
+            if (i > 0)
+            {
+                CHECK(out[i] > out[i - 1]); // strictly monotonic: nothing is rejected as index <= last
+            }
+        }
+    };
+    // On the TAI frame grid (RFC 4175: each field stamped at its own sampling instant): no shift.
+    auto const onGrid = run(0, 20'000'000);
+    check(onGrid);
+    CHECK(onGrid.front() == 2 * k);
+    // A sender offset by one field (first field on an odd slot): every field one slot later.
+    auto const shifted = run(20'000'000, 40'000'000);
+    check(shifted);
+    CHECK(shifted.front() == 2 * k + 2);
+    // Offsets just under and over half a field.
+    check(run(9'999'000, 29'999'000));
+    check(run(10'001'000, 30'001'000));
+    // The same timestamp on both fields: the second field goes to 2k + 1 instead of being rejected.
+    auto const same = run(0, 0);
+    check(same);
+    CHECK(same[1] == 2 * k + 1);
+    // 1080i59.94: the same at 60000/1001 fields.
+    auto const k59 = timestampToIndex({30000, 1001}, epoch2026);
+    auto const t59 = indexToTimestamp({30000, 1001}, k59);
+    CHECK(fieldIndex(timestampToIndex({60000, 1001}, t59), false) == 2 * k59);
+    CHECK(fieldIndex(timestampToIndex({60000, 1001}, t59), true) == 2 * k59 + 1);
 }
 
 TEST_CASE("RTP ticks, wrap and unwrap")

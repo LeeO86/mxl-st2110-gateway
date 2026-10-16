@@ -85,7 +85,7 @@ const clockKind = computed(() => {
             <dd class="legs">
               <span v-for="(l, i) in e.legs" :key="i" class="leg" :class="legHealth(l.packets, l.lost)" :title="`${i ? 'R' : 'P'}: ${l.packets} pkts, ${l.lost} lost`"></span>
             </dd>
-            <dt>MXL</dt><dd>{{ fmtCount(e.type === "audio" ? e.samples_written : e.grains_written) }} {{ e.type === "audio" ? "samples" : "grains" }} · {{ e.write_errors }} errors</dd>
+            <dt>MXL</dt><dd>{{ fmtCount(e.type === "audio" ? e.samples_written : e.grains_written) }} {{ e.type === "audio" ? "samples" : "grains" }} · {{ e.write_errors }} errors<template v-if="e.field_parity_corrected"> · {{ e.field_parity_corrected }} field parity corrected</template></dd>
             <dt>Origin age</dt><dd>{{ fmtNs(e.origin_age_ns) }}</dd>
           </dl>
           <dl class="kv" v-else>

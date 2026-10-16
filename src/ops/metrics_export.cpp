@@ -131,6 +131,8 @@ namespace mxlgw::ops
                 out.counter("mxl_st2110_gateway_mxl_write_errors_total", "MXL writes rejected", l, d(e.writeErrors));
                 out.counter("mxl_st2110_gateway_mxl_grains_short_total",
                             "Video grains smaller than the essence format needs (egress: replaced, never read; ingest: not written)", l, d(e.grainsShort));
+                out.counter("mxl_st2110_gateway_field_parity_corrected_total",
+                            "Interlaced fields written one grain index later so that the first field is on an even index", l, d(e.fieldParityCorrected));
                 std::array<double, group::workerLoopBoundsNs.size()> bounds{};
                 for (std::size_t i = 0; i < bounds.size(); ++i)
                 {

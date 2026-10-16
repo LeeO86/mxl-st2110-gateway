@@ -970,7 +970,7 @@
           ],
           "minimum": 0,
           "maximum": 10000000000,
-          "description": "Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms; with video at most the largest read offset + 5 grains (§5.7).",
+          "description": "Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms; with video at most the largest read offset + 5 grains. Interlaced groups: a whole number of frames (an even number of fields; the default is rounded up, an odd number of fields is an error) (§5.7).",
           "default": null
         },
         "missing_data": {
@@ -978,7 +978,7 @@
             "black",
             "repeat"
           ],
-          "description": "Egress: black video / silence / empty ANC, or repeat the last good video grain.",
+          "description": "Egress: black video / silence / empty ANC, or repeat the last good video grain (interlaced: the last whole frame, each field with its own F bit).",
           "default": "black"
         },
         "video": {

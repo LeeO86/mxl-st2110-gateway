@@ -76,6 +76,7 @@ All `mxl_st2110_gateway_ptp_*` series exist only while MTL runs PTP (`ptp.mode` 
 | `mxl_st2110_gateway_mxl_grains_written_total` | counter | essence labels | grains committed (video, ANC) |
 | `mxl_st2110_gateway_mxl_samples_written_total` | counter | essence labels | audio samples committed |
 | `mxl_st2110_gateway_mxl_write_errors_total` | counter | essence labels | writes MXL rejected (e.g. index not after the last committed one, §5.6) |
+| `mxl_st2110_gateway_field_parity_corrected_total` | counter | essence labels | interlaced video and ANC: fields written one grain index later because their timestamp gave the wrong parity for their F bit (the first field goes on an even index, SPECIFICATION §5.4). Non-zero means the sender's RTP timestamps are off the ST 2059 frame grid by more than half a field, or it stamps both fields alike; `field_parity_corrected` is logged at most once per 10 s per essence. 0 for progressive essences. Since 1.0.19 |
 
 ### Egress (MXL → ST 2110)
 

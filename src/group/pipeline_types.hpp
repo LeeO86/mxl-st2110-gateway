@@ -81,6 +81,8 @@ namespace mxlgw::group
         std::uint64_t samplesWritten = 0;
         std::uint64_t writeErrors = 0;
         std::uint64_t writerResyncs = 0;
+        // Interlaced: fields written one grain index later so that the first field is on an even index.
+        std::uint64_t fieldParityCorrected = 0;
         std::uint64_t framesDropped = 0; // gateway-side drops (busy writer, no slot)
         std::optional<std::int64_t> originAgeNs;
         WorkerLoopBuckets workerLoop{}; // worker busy time per iteration (outside its wait for the next frame)

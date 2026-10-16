@@ -133,8 +133,8 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].domain` | string |  |  | Configured domain name. Ingest writes here; egress resolves mxl_domain_id = auto against it. |
 | `groups[].redundancy` | boolean | `false` |  | ST 2022-7: two legs per essence. |
 | `groups[].enabled` | boolean | `true` |  | false: no NMOS resources and no media sessions. |
-| `groups[].output_delay_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms; with video at most the largest read offset + 5 grains (§5.7). |
-| `groups[].missing_data` | `"black"` \| `"repeat"` | `"black"` |  | Egress: black video / silence / empty ANC, or repeat the last good video grain. |
+| `groups[].output_delay_ns` | integer or null (≥ 0, ≤ 10000000000) | `null` |  | Egress: transmit time after the grain time; null = two grains, at least one grain + the largest read offset + 2 ms; with video at most the largest read offset + 5 grains. Interlaced groups: a whole number of frames (an even number of fields; the default is rounded up, an odd number of fields is an error) (§5.7). |
+| `groups[].missing_data` | `"black"` \| `"repeat"` | `"black"` |  | Egress: black video / silence / empty ANC, or repeat the last good video grain (interlaced: the last whole frame, each field with its own F bit). |
 | `groups[].video` | array of objects | `[]` |  | Video essences (ST 2110-20 ⇄ video/v210). |
 | `groups[].video[].uid` | UUID |  |  | Stable essence id; generated if missing. NMOS ids derive from it (§7.3). |
 | `groups[].video[].label` | string (≤ 128 chars) |  |  | Essence label (NMOS Source, Flow, Sender, Receiver). |

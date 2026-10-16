@@ -42,6 +42,7 @@
             "essences": [
                 {
                     "direction": "ingest",
+                    "field_parity_corrected": 0,
                     "flow_id": "5e3dd908-3ee7-56d1-a261-c0a2f3b285b3",
                     "frames": {
                         "complete": 0,

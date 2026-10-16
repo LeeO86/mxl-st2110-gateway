@@ -77,6 +77,8 @@ namespace mxlgw::group
         void processVideo(media::FrameMeta const& meta);
         /// Counts and logs (rate-limited) a grain of the writer's flow that is smaller than the format.
         void noteShortGrain(std::size_t grainSize);
+        /// Counts and logs (rate-limited) a field whose timestamp gave the wrong parity (fieldIndex shifted it).
+        void noteParityCorrected(std::uint64_t index, bool secondField);
         void processAudio(media::AudioBlock const& block);
         void processAnc(media::AncReceived const& anc);
         void openWriterLocked();
@@ -98,6 +100,7 @@ namespace mxlgw::group
         nlohmann::json _flowDef;
         std::string _writerOptions;
         util::Rational _grainRate;
+        bool _fieldParity = false; // interlaced video/ANC: the first field goes on an even grain index (fieldIndex)
         StateHolder _state;
 
         // Control/worker shared state (guarded by _mutex).
@@ -143,6 +146,8 @@ namespace mxlgw::group
         std::atomic<std::uint64_t> _writeErrors{0};
         std::atomic<std::uint64_t> _grainsShort{0};
         std::chrono::steady_clock::time_point _shortLogged{}; // worker only
+        std::atomic<std::uint64_t> _parityCorrected{0};
+        std::chrono::steady_clock::time_point _parityLogged{}; // worker only
         std::atomic<std::uint64_t> _writerResyncs{0};
         std::atomic<std::uint64_t> _framesDropped{0};
         std::atomic<std::int64_t> _originAgeNs{0};
