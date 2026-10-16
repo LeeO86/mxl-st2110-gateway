@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.18] - 2026-10-16
+
+### Fixed
+
+- Egress no longer reads past an MXL video grain that is smaller than the essence format. The flow definition was checked when the reader attached, but not each grain's size, and the sender copies the format's bytes (`v210` at MXL's stride × one field when interlaced, else the frame) out of the grain. A grain smaller than that (another writer's layout, a definition that does not match its grains) could be read beyond its end. Now every video grain's `grainSize` is checked before it is read, and so is the last good grain that `missing_data: repeat` copies. A grain that is too small is never read: the essence sends the replacement (`missing_data`: black, or the last grain that fits) and counts it. The state is `error` with reason `grain_too_small` until a grain fits, and `mxl_grain_too_small` is logged at most once per 10 s per essence, with the grain size and the expected bytes. ANC grains were already parsed within their size.
+
+### Added
+
+- `mxl_st2110_gateway_mxl_grains_short_total` (essence labels): video grains smaller than the format needs, replaced and never read; `grains_short` in the essence status; on the dashboard's "No data / invalid / too small / late reads" panel.
+- The Compose and Kubernetes examples use the `1.0.18` image.
+
 ## [1.0.17] - 2026-10-14
 
 ### Added

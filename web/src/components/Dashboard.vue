@@ -94,7 +94,7 @@ const clockKind = computed(() => {
               <template v-if="e.resolved_domain">{{ e.resolved_domain.kind }} · {{ e.resolved_domain.path }}</template>
               <span v-else class="muted">–</span>
             </dd>
-            <dt>Read</dt><dd>{{ fmtCount(e.grains_read) }} · {{ e.read_timeouts }} timeouts · {{ e.late_reads }} late · {{ e.grains_invalid }} invalid</dd>
+            <dt>Read</dt><dd>{{ fmtCount(e.grains_read) }} · {{ e.read_timeouts }} timeouts · {{ e.late_reads }} late · {{ e.grains_invalid }} invalid<template v-if="e.grains_short"> · {{ e.grains_short }} too small</template></dd>
             <dt>Sent</dt><dd>{{ fmtCount(e.frames_sent) }} frames · {{ e.late_frames }} late · lead {{ fmtNs(e.lead_ns) }}</dd>
             <dt>Lag</dt><dd>{{ e.read_lag_grains ?? "–" }} grains (offset {{ fmtNs(e.read_offset_ns) }})</dd>
           </dl>

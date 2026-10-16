@@ -70,6 +70,7 @@ namespace mxlgw::app
                 j["read_timeouts"] = e.readTimeouts;
                 j["late_reads"] = e.lateReads;
                 j["grains_invalid"] = e.grainsInvalid;
+                j["grains_short"] = e.grainsShort;
                 j["flow_not_found"] = e.flowNotFound;
                 j["read_lag_grains"] = e.readLagGrains ? json(*e.readLagGrains) : json();
                 j["lead_ns"] = e.leadNs ? json(*e.leadNs) : json();

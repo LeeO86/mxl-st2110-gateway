@@ -142,6 +142,8 @@ namespace mxlgw::ops
             out.counter("mxl_st2110_gateway_mxl_read_timeouts_total", "Grains/blocks with no data by their deadline", l, d(e.readTimeouts));
             out.counter("mxl_st2110_gateway_mxl_late_reads_total", "Data that arrived after its deadline and was skipped", l, d(e.lateReads));
             out.counter("mxl_st2110_gateway_mxl_grains_invalid_total", "Grains read with MXL_GRAIN_FLAG_INVALID", l, d(e.grainsInvalid));
+            out.counter("mxl_st2110_gateway_mxl_grains_short_total", "Video grains smaller than the essence format needs (replaced, never read)", l,
+                        d(e.grainsShort));
             out.counter("mxl_st2110_gateway_mxl_flow_not_found_total", "Reader attempts that found no flow or no domain", l, d(e.flowNotFound));
             if (e.readLagGrains)
             {

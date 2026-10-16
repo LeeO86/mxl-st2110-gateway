@@ -129,6 +129,7 @@ namespace mxlgw::group
         std::atomic<std::uint64_t> readTimeouts{0};
         std::atomic<std::uint64_t> lateReads{0};
         std::atomic<std::uint64_t> grainsInvalid{0};
+        std::atomic<std::uint64_t> grainsShort{0};
         std::atomic<std::uint64_t> flowNotFound{0};
         std::atomic<std::uint64_t> txDropped{0};
         std::atomic<double> readLag{0.0};
@@ -147,6 +148,11 @@ namespace mxlgw::group
     namespace
     {
         thread_local mxlbridge::SyncGroup* tlsSync = nullptr;
+    }
+
+    bool videoGrainFits(config::VideoFormat const& format, std::size_t grainSize)
+    {
+        return grainSize >= format.grainBytes();
     }
 
     EgressGroup::EgressGroup(EgressSpec spec, media::MediaBackend& backend, DomainResolver& resolver)
@@ -631,6 +637,25 @@ namespace mxlgw::group
         }
     }
 
+    void EgressGroup::shortGrain(Essence& e, std::size_t grainSize)
+    {
+        auto const count = e.grainsShort.fetch_add(1, std::memory_order_relaxed) + 1;
+        // The writer is alive (not "no signal"); its grains do not fit the essence format, like a definition
+        // mismatch (§5.8). The essence is running again with the first grain that fits.
+        e.lastGoodSteady = steadyNs();
+        e.setState(EssenceState::Error, "grain_too_small");
+        if (_shortGrainLog.allow(e.uid.toString()))
+        {
+            log::warn("mxl_grain_too_small", {{"group", _spec.group.label},
+                                              {"essence", e.label},
+                                              {"mxl_flow_id", e.haveRx.flowId ? e.haveRx.flowId->toString() : std::string()},
+                                              {"grain_size", grainSize},
+                                              {"expected_bytes", e.video.grainBytes()},
+                                              {"interlaced", e.video.interlaced()},
+                                              {"grains_short", count}});
+        }
+    }
+
     void EgressGroup::processGrain(Essence& e, std::int64_t periodOrigin, std::int64_t deadline)
     {
         auto const idx = timing::timestampToIndex(e.rate, periodOrigin);
@@ -656,6 +681,14 @@ namespace mxlgw::group
                         payload = nullptr;
                         // A writer that marks grains invalid is alive: not "no signal".
                         e.lastGoodSteady = steadyNs();
+                    }
+                    else if (e.type == config::EssenceType::Video && !videoGrainFits(e.video, info.grainSize))
+                    {
+                        // The sender copies grainBytes() (a field when interlaced) out of the grain: a smaller grain
+                        // would be read past its end. It is replaced like a missing grain (§5.7) and never read.
+                        // ANC needs no such check: it is parsed within info.grainSize.
+                        shortGrain(e, info.grainSize);
+                        payload = nullptr;
                     }
                     else
                     {
@@ -722,7 +755,8 @@ namespace mxlgw::group
                         // Copy the last good grain once, on the first miss (it is still in the ring).
                         mxlGrainInfo li{};
                         std::uint8_t const* lp = nullptr;
-                        if (e.grains->getNonBlocking(*e.lastGoodIndex, li, lp) == MXL_STATUS_OK && (li.flags & MXL_GRAIN_FLAG_INVALID) == 0)
+                        if (e.grains->getNonBlocking(*e.lastGoodIndex, li, lp) == MXL_STATUS_OK && (li.flags & MXL_GRAIN_FLAG_INVALID) == 0 &&
+                            videoGrainFits(e.video, li.grainSize))
                         {
                             e.replacement->remember(lp);
                         }
@@ -947,6 +981,7 @@ namespace mxlgw::group
             s.readTimeouts = e->readTimeouts.load(std::memory_order_relaxed);
             s.lateReads = e->lateReads.load(std::memory_order_relaxed);
             s.grainsInvalid = e->grainsInvalid.load(std::memory_order_relaxed);
+            s.grainsShort = e->grainsShort.load(std::memory_order_relaxed);
             s.flowNotFound = e->flowNotFound.load(std::memory_order_relaxed);
             s.txDropped = e->txDropped.load(std::memory_order_relaxed);
             if (e->haveLag.load(std::memory_order_relaxed))
