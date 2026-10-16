@@ -219,7 +219,16 @@ for label in "CAM 1 V" "CAM 1 A" "CAM 1 ANC"; do
     patch_staged "$ST2110" receivers "$(nmos_id "$ST2110" receivers "$label")" "$(sdp_body "$label" "${SDP_PT[$label]}")"
     wait_until 10 "$label receiver started with payload type ${SDP_PT[$label]}" rx_started_with "$since" "$label" "${SDP_PT[$label]}"
 done
-sleep 1 # the control thread writes the saved state
+saved_sdp_has() { # <receiver id> <payload type>: the saved /active carries an SDP with that payload type
+    as_root python3 -c '
+import json, sys
+a = json.load(open(sys.argv[1]))["resources"][sys.argv[2]]["active"]
+sys.exit(0 if "a=rtpmap:" + sys.argv[3] + " " in ((a.get("transport_file") or {}).get("data") or "") else 1)' \
+        "$WORK/config/state/connections.json" "$1" "$2"
+}
+for label in "CAM 1 V" "CAM 1 A" "CAM 1 ANC"; do
+    wait_until 10 "$label activation saved" saved_sdp_has "$(nmos_id "$ST2110" receivers "$label")" "${SDP_PT[$label]}"
+done
 since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 docker restart -t 15 "$GW" >/dev/null
 wait_until 30 "/readyz after the restart" http_ok "$BASE/readyz"
@@ -230,6 +239,25 @@ for label in "CAM 1 V" "CAM 1 A" "CAM 1 ANC"; do
         fail "$label: /active after the restart has no SDP or is disabled"
 done
 pass "restored RTP Receivers (video, audio, ANC) keep their SDP's payload type after a restart"
+
+# ---- an activation without an SDP (transport_file data null) restores as before: the configured payload type
+rid_v=$(nmos_id "$ST2110" receivers "CAM 1 V")
+patch_staged "$ST2110" receivers "$rid_v" '{"master_enable": true, "activation": {"mode": "activate_immediate"},
+  "transport_file": {"data": null, "type": null}, "transport_params": [{"multicast_ip": "239.1.1.1", "destination_port": 20000}]}'
+saved_without_sdp() {
+    as_root python3 -c '
+import json, sys
+a = json.load(open(sys.argv[1]))["resources"][sys.argv[2]]["active"]
+sys.exit(0 if a.get("master_enable") and not (a.get("transport_file") or {}).get("data") else 1)' "$WORK/config/state/connections.json" "$1"
+}
+wait_until 10 "CAM 1 V activation without SDP saved" saved_without_sdp "$rid_v"
+since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+docker restart -t 15 "$GW" >/dev/null
+wait_until 30 "/readyz after the restart" http_ok "$BASE/readyz"
+wait_until 15 "restored CAM 1 V receiver started with the configured payload type 96" rx_started_with "$since" "CAM 1 V" 96
+[[ "$(json "$ST2110/x-nmos/connection/v1.2/single/receivers/$rid_v/active" 'j["transport_file"].get("data") is None and j["master_enable"]')" == "True" ]] ||
+    fail "CAM 1 V: /active after the restart is not the SDP-less activation"
+pass "an RTP Receiver activated without an SDP restores with the configured payload type"
 
 # ---- a saved route that no longer fits comes up disabled with the reason; a disable is always accepted
 # A 720p flow of another function: its flow_def.json does not fit the 1080p receiver.
