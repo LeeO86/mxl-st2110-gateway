@@ -139,8 +139,11 @@ namespace mxlgw::config
         std::size_t essenceCount() const { return video.size() + audio.size() + anc.size(); }
         /// Grain duration that drives the group's cadence (first video, else ANC, else audio block).
         std::int64_t cadenceNs() const;
+        /// True when a video or ANC essence is interlaced (one field per grain: the cadence is the field rate).
+        bool interlaced() const;
         /// output_delay_ns, or the default: two grains, at least one grain + the largest read offset
-        /// + 2 ms (§5.7), so a read offset alone does not make every grain late.
+        /// + 2 ms (§5.7), so a read offset alone does not make every grain late. Interlaced groups: a whole
+        /// number of frames (an even number of fields): a configured value to the nearest, the default rounded up.
         std::int64_t effectiveOutputDelayNs(std::int64_t maxReadOffsetNs) const;
     };
 

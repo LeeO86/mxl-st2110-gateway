@@ -69,5 +69,33 @@ TEST_CASE("replacement frames: black and repeat (§5.7)")
     repeat.remember(grain.data());
     CHECK(repeat.repeating());
     CHECK(v210ReadCounter(repeat.frame(), f.width, f.v210Stride()) == 77u);
+    CHECK(v210ReadCounter(repeat.frame(true), f.width, f.v210Stride()) == 77u); // progressive: no field parity
     CHECK(group::emptyAnc().packets.empty());
+}
+
+TEST_CASE("replacement fields: an interlaced repeat keeps one field per parity (§5.7)")
+{
+    config::VideoFormat f;
+    f.rate = {25, 1};
+    f.interlace = config::Interlace::InterlacedTff;
+    std::vector<std::uint8_t> first(f.grainBytes());
+    std::vector<std::uint8_t> second(f.grainBytes());
+    v210ColourBars(first.data(), f.width, f.linesPerGrain(), f.v210Stride(), 200);
+    v210ColourBars(second.data(), f.width, f.linesPerGrain(), f.v210Stride(), 201);
+
+    group::VideoReplacement repeat(f, config::MissingData::Repeat);
+    CHECK(repeat.frame(false) == repeat.black());
+    CHECK(repeat.frame(true) == repeat.black());
+    repeat.remember(first.data(), false);
+    CHECK(repeat.repeating());
+    CHECK(v210ReadCounter(repeat.frame(false), f.width, f.v210Stride()) == 200u);
+    CHECK(repeat.frame(true) == repeat.black()); // never the other field's lines
+    repeat.remember(second.data(), true);
+    CHECK(v210ReadCounter(repeat.frame(false), f.width, f.v210Stride()) == 200u);
+    CHECK(v210ReadCounter(repeat.frame(true), f.width, f.v210Stride()) == 201u);
+
+    group::VideoReplacement black(f, config::MissingData::Black);
+    black.remember(first.data(), false);
+    CHECK(black.frame(false) == black.black());
+    CHECK(black.frame(true) == black.black());
 }

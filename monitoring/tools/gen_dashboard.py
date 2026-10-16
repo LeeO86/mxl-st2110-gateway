@@ -30,8 +30,9 @@ METRICS = {
     "mxl_st2110_gateway_nic_rx_packets_total", "mxl_st2110_gateway_nic_tx_packets_total", "mxl_st2110_gateway_nic_rx_bytes_total",
     "mxl_st2110_gateway_nic_tx_bytes_total", "mxl_st2110_gateway_nic_rx_errors_total", "mxl_st2110_gateway_nic_rx_missed_total",
     "mxl_st2110_gateway_essence_state", "mxl_st2110_gateway_rx_frames_total", "mxl_st2110_gateway_rx_leg_packets_total", "mxl_st2110_gateway_rx_packets_total",
-    "mxl_st2110_gateway_rx_leg_seq_lost_total", "mxl_st2110_gateway_ingest_origin_age_ns", "mxl_st2110_gateway_ingest_worker_loop_seconds",
+    "mxl_st2110_gateway_rx_leg_seq_lost_total", "mxl_st2110_gateway_rx_wrong_payload_type_dropped_total", "mxl_st2110_gateway_ingest_origin_age_ns", "mxl_st2110_gateway_ingest_worker_loop_seconds",
     "mxl_st2110_gateway_mxl_grains_written_total", "mxl_st2110_gateway_mxl_samples_written_total", "mxl_st2110_gateway_mxl_write_errors_total",
+    "mxl_st2110_gateway_rx_field_parity_corrected_total",
     "mxl_st2110_gateway_mxl_grains_read_total", "mxl_st2110_gateway_mxl_read_timeouts_total", "mxl_st2110_gateway_mxl_late_reads_total",
     "mxl_st2110_gateway_mxl_grains_invalid_total", "mxl_st2110_gateway_mxl_grains_short_total", "mxl_st2110_gateway_mxl_flow_not_found_total", "mxl_st2110_gateway_mxl_read_lag_grains",
     "mxl_st2110_gateway_mxl_reader_info", "mxl_st2110_gateway_mxl_discovered_domains",
@@ -277,14 +278,18 @@ def build():
     L.add(timeseries("Packets per leg", [
         (f"rate(mxl_st2110_gateway_rx_leg_packets_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} leg {{leg}}"),
         (f"rate(mxl_st2110_gateway_rx_packets_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} merged"),
-    ], unit="pps", min_zero=True), 8, 7)
+        (f"rate(mxl_st2110_gateway_rx_wrong_payload_type_dropped_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} wrong payload type"),
+    ], unit="pps", min_zero=True,
+        description="Wrong payload type: packets MTL dropped because their RTP payload type is not the receiver's (the SDP's, else the configured one)."), 8, 7)
     L.add(timeseries("Origin age", [(f"mxl_st2110_gateway_ingest_origin_age_ns{{{ingest}}}", "{{group}} / {{essence}}")], unit="ns",
                      description="TAI now minus the origin time of the last frame written (§3.7)."), 8, 7)
     L.add(timeseries("MXL writes", [
         (f"rate(mxl_st2110_gateway_mxl_grains_written_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} grains"),
         (f"rate(mxl_st2110_gateway_mxl_samples_written_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} samples"),
         (f"rate(mxl_st2110_gateway_mxl_write_errors_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} errors"),
-    ], unit="ops", min_zero=True), 8, 7)
+        (f"rate(mxl_st2110_gateway_rx_field_parity_corrected_total{{{ingest}}}[$__rate_interval])", "{{group}} / {{essence}} field parity corrected"),
+    ], unit="ops", min_zero=True,
+        description="Field parity corrected (interlaced): fields written one grain later because the sender's RTP timestamps are off the frame grid (§5.4)."), 8, 7)
     L.add(timeseries("Worker busy time p99.9", [
         (f"histogram_quantile(0.999, sum by (instance, group, essence, le) (rate(mxl_st2110_gateway_ingest_worker_loop_seconds_bucket{{{ingest}}}[$__rate_interval])))",
          "{{group}} / {{essence}}"),

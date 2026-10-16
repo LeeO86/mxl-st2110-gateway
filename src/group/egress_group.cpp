@@ -753,16 +753,37 @@ namespace mxlgw::group
                     if (_spec.group.missingData == config::MissingData::Repeat && !e.repeatFresh && e.lastGoodIndex && e.grains)
                     {
                         // Copy the last good grain once, on the first miss (it is still in the ring).
-                        mxlGrainInfo li{};
-                        std::uint8_t const* lp = nullptr;
-                        if (e.grains->getNonBlocking(*e.lastGoodIndex, li, lp) == MXL_STATUS_OK && (li.flags & MXL_GRAIN_FLAG_INVALID) == 0 &&
-                            videoGrainFits(e.video, li.grainSize))
+                        auto const copy = [&](std::uint64_t index, bool second)
                         {
-                            e.replacement->remember(lp);
+                            mxlGrainInfo li{};
+                            std::uint8_t const* lp = nullptr;
+                            if (e.grains->getNonBlocking(index, li, lp) == MXL_STATUS_OK && (li.flags & MXL_GRAIN_FLAG_INVALID) == 0 &&
+                                videoGrainFits(e.video, li.grainSize))
+                            {
+                                e.replacement->remember(lp, second);
+                                return true;
+                            }
+                            return false;
+                        };
+                        auto const last = *e.lastGoodIndex;
+                        if (!interlaced)
+                        {
+                            copy(last, false);
+                        }
+                        else
+                        {
+                            // The last whole frame, fields 2k and 2k + 1 (shared convention), so each field is repeated in its
+                            // own F slot. Without one in the ring, the last good field goes into both (a one-line bob).
+                            auto const first = last % 2 == 1 ? last - 1 : last - 2;
+                            if (!((last % 2 == 1 || last >= 2) && copy(first, false) && copy(first + 1, true)))
+                            {
+                                copy(last, false);
+                                copy(last, true);
+                            }
                         }
                         e.repeatFresh = true;
                     }
-                    frame = e.replacement->frame();
+                    frame = e.replacement->frame(secondField);
                 }
                 if (!e.vtx->send(frame, txTai, secondField, std::chrono::milliseconds(2)))
                 {

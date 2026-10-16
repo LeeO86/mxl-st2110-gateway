@@ -176,6 +176,7 @@ namespace mxlgw::media
             s.framesIncomplete = incomplete + c.stat_frames_corrupted;
             s.framesComplete = c.stat_frames_received > s.framesIncomplete ? c.stat_frames_received - s.framesIncomplete : 0;
             s.framesDropped = c.stat_frames_dropped;
+            s.wrongPayloadType = c.stat_pkts_wrong_pt_dropped;
             return s;
         }
 

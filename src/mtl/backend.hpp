@@ -42,7 +42,8 @@ namespace mxlgw::media
         std::uint64_t framesComplete = 0;
         std::uint64_t framesIncomplete = 0;
         std::uint64_t framesDropped = 0;
-        std::uint64_t framesLate = 0; // TX: deadline missed
+        std::uint64_t framesLate = 0;       // TX: deadline missed
+        std::uint64_t wrongPayloadType = 0; // RX: packets MTL dropped because their payload type is not the session's
     };
 
     struct FrameMeta

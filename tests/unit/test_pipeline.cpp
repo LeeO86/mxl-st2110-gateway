@@ -11,6 +11,7 @@
 #include <map>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <pthread.h>
 #include <set>
 #include <stdexcept>
@@ -27,7 +28,9 @@
 #include "mxlbridge/domainscan.hpp"
 #include "mxlbridge/flowdef.hpp"
 #include "mxlbridge/pattern.hpp"
+#include "mxlbridge/reader.hpp"
 #include "mxlbridge/writer.hpp"
+#include "timing/rtpclock.hpp"
 
 using namespace mxlgw;
 using namespace std::chrono_literals;
@@ -92,23 +95,40 @@ namespace
         std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
     };
 
-    /// Counts the video frames handed to the senders and how many of them were not all black.
+    /// Counts the video frames handed to the senders and how many of them were not all black; keeps each
+    /// frame's transmit time, F bit and frame counter.
     struct VideoSendLog
     {
+        struct Sent
+        {
+            std::int64_t transmit = 0;
+            bool secondField = false;
+            std::optional<std::uint32_t> counter;
+        };
         std::atomic<std::uint64_t> frames{0};
         std::atomic<std::uint64_t> notBlack{0};
+        mutable std::mutex mutex;
+        std::vector<Sent> sent;
+
+        std::vector<Sent> all() const
+        {
+            std::lock_guard const lock{mutex};
+            return sent;
+        }
     };
 
     struct RecordingVideoTx final : media::VideoTxSession
     {
         std::unique_ptr<media::VideoTxSession> inner;
         VideoSendLog& log;
+        config::VideoFormat format;
         std::vector<std::uint8_t> blackFrame;
 
-        RecordingVideoTx(std::unique_ptr<media::VideoTxSession> session, VideoSendLog& sendLog, config::VideoFormat const& format)
+        RecordingVideoTx(std::unique_ptr<media::VideoTxSession> session, VideoSendLog& sendLog, config::VideoFormat const& videoFormat)
             : inner(std::move(session))
             , log(sendLog)
-            , blackFrame(format.grainBytes())
+            , format(videoFormat)
+            , blackFrame(videoFormat.grainBytes())
         {
             codec::v210FillBlack(blackFrame.data(), format.width, format.linesPerGrain(), format.v210Stride());
         }
@@ -119,6 +139,10 @@ namespace
             if (std::memcmp(v210, blackFrame.data(), blackFrame.size()) != 0)
             {
                 ++log.notBlack;
+            }
+            {
+                std::lock_guard const lock{log.mutex};
+                log.sent.push_back({transmitTai, secondField, codec::v210ReadCounter(v210, format.width, format.v210Stride())});
             }
             return inner->send(v210, transmitTai, secondField, timeout);
         }
@@ -877,4 +901,219 @@ TEST_CASE("pipeline: egress audio sends one block per packet time ahead of its t
     {
         s->writer->stop();
     }
+}
+
+namespace
+{
+    nlohmann::json interlacedVideoJson(int uid, std::string const& label, std::string const& mcast)
+    {
+        auto j = videoJson(uid, label, mcast, "25/1");
+        j["interlace"] = "interlaced_tff";
+        return j;
+    }
+
+    /// The v210 frame counter of grain `index` of a flow, if it is in the ring.
+    std::optional<std::uint32_t> grainCounter(mxlbridge::GrainReader const& reader, std::uint64_t index, config::VideoFormat const& f)
+    {
+        mxlGrainInfo info{};
+        std::uint8_t const* payload = nullptr;
+        if (reader.getNonBlocking(index, info, payload) != MXL_STATUS_OK || (info.flags & MXL_GRAIN_FLAG_INVALID) != 0)
+        {
+            return std::nullopt;
+        }
+        return codec::v210ReadCounter(payload, f.width, f.v210Stride());
+    }
+}
+
+TEST_CASE("pipeline: interlaced ingest puts the first field on an even grain index, whatever the sender's RTP offset")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back({{"uid", testutil::uid(570)},
+                      {"label", "FIELDS"},
+                      {"direction", "ingest"},
+                      {"domain", "main"},
+                      {"video", {interlacedVideoJson(571, "FIELDS V", "239.30.0.9")}}});
+    Harness h(groups);
+    h.groups->setRtpReceiver(uuidOf(571), Harness::rtp("239.30.0.9"));
+    h.groups->setMxlSender(uuidOf(571), {true});
+    REQUIRE(waitFor([&] { return h.essence(571).senderActive; }, 3s));
+
+    // A third-party sender on the mock network: one field per RTP frame, its own timestamps.
+    config::VideoFormat f;
+    f.rate = {25, 1};
+    f.interlace = config::Interlace::InterlacedTff;
+    media::VideoTxParams tp;
+    tp.name = "sender";
+    tp.format = f;
+    tp.legs = {{"239.30.0.9", "", 20000, true}};
+    auto tx = h.backend->createVideoTx(tp);
+    std::vector<std::uint8_t> field(f.grainBytes());
+    util::Rational const frameRate{25, 1};
+    constexpr std::uint64_t frames = 3; // 6 fields: the ring of the 160 ms history keeps 8
+    // Sends `frames` frames from frame k on, the first field at T(frame) + offsetF1, the second at T(frame) + offsetF2
+    // (with F = 1 unless `fBit` is false). Each field carries the counter of the grain it belongs on: 2k for the first
+    // field, 2k + 1 for the second.
+    auto sendFrames = [&](std::int64_t offsetF1, std::int64_t offsetF2, bool fBit = true)
+    {
+        auto const k = timing::timestampToIndex(frameRate, media::hostTaiNs()) + 3;
+        for (std::uint64_t i = 0; i < frames; ++i)
+        {
+            auto const t = timing::indexToTimestamp(frameRate, k + i);
+            codec::v210ColourBars(field.data(), f.width, f.linesPerGrain(), f.v210Stride(), static_cast<std::uint32_t>(2 * (k + i)));
+            REQUIRE(tx->send(field.data(), t + offsetF1, false, 10ms));
+            codec::v210ColourBars(field.data(), f.width, f.linesPerGrain(), f.v210Stride(), static_cast<std::uint32_t>(2 * (k + i) + 1));
+            REQUIRE(tx->send(field.data(), t + offsetF2, fBit, 10ms));
+        }
+        return k;
+    };
+
+    mxlStatus status = MXL_STATUS_OK;
+    auto const flowId = h.essence(571).flowId;
+
+    SUBCASE("a sender one field late: every field one grain later, the first field on an even index")
+    {
+        auto const before = h.essence(571).grainsWritten;
+        auto const k = sendFrames(20'000'000, 40'000'000); // F=0 at 2k + 1, F=1 at 2k + 2 without the fix
+        REQUIRE(waitFor([&] { return h.essence(571).grainsWritten >= before + 2 * frames; }, 3s));
+        auto reader = mxlbridge::GrainReader::open(h.main.instance, flowId.toString(), status);
+        REQUIRE(reader);
+        // The very first field comes before any F = 1, so the guard leaves it at its timestamp's index (2k + 1).
+        CHECK(grainCounter(*reader, 2 * k + 1, f) == static_cast<std::uint32_t>(2 * k));
+        CHECK(grainCounter(*reader, 2 * k + 3, f) == static_cast<std::uint32_t>(2 * k + 1));
+        for (std::uint64_t i = 1; i < frames; ++i)
+        {
+            auto const first = 2 * (k + i) + 2;
+            CHECK(grainCounter(*reader, first, f) == static_cast<std::uint32_t>(2 * (k + i)));         // F=0 on an even index
+            CHECK(grainCounter(*reader, first + 1, f) == static_cast<std::uint32_t>(2 * (k + i) + 1)); // F=1 right after it
+        }
+        auto const e = h.essence(571);
+        CHECK(e.fieldParityCorrected == 2 * frames - 1);
+        CHECK(e.writeErrors == 0);
+    }
+    SUBCASE("a sender that never sets F = 1, on the frame grid: no field lost, indices as before 1.0.19")
+    {
+        auto const k = sendFrames(0, 20'000'000, false);
+        REQUIRE(waitFor([&] { return h.essence(571).grainsWritten >= 2 * frames; }, 3s));
+        auto reader = mxlbridge::GrainReader::open(h.main.instance, flowId.toString(), status);
+        REQUIRE(reader);
+        for (std::uint64_t i = 0; i < frames; ++i)
+        {
+            CHECK(grainCounter(*reader, 2 * (k + i), f) == static_cast<std::uint32_t>(2 * (k + i)));
+            CHECK(grainCounter(*reader, 2 * (k + i) + 1, f) == static_cast<std::uint32_t>(2 * (k + i) + 1));
+        }
+        auto const e = h.essence(571);
+        CHECK(e.grainsWritten == 2 * frames);
+        CHECK(e.fieldParityCorrected == 0);
+        CHECK(e.writeErrors == 0);
+    }
+    SUBCASE("on the TAI frame grid: unchanged")
+    {
+        auto const k = sendFrames(0, 20'000'000);
+        REQUIRE(waitFor([&] { return h.essence(571).grainsWritten >= 2 * frames; }, 3s));
+        auto reader = mxlbridge::GrainReader::open(h.main.instance, flowId.toString(), status);
+        REQUIRE(reader);
+        for (std::uint64_t i = 0; i < frames; ++i)
+        {
+            CHECK(grainCounter(*reader, 2 * (k + i), f) == static_cast<std::uint32_t>(2 * (k + i)));
+            CHECK(grainCounter(*reader, 2 * (k + i) + 1, f) == static_cast<std::uint32_t>(2 * (k + i) + 1));
+        }
+        CHECK(h.essence(571).fieldParityCorrected == 0);
+        CHECK(h.essence(571).writeErrors == 0);
+    }
+    SUBCASE("the same timestamp on both fields: the second field is written to 2k + 1, not rejected")
+    {
+        auto const k = sendFrames(0, 0);
+        REQUIRE(waitFor([&] { return h.essence(571).grainsWritten >= 2 * frames; }, 3s));
+        auto reader = mxlbridge::GrainReader::open(h.main.instance, flowId.toString(), status);
+        REQUIRE(reader);
+        for (std::uint64_t i = 0; i < frames; ++i)
+        {
+            CHECK(grainCounter(*reader, 2 * (k + i), f) == static_cast<std::uint32_t>(2 * (k + i)));
+            CHECK(grainCounter(*reader, 2 * (k + i) + 1, f) == static_cast<std::uint32_t>(2 * (k + i) + 1));
+        }
+        CHECK(h.essence(571).fieldParityCorrected == frames);
+        CHECK(h.essence(571).writeErrors == 0);
+    }
+}
+
+TEST_CASE("pipeline: interlaced missing_data repeat sends the last whole frame, each field with its own F bit (§5.7)")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back({{"uid", testutil::uid(580)},
+                      {"label", "FREEZE"},
+                      {"direction", "egress"},
+                      {"domain", "main"},
+                      {"missing_data", "repeat"},
+                      {"video", {interlacedVideoJson(581, "FREEZE V", "239.30.0.10")}}});
+    VideoSendLog sends;
+    Harness h(groups, [&](std::unique_ptr<media::MediaBackend> inner) { return std::make_unique<RecordingVideoBackend>(std::move(inner), sends); });
+
+    config::VideoFormat f;
+    f.rate = {25, 1};
+    f.interlace = config::Interlace::InterlacedTff;
+    mxlbridge::FlowIdentity id;
+    id.flowId = util::uuidV4();
+    id.sourceId = util::uuidV4();
+    id.deviceId = util::uuidV4();
+    id.label = "fields";
+    id.description = "fields";
+    id.groupHint = "FIELDS:Video 1";
+    id.version = mxlbridge::nmosVersion(media::hostTaiNs());
+    mxlbridge::GrainWriter writer(h.main.instance, mxlbridge::videoFlowDef(id, f), mxlbridge::writerOptions(540, 540));
+    h.groups->setMxlReceiver(uuidOf(581), {true, h.main.id, id.flowId});
+    h.groups->setRtpSender(uuidOf(581), Harness::rtp("239.30.0.10"));
+
+    // Write each field at its time, counter = grain index, and stop after a FIRST field (2k): the frame k is
+    // incomplete, so the last whole frame is (2k - 2, 2k - 1).
+    auto const rate = f.grainRate();
+    std::vector<std::uint8_t> field(f.grainBytes());
+    std::uint64_t first = 0;
+    std::uint64_t last = 0;
+    auto const until = std::chrono::steady_clock::now() + 1500ms;
+    while (std::chrono::steady_clock::now() < until || last % 2 != 0)
+    {
+        auto const idx = timing::timestampToIndex(rate, media::hostTaiNs());
+        if (idx > last)
+        {
+            codec::v210ColourBars(field.data(), f.width, f.linesPerGrain(), f.v210Stride(), static_cast<std::uint32_t>(idx));
+            REQUIRE(writer.write(idx, field) == MXL_STATUS_OK);
+            first = first == 0 ? idx : first;
+            last = idx;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    REQUIRE(h.essence(581).grainsRead > 20);
+    REQUIRE(waitFor([&] { return h.essence(581).readTimeouts > 30; }, 3s));
+    std::int64_t delay = 0;
+    for (auto const& g : h.groups->snapshot())
+    {
+        delay = g.outputDelayNs;
+    }
+    REQUIRE(delay > 0);
+    CHECK(delay % 40'000'000 == 0); // interlaced: a whole number of frames
+
+    std::size_t live = 0;
+    std::size_t repeats = 0;
+    for (auto const& s : sends.all())
+    {
+        auto const idx = timing::timestampToIndex(rate, s.transmit - delay);
+        CHECK(s.secondField == (idx % 2 == 1)); // F bit = grain parity
+        if (idx < first + 25)
+        {
+            continue; // black until the reader has its first grains
+        }
+        REQUIRE(s.counter.has_value());
+        if (idx <= last)
+        {
+            // Read live (a CI hiccup may repeat one, but always a field of the same parity).
+            live += *s.counter == static_cast<std::uint32_t>(idx) ? 1 : 0;
+            CHECK(*s.counter % 2 == (s.secondField ? 1u : 0u));
+            continue;
+        }
+        // A replacement: the field of the same parity from the last whole frame, never the other one.
+        ++repeats;
+        CHECK(*s.counter == static_cast<std::uint32_t>(s.secondField ? last - 1 : last - 2));
+    }
+    CHECK(live > 20);
+    CHECK(repeats > 20);
 }

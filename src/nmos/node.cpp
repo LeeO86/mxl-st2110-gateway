@@ -745,6 +745,14 @@ namespace mxlgw::nmosnode
             {
                 connection.data[nmos::fields::endpoint_staged][us(peerField)] = value::string(us(peer->get<std::string>()));
             }
+            // An RTP Receiver's saved SDP: the receiver takes its payload type from it (MTL drops every other one), and
+            // checkStaged checks its format as on a live PATCH. A saved transport file without data stays the default;
+            // MXL Receivers never take one (BCP-007-03).
+            if (auto const file = saved->find("transport_file"); ref != nullptr && ref->rtp && !ref->sender && file != saved->end() && file->is_object() &&
+                                                                 file->contains("data") && (*file)["data"].is_string())
+            {
+                connection.data[nmos::fields::endpoint_staged][nmos::fields::transport_file] = toWeb(*file);
+            }
             if (ref != nullptr && group != nullptr && saved->value("master_enable", false))
             {
                 try

@@ -33,6 +33,35 @@ namespace mxlgw::timing
     std::uint64_t timestampToIndex(Rational rate, TaiNs t);
     TaiNs indexToTimestamp(Rational rate, std::uint64_t index);
 
+    /// Interlaced ingest (shared convention: grain 2k is the first field of frame k, 2k + 1 the second): the grain
+    /// index of a field whose timestamp maps to `index`. That is `index` when its parity matches the field, else
+    /// `index + 1`: shifting forward keeps the indices of a stream monotonic.
+    constexpr std::uint64_t fieldIndex(std::uint64_t index, bool secondField)
+    {
+        return (index & 1u) == (secondField ? 1u : 0u) ? index : index + 1;
+    }
+
+    /// fieldIndex, guarded: the F bit decides the parity only while the sender sets it, i.e. at most
+    /// `maxFieldsSinceSecond` fields after the last second field (F = 1). A sender that never sets F = 1 keeps its
+    /// timestamps' indices, as before 1.0.19. Lock- and allocation-free; one instance per stream and thread.
+    class FieldParity
+    {
+    public:
+        static constexpr int maxFieldsSinceSecond = 4;
+
+        /// The grain index of a field whose timestamp maps to `index`.
+        constexpr std::uint64_t index(std::uint64_t index, bool secondField) noexcept
+        {
+            _sinceSecond = secondField ? 0 : static_cast<std::uint8_t>(_sinceSecond < 255 ? _sinceSecond + 1 : 255);
+            return _sinceSecond <= maxFieldsSinceSecond ? fieldIndex(index, secondField) : index;
+        }
+        /// A new stream (RX session): no F = 1 seen yet.
+        constexpr void reset() noexcept { _sinceSecond = 255; }
+
+    private:
+        std::uint8_t _sinceSecond = 255;
+    };
+
     /// Egress (owner decision Q1): transmit time and RTP timestamp of grain `index`.
     struct EgressTiming
     {

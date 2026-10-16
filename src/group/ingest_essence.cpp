@@ -54,6 +54,7 @@ namespace mxlgw::group
         SlotKind kind = SlotKind::Empty;
         std::uint64_t index = 0;
         std::int64_t originTai = 0;
+        bool parityCorrected = false;
         mxlGrainInfo info{};
         std::uint8_t* payload = nullptr;
     };
@@ -107,6 +108,7 @@ namespace mxlgw::group
             {
                 auto const& f = _spec.group.video.at(_spec.index).format;
                 _grainRate = f.grainRate();
+                _fieldParity = f.interlaced();
                 auto const lines = static_cast<std::uint32_t>(f.linesPerGrain());
                 _writerOptions = mxlbridge::writerOptions(lines, lines);
                 _slots = std::make_unique<Slot[]>(slotCount);
@@ -125,6 +127,7 @@ namespace mxlgw::group
             {
                 auto const& f = _spec.group.anc.at(_spec.index).format;
                 _grainRate = f.grainRate();
+                _fieldParity = f.interlace != config::Interlace::Progressive;
                 _writerOptions = mxlbridge::writerOptions(static_cast<std::uint32_t>(config::ancGrainBytes), static_cast<std::uint32_t>(config::ancGrainBytes));
                 break;
             }
@@ -225,6 +228,7 @@ namespace mxlgw::group
                     auto const& e = _spec.group.video.at(_spec.index);
                     media::VideoRxParams p{_label, e.format, payloadTypeFor(target, e.payloadType), target.legs};
                     _expectedTag = _nextTag.load();
+                    _videoParity.reset();
                     _videoRx = _backend.createVideoRx(p, *this);
                     break;
                 }
@@ -237,12 +241,15 @@ namespace mxlgw::group
                 case config::EssenceType::Anc:
                 {
                     auto const& e = _spec.group.anc.at(_spec.index);
+                    _ancParity.reset();
                     _ancRx = _backend.createAncRx({_label, e.format, payloadTypeFor(target, e.payloadType), target.legs});
                     break;
                 }
             }
             _lastFrameSteadyNs = steadyNs();
             _framesSeen = false;
+            _fieldsWithoutSecond = 0;
+            _secondFieldSeen = false;
             log::info("ingest_receiver_started", {{"group", _spec.group.label},
                                                   {"essence", _label},
                                                   {"payload_type", payloadTypeFor(target, commonOf(_spec.group, _spec.type, _spec.index).payloadType)}});
@@ -418,6 +425,17 @@ namespace mxlgw::group
         auto const ref = meta.receiveTai != 0 ? meta.receiveTai : media::hostTaiNs();
         slot.originTai = timing::unwrapRtp(meta.rtpTimestamp, timing::videoClockHz, ref);
         slot.index = timing::timestampToIndex(_grainRate, slot.originTai);
+        slot.parityCorrected = false;
+        if (_fieldParity)
+        {
+            // Shared convention: the first field (F = 0) on an even index, whatever the sender's RTP offset.
+            // VERIFIED: OpenVisualCloud/Media-Transport-Library@v26.09 lib/src/st2110/st_rx_video_session.c:1577,1667,877 —
+            // meta.second_field is the F bit of the field's packets, set before query_ext_frame (pipeline/st20_pipeline_rx.c:208).
+            // Guarded: only while the sender sets F = 1 (one that never does keeps its timestamps' indices).
+            auto const index = _videoParity.index(slot.index, meta.secondField);
+            slot.parityCorrected = index != slot.index;
+            slot.index = index;
+        }
         slot.payload = nullptr;
 
         _gateUsers.fetch_add(1, std::memory_order_seq_cst);
@@ -530,6 +548,39 @@ namespace mxlgw::group
         }
     }
 
+    void IngestEssence::noteParityCorrected(std::uint64_t index, bool secondField)
+    {
+        auto const count = _parityCorrected.fetch_add(1, std::memory_order_relaxed) + 1;
+        auto const now = std::chrono::steady_clock::now();
+        if (count == 1 || now - _parityLogged >= std::chrono::seconds(10))
+        {
+            _parityLogged = now;
+            log::warn("field_parity_corrected", {{"group", _spec.group.label},
+                                                 {"essence", _label},
+                                                 {"flow_id", _ids.flow.toString()},
+                                                 {"index", index},
+                                                 {"second_field", secondField},
+                                                 {"field_parity_corrected", count}});
+        }
+    }
+
+    void IngestEssence::noteFieldBit(bool secondField)
+    {
+        constexpr std::uint64_t logAfterFields = 50; // one second at 1080i50
+        if (secondField)
+        {
+            _secondFieldSeen = true;
+            return;
+        }
+        if (!_secondFieldSeen && ++_fieldsWithoutSecond == logAfterFields)
+        {
+            log::warn("field_bit_missing", {{"group", _spec.group.label},
+                                            {"essence", _label},
+                                            {"fields", _fieldsWithoutSecond},
+                                            {"detail", "interlaced stream without F = 1: field parity is taken from the timestamps"}});
+        }
+    }
+
     void IngestEssence::processVideo(media::FrameMeta const& meta)
     {
         auto const t = meta.tag;
@@ -556,6 +607,14 @@ namespace mxlgw::group
             return;
         }
         noteOrigin(slot.originTai);
+        if (_fieldParity)
+        {
+            noteFieldBit(meta.secondField);
+        }
+        if (slot.parityCorrected)
+        {
+            noteParityCorrected(slot.index, meta.secondField);
+        }
         auto const flags = meta.complete ? 0u : static_cast<std::uint32_t>(MXL_GRAIN_FLAG_INVALID);
         switch (slot.kind)
         {
@@ -693,7 +752,23 @@ namespace mxlgw::group
         {
             return;
         }
-        auto const index = timing::timestampToIndex(_grainRate, origin);
+        auto index = timing::timestampToIndex(_grainRate, origin);
+        if (_fieldParity)
+        {
+            noteFieldBit(anc.frame.field == codec::AncField::Field2);
+        }
+        if (_fieldParity && anc.frame.field != codec::AncField::Unspecified)
+        {
+            // The same rule and guard as video, so ANC keeps the index of its video field. A frame without field
+            // bits (F = 0b00) keeps its timestamp's index.
+            bool const second = anc.frame.field == codec::AncField::Field2;
+            auto const shifted = _ancParity.index(index, second);
+            if (shifted != index)
+            {
+                index = shifted;
+                noteParityCorrected(index, second);
+            }
+        }
         auto body = codec::serialiseGrain(anc.frame, config::ancGrainBytes);
         if (!body)
         {
@@ -856,6 +931,7 @@ namespace mxlgw::group
         s.samplesWritten = _samplesWritten.load(std::memory_order_relaxed);
         s.writeErrors = _writeErrors.load(std::memory_order_relaxed);
         s.grainsShort = _grainsShort.load(std::memory_order_relaxed);
+        s.fieldParityCorrected = _parityCorrected.load(std::memory_order_relaxed);
         s.writerResyncs = _writerResyncs.load(std::memory_order_relaxed);
         s.framesDropped = _framesDropped.load(std::memory_order_relaxed);
         if (_haveOriginAge.load(std::memory_order_relaxed))

@@ -51,12 +51,14 @@ namespace mxlgw::app
                 j["sender_active"] = e.senderActive;
                 j["frames"] = {{"complete", e.rx.framesComplete}, {"incomplete", e.rx.framesIncomplete}, {"dropped", e.rx.framesDropped + e.framesDropped}};
                 j["packets"] = e.rx.packets;
+                j["wrong_payload_type_dropped"] = e.rx.wrongPayloadType;
                 j["legs"] = json::array(
                     {{{"packets", e.rx.legs[0].packets}, {"lost", e.rx.legs[0].lost}}, {{"packets", e.rx.legs[1].packets}, {"lost", e.rx.legs[1].lost}}});
                 j["grains_written"] = e.grainsWritten;
                 j["samples_written"] = e.samplesWritten;
                 j["write_errors"] = e.writeErrors;
                 j["grains_short"] = e.grainsShort;
+                j["field_parity_corrected"] = e.fieldParityCorrected;
                 j["writer_resyncs"] = e.writerResyncs;
                 j["origin_age_ns"] = e.originAgeNs ? json(*e.originAgeNs) : json();
             }

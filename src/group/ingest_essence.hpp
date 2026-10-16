@@ -18,6 +18,7 @@
 #include "mtl/backend.hpp"
 #include "mxlbridge/instance.hpp"
 #include "nmos/ids.hpp"
+#include "timing/rtpclock.hpp"
 
 namespace mxlgw::group
 {
@@ -77,6 +78,10 @@ namespace mxlgw::group
         void processVideo(media::FrameMeta const& meta);
         /// Counts and logs (rate-limited) a grain of the writer's flow that is smaller than the format.
         void noteShortGrain(std::size_t grainSize);
+        /// Counts and logs (rate-limited) a field whose timestamp gave the wrong parity (fieldIndex shifted it).
+        void noteParityCorrected(std::uint64_t index, bool secondField);
+        /// Logs once per RX session when an interlaced stream never sets F = 1 (the parity guard then stays off).
+        void noteFieldBit(bool secondField);
         void processAudio(media::AudioBlock const& block);
         void processAnc(media::AncReceived const& anc);
         void openWriterLocked();
@@ -98,6 +103,11 @@ namespace mxlgw::group
         nlohmann::json _flowDef;
         std::string _writerOptions;
         util::Rational _grainRate;
+        bool _fieldParity = false;              // interlaced video/ANC: the first field goes on an even grain index (fieldIndex)
+        timing::FieldParity _videoParity;       // MTL lcore only (acquire); reset with each RX session
+        timing::FieldParity _ancParity;         // worker only; reset with each RX session
+        std::uint64_t _fieldsWithoutSecond = 0; // worker only: fields of this RX session before the first F = 1
+        bool _secondFieldSeen = false;          // worker only
         StateHolder _state;
 
         // Control/worker shared state (guarded by _mutex).
@@ -143,6 +153,8 @@ namespace mxlgw::group
         std::atomic<std::uint64_t> _writeErrors{0};
         std::atomic<std::uint64_t> _grainsShort{0};
         std::chrono::steady_clock::time_point _shortLogged{}; // worker only
+        std::atomic<std::uint64_t> _parityCorrected{0};
+        std::chrono::steady_clock::time_point _parityLogged{}; // worker only
         std::atomic<std::uint64_t> _writerResyncs{0};
         std::atomic<std::uint64_t> _framesDropped{0};
         std::atomic<std::int64_t> _originAgeNs{0};

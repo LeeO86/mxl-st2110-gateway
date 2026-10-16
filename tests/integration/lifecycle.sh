@@ -56,7 +56,9 @@ config() { # groups only: identity, ports, registry and domain come from the env
   "ptp": {"mode": "external", "require_lock": false},
   "groups": [
     {"label": "CAM 1", "direction": "ingest", "domain": "main",
-     "video": [{"label": "CAM 1 V", "width": 1920, "height": 1080, "rate": "50/1", "defaults": {"legs": [{"multicast": "239.1.1.1", "port": 20000}]}}]},
+     "video": [{"label": "CAM 1 V", "width": 1920, "height": 1080, "rate": "50/1", "defaults": {"legs": [{"multicast": "239.1.1.1", "port": 20000}]}}],
+     "audio": [{"label": "CAM 1 A", "channels": 2, "defaults": {"legs": [{"multicast": "239.1.1.2", "port": 20000}]}}],
+     "anc": [{"label": "CAM 1 ANC", "defaults": {"legs": [{"multicast": "239.1.1.3", "port": 20000}]}}]},
     {"label": "PGM", "direction": "egress", "domain": "main",
      "video": [{"label": "PGM V", "width": 1920, "height": 1080, "rate": "50/1", "defaults": {"legs": [{"multicast": "239.10.0.1", "port": 20000}]}}]}
   ]
@@ -123,7 +125,7 @@ for kind in ("senders", "receivers"):
     items = q(kind)
     assert items and all(i["transport"] == "urn:x-nmos:transport:mxl" for i in items), f"{kind}: {[i['transport'] for i in items]}"
     for i in items:
-        assert i["tags"]["urn:x-nmos:tag:grouphint/v1.0"][0].split(":")[1] == "Video 1", i["tags"]
+        assert i["tags"]["urn:x-nmos:tag:grouphint/v1.0"][0].split(":")[1] in ("Video 1", "Audio 1", "Data 1"), i["tags"]
 PY
 pass "MXL registry: node $NODE_ID (seed), IP-literal href and endpoints, NMOS_TAGS, MXL Senders/Receivers only"
 
@@ -177,6 +179,85 @@ sid=$(nmos_id "$BASE" senders "CAM 1 V")
 [[ "$(json "$BASE/x-nmos/connection/v1.2/single/senders/$sid/active" 'j["transport_params"][0]["mxl_domain_id"]')" == "$DOMAIN_ID" ]] ||
     fail "MXL Sender does not report the active mxl_domain_id"
 pass "MXL Receiver connection restored after a restart; MXL Sender reports mxl_domain_id"
+
+# ---- restored RTP Receivers keep the payload type of their SDP (1.0.19): MTL drops every other one.
+# The configured payload types are 96 (video), 97 (audio) and 100 (ANC); the senders' SDPs say otherwise.
+ST2110="http://127.0.0.1:$ST2110_PORT"
+sdp_body() { # <label> <payload type>: an activation with the sender's SDP for that CAM 1 essence
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+label, pt = sys.argv[1], sys.argv[2]
+media = {
+    "CAM 1 V": ("video", "239.1.1.1", [f"a=rtpmap:{pt} raw/90000",
+        f"a=fmtp:{pt} sampling=YCbCr-4:2:2; width=1920; height=1080; exactframerate=50; depth=10; TCS=SDR; colorimetry=BT709; PM=2110GPM; SSN=ST2110-20:2017; TP=2110TPN; "]),
+    "CAM 1 A": ("audio", "239.1.1.2", [f"a=rtpmap:{pt} L24/48000/2", "a=ptime:1"]),
+    "CAM 1 ANC": ("video", "239.1.1.3", [f"a=rtpmap:{pt} smpte291/90000", f"a=fmtp:{pt} VPID_Code=133; exactframerate=50"]),
+}[label]
+sdp = "\r\n".join(["v=0", "o=- 1443716955 1443716955 IN IP4 10.1.1.50", f"s={label}", "t=0 0",
+    f"m={media[0]} 20000 RTP/AVP {pt}", f"c=IN IP4 {media[1]}/64", f"a=source-filter: incl IN IP4 {media[1]} 10.1.1.50", *media[2],
+    "a=ts-refclk:ptp=IEEE1588-2008:08-00-11-FF-FE-21-E1-B0:127", "a=mediaclk:direct=0", ""])
+print(json.dumps({"master_enable": True, "activation": {"mode": "activate_immediate"},
+                  "transport_file": {"type": "application/sdp", "data": sdp}}))
+PY
+}
+rx_started_with() { # <since> <essence> <payload type>: ingest_receiver_started logged with that payload type
+    docker logs --since "$1" "$GW" 2>&1 | python3 -c '
+import json, sys
+essence, pt = sys.argv[1], int(sys.argv[2])
+for line in sys.stdin:
+    try:
+        e = json.loads(line)
+    except ValueError:
+        continue
+    if e.get("event") == "ingest_receiver_started" and e.get("essence") == essence and e.get("payload_type") == pt:
+        sys.exit(0)
+sys.exit(1)' "$2" "$3"
+}
+declare -A SDP_PT=(["CAM 1 V"]=98 ["CAM 1 A"]=98 ["CAM 1 ANC"]=101)
+since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+for label in "CAM 1 V" "CAM 1 A" "CAM 1 ANC"; do
+    patch_staged "$ST2110" receivers "$(nmos_id "$ST2110" receivers "$label")" "$(sdp_body "$label" "${SDP_PT[$label]}")"
+    wait_until 10 "$label receiver started with payload type ${SDP_PT[$label]}" rx_started_with "$since" "$label" "${SDP_PT[$label]}"
+done
+saved_sdp_has() { # <receiver id> <payload type>: the saved /active carries an SDP with that payload type
+    as_root python3 -c '
+import json, sys
+a = json.load(open(sys.argv[1]))["resources"][sys.argv[2]]["active"]
+sys.exit(0 if "a=rtpmap:" + sys.argv[3] + " " in ((a.get("transport_file") or {}).get("data") or "") else 1)' \
+        "$WORK/config/state/connections.json" "$1" "$2"
+}
+for label in "CAM 1 V" "CAM 1 A" "CAM 1 ANC"; do
+    wait_until 10 "$label activation saved" saved_sdp_has "$(nmos_id "$ST2110" receivers "$label")" "${SDP_PT[$label]}"
+done
+since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+docker restart -t 15 "$GW" >/dev/null
+wait_until 30 "/readyz after the restart" http_ok "$BASE/readyz"
+for label in "CAM 1 V" "CAM 1 A" "CAM 1 ANC"; do
+    wait_until 15 "restored $label receiver started with payload type ${SDP_PT[$label]}" rx_started_with "$since" "$label" "${SDP_PT[$label]}"
+    rid_rtp=$(nmos_id "$ST2110" receivers "$label")
+    [[ "$(json "$ST2110/x-nmos/connection/v1.2/single/receivers/$rid_rtp/active" 'j["transport_file"]["data"] is not None and j["master_enable"]')" == "True" ]] ||
+        fail "$label: /active after the restart has no SDP or is disabled"
+done
+pass "restored RTP Receivers (video, audio, ANC) keep their SDP's payload type after a restart"
+
+# ---- an activation without an SDP (transport_file data null) restores as before: the configured payload type
+rid_v=$(nmos_id "$ST2110" receivers "CAM 1 V")
+patch_staged "$ST2110" receivers "$rid_v" '{"master_enable": true, "activation": {"mode": "activate_immediate"},
+  "transport_file": {"data": null, "type": null}, "transport_params": [{"multicast_ip": "239.1.1.1", "destination_port": 20000}]}'
+saved_without_sdp() {
+    as_root python3 -c '
+import json, sys
+a = json.load(open(sys.argv[1]))["resources"][sys.argv[2]]["active"]
+sys.exit(0 if a.get("master_enable") and not (a.get("transport_file") or {}).get("data") else 1)' "$WORK/config/state/connections.json" "$1"
+}
+wait_until 10 "CAM 1 V activation without SDP saved" saved_without_sdp "$rid_v"
+since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+docker restart -t 15 "$GW" >/dev/null
+wait_until 30 "/readyz after the restart" http_ok "$BASE/readyz"
+wait_until 15 "restored CAM 1 V receiver started with the configured payload type 96" rx_started_with "$since" "CAM 1 V" 96
+[[ "$(json "$ST2110/x-nmos/connection/v1.2/single/receivers/$rid_v/active" 'j["transport_file"].get("data") is None and j["master_enable"]')" == "True" ]] ||
+    fail "CAM 1 V: /active after the restart is not the SDP-less activation"
+pass "an RTP Receiver activated without an SDP restores with the configured payload type"
 
 # ---- a saved route that no longer fits comes up disabled with the reason; a disable is always accepted
 # A 720p flow of another function: its flow_def.json does not fit the 1080p receiver.
