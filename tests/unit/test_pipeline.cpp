@@ -950,9 +950,10 @@ TEST_CASE("pipeline: interlaced ingest puts the first field on an even grain ind
     std::vector<std::uint8_t> field(f.grainBytes());
     util::Rational const frameRate{25, 1};
     constexpr std::uint64_t frames = 3; // 6 fields: the ring of the 160 ms history keeps 8
-    // Sends `frames` frames from frame k on, the first field at T(frame) + offsetF1, the second at T(frame) + offsetF2.
-    // Each field carries the counter of the grain it belongs on: 2k for the first field, 2k + 1 for the second.
-    auto sendFrames = [&](std::int64_t offsetF1, std::int64_t offsetF2)
+    // Sends `frames` frames from frame k on, the first field at T(frame) + offsetF1, the second at T(frame) + offsetF2
+    // (with F = 1 unless `fBit` is false). Each field carries the counter of the grain it belongs on: 2k for the first
+    // field, 2k + 1 for the second.
+    auto sendFrames = [&](std::int64_t offsetF1, std::int64_t offsetF2, bool fBit = true)
     {
         auto const k = timing::timestampToIndex(frameRate, media::hostTaiNs()) + 3;
         for (std::uint64_t i = 0; i < frames; ++i)
@@ -961,7 +962,7 @@ TEST_CASE("pipeline: interlaced ingest puts the first field on an even grain ind
             codec::v210ColourBars(field.data(), f.width, f.linesPerGrain(), f.v210Stride(), static_cast<std::uint32_t>(2 * (k + i)));
             REQUIRE(tx->send(field.data(), t + offsetF1, false, 10ms));
             codec::v210ColourBars(field.data(), f.width, f.linesPerGrain(), f.v210Stride(), static_cast<std::uint32_t>(2 * (k + i) + 1));
-            REQUIRE(tx->send(field.data(), t + offsetF2, true, 10ms));
+            REQUIRE(tx->send(field.data(), t + offsetF2, fBit, 10ms));
         }
         return k;
     };
@@ -976,14 +977,33 @@ TEST_CASE("pipeline: interlaced ingest puts the first field on an even grain ind
         REQUIRE(waitFor([&] { return h.essence(571).grainsWritten >= before + 2 * frames; }, 3s));
         auto reader = mxlbridge::GrainReader::open(h.main.instance, flowId.toString(), status);
         REQUIRE(reader);
-        for (std::uint64_t i = 0; i < frames; ++i)
+        // The very first field comes before any F = 1, so the guard leaves it at its timestamp's index (2k + 1).
+        CHECK(grainCounter(*reader, 2 * k + 1, f) == static_cast<std::uint32_t>(2 * k));
+        CHECK(grainCounter(*reader, 2 * k + 3, f) == static_cast<std::uint32_t>(2 * k + 1));
+        for (std::uint64_t i = 1; i < frames; ++i)
         {
             auto const first = 2 * (k + i) + 2;
             CHECK(grainCounter(*reader, first, f) == static_cast<std::uint32_t>(2 * (k + i)));         // F=0 on an even index
             CHECK(grainCounter(*reader, first + 1, f) == static_cast<std::uint32_t>(2 * (k + i) + 1)); // F=1 right after it
         }
         auto const e = h.essence(571);
-        CHECK(e.fieldParityCorrected == 2 * frames);
+        CHECK(e.fieldParityCorrected == 2 * frames - 1);
+        CHECK(e.writeErrors == 0);
+    }
+    SUBCASE("a sender that never sets F = 1, on the frame grid: no field lost, indices as before 1.0.19")
+    {
+        auto const k = sendFrames(0, 20'000'000, false);
+        REQUIRE(waitFor([&] { return h.essence(571).grainsWritten >= 2 * frames; }, 3s));
+        auto reader = mxlbridge::GrainReader::open(h.main.instance, flowId.toString(), status);
+        REQUIRE(reader);
+        for (std::uint64_t i = 0; i < frames; ++i)
+        {
+            CHECK(grainCounter(*reader, 2 * (k + i), f) == static_cast<std::uint32_t>(2 * (k + i)));
+            CHECK(grainCounter(*reader, 2 * (k + i) + 1, f) == static_cast<std::uint32_t>(2 * (k + i) + 1));
+        }
+        auto const e = h.essence(571);
+        CHECK(e.grainsWritten == 2 * frames);
+        CHECK(e.fieldParityCorrected == 0);
         CHECK(e.writeErrors == 0);
     }
     SUBCASE("on the TAI frame grid: unchanged")

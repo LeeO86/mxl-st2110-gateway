@@ -100,6 +100,32 @@ TEST_CASE("interlaced ingest: the first field lands on an even index, indices st
     CHECK(fieldIndex(timestampToIndex({60000, 1001}, t59), true) == 2 * k59 + 1);
 }
 
+TEST_CASE("interlaced ingest: the F bit decides the parity only while the sender sets F = 1")
+{
+    // A sender that never sets F = 1 keeps its timestamps' indices (as before 1.0.19).
+    FieldParity never;
+    for (std::uint64_t i = 100; i < 200; ++i)
+    {
+        CHECK(never.index(i, false) == i);
+    }
+    // Before the first F = 1 nothing is shifted; from it on, every field gets its parity.
+    FieldParity guard;
+    CHECK(guard.index(101, false) == 101);
+    CHECK(guard.index(102, true) == 103);
+    CHECK(guard.index(103, false) == 104);
+    CHECK(guard.index(104, true) == 105);
+    // Up to four first fields after the last second field are still corrected, the fifth is not.
+    for (std::uint64_t i = 0; i < 4; ++i)
+    {
+        CHECK(guard.index(201 + 2 * i, false) == 202 + 2 * i);
+    }
+    CHECK(guard.index(301, false) == 301);
+    // A new session starts without F = 1 seen.
+    guard.index(400, true);
+    guard.reset();
+    CHECK(guard.index(401, false) == 401);
+}
+
 TEST_CASE("RTP ticks, wrap and unwrap")
 {
     CHECK(ticksAt(1'000'000'000, videoClockHz) == 90'000);

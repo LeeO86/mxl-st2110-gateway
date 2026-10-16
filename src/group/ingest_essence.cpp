@@ -228,6 +228,7 @@ namespace mxlgw::group
                     auto const& e = _spec.group.video.at(_spec.index);
                     media::VideoRxParams p{_label, e.format, payloadTypeFor(target, e.payloadType), target.legs};
                     _expectedTag = _nextTag.load();
+                    _videoParity.reset();
                     _videoRx = _backend.createVideoRx(p, *this);
                     break;
                 }
@@ -240,12 +241,15 @@ namespace mxlgw::group
                 case config::EssenceType::Anc:
                 {
                     auto const& e = _spec.group.anc.at(_spec.index);
+                    _ancParity.reset();
                     _ancRx = _backend.createAncRx({_label, e.format, payloadTypeFor(target, e.payloadType), target.legs});
                     break;
                 }
             }
             _lastFrameSteadyNs = steadyNs();
             _framesSeen = false;
+            _fieldsWithoutSecond = 0;
+            _secondFieldSeen = false;
             log::info("ingest_receiver_started", {{"group", _spec.group.label},
                                                   {"essence", _label},
                                                   {"payload_type", payloadTypeFor(target, commonOf(_spec.group, _spec.type, _spec.index).payloadType)}});
@@ -427,7 +431,8 @@ namespace mxlgw::group
             // Shared convention: the first field (F = 0) on an even index, whatever the sender's RTP offset.
             // VERIFIED: OpenVisualCloud/Media-Transport-Library@v26.09 lib/src/st2110/st_rx_video_session.c:1577,1667,877 —
             // meta.second_field is the F bit of the field's packets, set before query_ext_frame (pipeline/st20_pipeline_rx.c:208).
-            auto const index = timing::fieldIndex(slot.index, meta.secondField);
+            // Guarded: only while the sender sets F = 1 (one that never does keeps its timestamps' indices).
+            auto const index = _videoParity.index(slot.index, meta.secondField);
             slot.parityCorrected = index != slot.index;
             slot.index = index;
         }
@@ -559,6 +564,23 @@ namespace mxlgw::group
         }
     }
 
+    void IngestEssence::noteFieldBit(bool secondField)
+    {
+        constexpr std::uint64_t logAfterFields = 50; // one second at 1080i50
+        if (secondField)
+        {
+            _secondFieldSeen = true;
+            return;
+        }
+        if (!_secondFieldSeen && ++_fieldsWithoutSecond == logAfterFields)
+        {
+            log::warn("field_bit_missing", {{"group", _spec.group.label},
+                                            {"essence", _label},
+                                            {"fields", _fieldsWithoutSecond},
+                                            {"detail", "interlaced stream without F = 1: field parity is taken from the timestamps"}});
+        }
+    }
+
     void IngestEssence::processVideo(media::FrameMeta const& meta)
     {
         auto const t = meta.tag;
@@ -585,6 +607,10 @@ namespace mxlgw::group
             return;
         }
         noteOrigin(slot.originTai);
+        if (_fieldParity)
+        {
+            noteFieldBit(meta.secondField);
+        }
         if (slot.parityCorrected)
         {
             noteParityCorrected(slot.index, meta.secondField);
@@ -727,12 +753,16 @@ namespace mxlgw::group
             return;
         }
         auto index = timing::timestampToIndex(_grainRate, origin);
+        if (_fieldParity)
+        {
+            noteFieldBit(anc.frame.field == codec::AncField::Field2);
+        }
         if (_fieldParity && anc.frame.field != codec::AncField::Unspecified)
         {
-            // The same rule as video, so ANC keeps the index of its video field. A frame without field bits
-            // (F = 0b00) keeps its timestamp's index.
+            // The same rule and guard as video, so ANC keeps the index of its video field. A frame without field
+            // bits (F = 0b00) keeps its timestamp's index.
             bool const second = anc.frame.field == codec::AncField::Field2;
-            auto const shifted = timing::fieldIndex(index, second);
+            auto const shifted = _ancParity.index(index, second);
             if (shifted != index)
             {
                 index = shifted;
