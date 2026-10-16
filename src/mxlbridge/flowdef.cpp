@@ -119,9 +119,9 @@ namespace mxlgw::mxlbridge
         {
             out.push_back("grain_rate does not match " + f.rate.toString());
         }
+        // The field order counts too: a tff flow read as bff (or the other way round) is one line off.
         auto const il = text(d, "interlace_mode").empty() ? std::string("progressive") : text(d, "interlace_mode");
-        bool const flowInterlaced = il != "progressive";
-        if (flowInterlaced != f.interlaced())
+        if (il != config::toName(f.interlace))
         {
             out.push_back("interlace_mode " + il + " does not match " + config::toName(f.interlace));
         }

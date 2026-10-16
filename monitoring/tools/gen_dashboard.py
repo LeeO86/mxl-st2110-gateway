@@ -33,7 +33,7 @@ METRICS = {
     "mxl_st2110_gateway_rx_leg_seq_lost_total", "mxl_st2110_gateway_ingest_origin_age_ns", "mxl_st2110_gateway_ingest_worker_loop_seconds",
     "mxl_st2110_gateway_mxl_grains_written_total", "mxl_st2110_gateway_mxl_samples_written_total", "mxl_st2110_gateway_mxl_write_errors_total",
     "mxl_st2110_gateway_mxl_grains_read_total", "mxl_st2110_gateway_mxl_read_timeouts_total", "mxl_st2110_gateway_mxl_late_reads_total",
-    "mxl_st2110_gateway_mxl_grains_invalid_total", "mxl_st2110_gateway_mxl_flow_not_found_total", "mxl_st2110_gateway_mxl_read_lag_grains",
+    "mxl_st2110_gateway_mxl_grains_invalid_total", "mxl_st2110_gateway_mxl_grains_short_total", "mxl_st2110_gateway_mxl_flow_not_found_total", "mxl_st2110_gateway_mxl_read_lag_grains",
     "mxl_st2110_gateway_mxl_reader_info", "mxl_st2110_gateway_mxl_discovered_domains",
     "mxl_st2110_gateway_tx_frames_total", "mxl_st2110_gateway_tx_late_frames_total", "mxl_st2110_gateway_egress_lead_ns",
     "mxl_st2110_gateway_nmos_registered", "mxl_st2110_gateway_nmos_activations_total",
@@ -303,9 +303,10 @@ def build():
                      description="Writer head index minus read index, in grains (§5.7). Mirror flows on another host show the replication delay here."), 8, 7)
     L.add(timeseries("Flow-not-found retries", [(f"rate(mxl_st2110_gateway_mxl_flow_not_found_total{{{egress}}}[$__rate_interval])", "{{group}} / {{essence}}")],
                      unit="ops", min_zero=True, description="§5.8: receivers wait with backoff (500 ms → 5 s) until the flow or domain appears."), 8, 7)
-    L.add(timeseries("No data / invalid / late reads", [
+    L.add(timeseries("No data / invalid / too small / late reads", [
         (f"rate(mxl_st2110_gateway_mxl_read_timeouts_total{{{egress}}}[$__rate_interval])", "{{group}} / {{essence}} no data"),
         (f"rate(mxl_st2110_gateway_mxl_grains_invalid_total{{{egress}}}[$__rate_interval])", "{{group}} / {{essence}} invalid"),
+        (f"rate(mxl_st2110_gateway_mxl_grains_short_total{{{egress}}}[$__rate_interval])", "{{group}} / {{essence}} too small"),
         (f"rate(mxl_st2110_gateway_mxl_late_reads_total{{{egress}}}[$__rate_interval])", "{{group}} / {{essence}} late"),
     ], unit="ops", min_zero=True), 8, 7)
     L.add(table("Essence state", f"mxl_st2110_gateway_essence_state{{{ESS}}} == 1", ["instance", "direction", "group", "essence", "type", "state"],

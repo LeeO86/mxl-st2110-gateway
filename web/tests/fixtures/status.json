@@ -121,6 +121,7 @@
                     "frames_sent": 192,
                     "grains_invalid": 0,
                     "grains_read": 0,
+                    "grains_short": 0,
                     "label": "PGM V",
                     "late_frames": 0,
                     "late_reads": 0,

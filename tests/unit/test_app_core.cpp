@@ -412,6 +412,7 @@ TEST_CASE("metrics export covers every §12.1 family in valid exposition format"
                              "mxl_st2110_gateway_mxl_read_timeouts_total",
                              "mxl_st2110_gateway_mxl_late_reads_total",
                              "mxl_st2110_gateway_mxl_grains_invalid_total",
+                             "mxl_st2110_gateway_mxl_grains_short_total",
                              "mxl_st2110_gateway_mxl_flow_not_found_total",
                              "mxl_st2110_gateway_mxl_read_lag_grains",
                              "mxl_st2110_gateway_mxl_reader_info",

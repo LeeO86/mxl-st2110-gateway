@@ -129,6 +129,8 @@ namespace mxlgw::ops
                 out.counter("mxl_st2110_gateway_mxl_grains_written_total", "MXL grains committed", l, d(e.grainsWritten));
                 out.counter("mxl_st2110_gateway_mxl_samples_written_total", "MXL audio samples committed", l, d(e.samplesWritten));
                 out.counter("mxl_st2110_gateway_mxl_write_errors_total", "MXL writes rejected", l, d(e.writeErrors));
+                out.counter("mxl_st2110_gateway_mxl_grains_short_total",
+                            "Video grains smaller than the essence format needs (egress: replaced, never read; ingest: not written)", l, d(e.grainsShort));
                 std::array<double, group::workerLoopBoundsNs.size()> bounds{};
                 for (std::size_t i = 0; i < bounds.size(); ++i)
                 {
@@ -142,6 +144,8 @@ namespace mxlgw::ops
             out.counter("mxl_st2110_gateway_mxl_read_timeouts_total", "Grains/blocks with no data by their deadline", l, d(e.readTimeouts));
             out.counter("mxl_st2110_gateway_mxl_late_reads_total", "Data that arrived after its deadline and was skipped", l, d(e.lateReads));
             out.counter("mxl_st2110_gateway_mxl_grains_invalid_total", "Grains read with MXL_GRAIN_FLAG_INVALID", l, d(e.grainsInvalid));
+            out.counter("mxl_st2110_gateway_mxl_grains_short_total",
+                        "Video grains smaller than the essence format needs (egress: replaced, never read; ingest: not written)", l, d(e.grainsShort));
             out.counter("mxl_st2110_gateway_mxl_flow_not_found_total", "Reader attempts that found no flow or no domain", l, d(e.flowNotFound));
             if (e.readLagGrains)
             {

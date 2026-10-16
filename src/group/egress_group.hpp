@@ -31,6 +31,11 @@ namespace mxlgw::group
         std::int64_t txLeadNs = 1'000'000;
     };
 
+    /// True when an MXL video grain of `grainSize` bytes holds what egress copies out of it for `format`: one
+    /// field (height / 2 lines) for an interlaced format, else the frame, in v210 at MXL's line stride. A smaller
+    /// grain (a writer with another layout, a definition that does not match its grains) is never read.
+    bool videoGrainFits(config::VideoFormat const& format, std::size_t grainSize);
+
     /// MXL -> ST 2110 for one group (§3.5, §5.7, §5.8). The grain worker owns the group's
     /// mxlFlowSynchronizationGroup and the video/ANC readers and TX sessions (one grain period at a time);
     /// the audio worker owns the audio readers and TX sessions (one audio block at a time, never blocking).
@@ -71,6 +76,8 @@ namespace mxlgw::group
         void processPeriod(std::uint64_t i);
         void processGrain(Essence& e, std::int64_t periodOrigin, std::int64_t deadline);
         void processAudio(Essence& e, std::int64_t now);
+        /// Counts, logs (rate-limited) and reports a video grain smaller than the essence format needs.
+        void shortGrain(Essence& e, std::size_t grainSize);
         void markData(Essence& e, bool good, std::int64_t steadyNow);
         void publish(bool audio);
         std::int64_t maxReadOffset() const;
@@ -90,6 +97,7 @@ namespace mxlgw::group
         mutable std::mutex _sessionMutex;
         log::RateLimiter _notFoundLog{std::chrono::seconds(30)};
         log::RateLimiter _behindLog{std::chrono::seconds(10)};
+        log::RateLimiter _shortGrainLog{std::chrono::seconds(10)};
         std::atomic<std::uint64_t> _periodsLate{0};
         std::thread _thread;
         std::thread _audioThread;

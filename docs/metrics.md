@@ -85,6 +85,7 @@ All `mxl_st2110_gateway_ptp_*` series exist only while MTL runs PTP (`ptp.mode` 
 | `mxl_st2110_gateway_mxl_read_timeouts_total` | counter | essence labels | grains/blocks with no data by their deadline (replacement data sent, §5.7) |
 | `mxl_st2110_gateway_mxl_late_reads_total` | counter | essence labels | data that became available only after its deadline and was skipped |
 | `mxl_st2110_gateway_mxl_grains_invalid_total` | counter | essence labels | grains read with `MXL_GRAIN_FLAG_INVALID` |
+| `mxl_st2110_gateway_mxl_grains_short_total` | counter | essence labels | video grains smaller than the essence format needs (one field when interlaced, else the frame). Egress: replacement data sent, the grain is never read; the essence is `error` / `grain_too_small` until a grain fits. Ingest: the grain of a re-used flow is not written (since 1.0.18) |
 | `mxl_st2110_gateway_mxl_flow_not_found_total` | counter | essence labels | reader attempts that found no flow or no domain (§5.8 backoff 500 ms → 5 s) |
 | `mxl_st2110_gateway_mxl_read_lag_grains` | gauge | essence labels | writer head index minus read index; audio in grains of the group cadence |
 | `mxl_st2110_gateway_mxl_reader_info` | gauge = 1 | essence labels, `domain_id, domain_path, domain_kind, flow_id` | resolved domain of an enabled MXL Receiver; `domain_kind` ∈ `configured`, `discovered`, `mirror`; replaced when the resolution changes |

@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -14,14 +16,18 @@
 #include <stdexcept>
 #include <thread>
 
+#include "codec/v210.hpp"
 #include "group/domain_resolver.hpp"
+#include "group/egress_group.hpp"
 #include "group/group_manager.hpp"
 #include "helpers.hpp"
 #include "mtl/mock_backend.hpp"
 #include "mxlbridge/bootstrap.hpp"
 #include "mxlbridge/domaindef.hpp"
 #include "mxlbridge/domainscan.hpp"
+#include "mxlbridge/flowdef.hpp"
 #include "mxlbridge/pattern.hpp"
+#include "mxlbridge/writer.hpp"
 
 using namespace mxlgw;
 using namespace std::chrono_literals;
@@ -79,6 +85,67 @@ namespace
                 throw std::runtime_error("st20p_tx_create failed for " + p.name);
             }
             return inner->createVideoTx(p);
+        }
+        std::unique_ptr<media::AudioRxSession> createAudioRx(media::AudioParams const& p) override { return inner->createAudioRx(p); }
+        std::unique_ptr<media::AudioTxSession> createAudioTx(media::AudioParams const& p) override { return inner->createAudioTx(p); }
+        std::unique_ptr<media::AncRxSession> createAncRx(media::AncParams const& p) override { return inner->createAncRx(p); }
+        std::unique_ptr<media::AncTxSession> createAncTx(media::AncParams const& p) override { return inner->createAncTx(p); }
+    };
+
+    /// Counts the video frames handed to the senders and how many of them were not all black.
+    struct VideoSendLog
+    {
+        std::atomic<std::uint64_t> frames{0};
+        std::atomic<std::uint64_t> notBlack{0};
+    };
+
+    struct RecordingVideoTx final : media::VideoTxSession
+    {
+        std::unique_ptr<media::VideoTxSession> inner;
+        VideoSendLog& log;
+        std::vector<std::uint8_t> blackFrame;
+
+        RecordingVideoTx(std::unique_ptr<media::VideoTxSession> session, VideoSendLog& sendLog, config::VideoFormat const& format)
+            : inner(std::move(session))
+            , log(sendLog)
+            , blackFrame(format.grainBytes())
+        {
+            codec::v210FillBlack(blackFrame.data(), format.width, format.linesPerGrain(), format.v210Stride());
+        }
+
+        bool send(std::uint8_t const* v210, std::int64_t transmitTai, bool secondField, std::chrono::nanoseconds timeout) override
+        {
+            ++log.frames;
+            if (std::memcmp(v210, blackFrame.data(), blackFrame.size()) != 0)
+            {
+                ++log.notBlack;
+            }
+            return inner->send(v210, transmitTai, secondField, timeout);
+        }
+        bool updateDestination(std::vector<media::LegAddress> const& legs) override { return inner->updateDestination(legs); }
+        media::SessionStats stats() const override { return inner->stats(); }
+    };
+
+    struct RecordingVideoBackend final : media::MediaBackend
+    {
+        std::unique_ptr<media::MediaBackend> inner;
+        VideoSendLog& log;
+
+        RecordingVideoBackend(std::unique_ptr<media::MediaBackend> backend, VideoSendLog& sendLog)
+            : inner(std::move(backend))
+            , log(sendLog)
+        {}
+
+        std::string name() const override { return inner->name(); }
+        std::int64_t ptpTimeNs() const override { return inner->ptpTimeNs(); }
+        media::BackendStatus status() const override { return inner->status(); }
+        std::unique_ptr<media::VideoRxSession> createVideoRx(media::VideoRxParams const& p, media::VideoRxHandler& h) override
+        {
+            return inner->createVideoRx(p, h);
+        }
+        std::unique_ptr<media::VideoTxSession> createVideoTx(media::VideoTxParams const& p) override
+        {
+            return std::make_unique<RecordingVideoTx>(inner->createVideoTx(p), log, p.format);
         }
         std::unique_ptr<media::AudioRxSession> createAudioRx(media::AudioParams const& p) override { return inner->createAudioRx(p); }
         std::unique_ptr<media::AudioTxSession> createAudioTx(media::AudioParams const& p) override { return inner->createAudioTx(p); }
@@ -538,6 +605,139 @@ TEST_CASE("pipeline: unknown domain is accepted and waited for; format mismatch 
     auto const attempts = h.essence(501).flowNotFound;
     REQUIRE(waitFor([&] { return h.essence(501).flowNotFound > attempts; }, 3s));
     wrong.stop();
+}
+
+namespace
+{
+    /// Rewrites frame_height in a flow's flow_def.json, so the definition passes the format check while
+    /// the flow's grains keep the size they were created with.
+    void claimHeight(std::string const& domainPath, util::Uuid const& flowId, int height)
+    {
+        auto const defPath = std::filesystem::path(domainPath) / (flowId.toString() + ".mxl-flow") / "flow_def.json";
+        REQUIRE(waitFor([&] { return std::filesystem::exists(defPath); }, 3s));
+        nlohmann::json def;
+        {
+            std::ifstream in(defPath);
+            def = nlohmann::json::parse(in);
+        }
+        REQUIRE(def.value("frame_height", 0) != height);
+        def["frame_height"] = height;
+        std::filesystem::permissions(defPath, std::filesystem::perms::owner_write, std::filesystem::perm_options::add);
+        std::ofstream out(defPath, std::ios::trunc);
+        out << def.dump();
+    }
+}
+
+TEST_CASE("egress: a video grain fits when it holds one field (interlaced) or the frame (progressive)")
+{
+    config::VideoFormat p; // 1080p50
+    CHECK(p.grainBytes() == 5120u * 1080u);
+    CHECK(group::videoGrainFits(p, 5120u * 1080u));
+    CHECK(group::videoGrainFits(p, 5120u * 1080u + 4096u));
+    CHECK_FALSE(group::videoGrainFits(p, 5120u * 1080u - 1u));
+    CHECK_FALSE(group::videoGrainFits(p, 5120u * 540u)); // an interlaced field read as a progressive frame
+    CHECK_FALSE(group::videoGrainFits(p, 0));
+
+    config::VideoFormat i;
+    i.rate = {25, 1};
+    i.interlace = config::Interlace::InterlacedTff;
+    CHECK(i.grainBytes() == 5120u * 540u); // MXL 218ddaa: one field per grain
+    CHECK(group::videoGrainFits(i, 5120u * 540u));
+    CHECK_FALSE(group::videoGrainFits(i, 5120u * 540u - 128u));
+    i.interlace = config::Interlace::InterlacedBff;
+    CHECK(group::videoGrainFits(i, 5120u * 540u));
+
+    config::VideoFormat uhd;
+    uhd.width = 3840;
+    uhd.height = 2160;
+    CHECK(group::videoGrainFits(uhd, uhd.v210Stride() * 2160u));
+    CHECK_FALSE(group::videoGrainFits(uhd, 5120u * 1080u));
+}
+
+TEST_CASE("pipeline: video grains smaller than the format are never read: black, counted, error/grain_too_small (§5.7)")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back(
+        {{"uid", testutil::uid(530)}, {"label", "SHORT"}, {"direction", "egress"}, {"domain", "main"}, {"video", {videoJson(531, "SHORT V", "239.30.0.6")}}});
+    VideoSendLog sends;
+    Harness h(groups, [&](std::unique_ptr<media::MediaBackend> inner) { return std::make_unique<RecordingVideoBackend>(std::move(inner), sends); });
+
+    // A writer whose grains have 540 lines, behind a definition that says 1080 (it passes the definition check).
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = util::uuidV4();
+    pc.video.rate = {25, 1};
+    pc.video.height = 540;
+    auto source = std::make_unique<mxlbridge::PatternWriter>(h.main.instance, pc);
+    source->start();
+    claimHeight(h.main.path, *pc.videoFlow, 1080);
+    h.groups->setMxlReceiver(uuidOf(531), {true, h.main.id, pc.videoFlow});
+    h.groups->setRtpSender(uuidOf(531), Harness::rtp("239.30.0.6"));
+
+    REQUIRE(waitFor([&] { return h.essence(531).grainsShort > 10; }, 5s));
+    auto const e = h.essence(531);
+    CHECK(e.state.state == group::EssenceState::Error);
+    CHECK(e.state.reason == "grain_too_small");
+    CHECK(e.grainsRead == 0);
+    CHECK(e.reader.has_value()); // the reader stays attached
+    // Every frame sent is the black replacement; none was copied out of the short grains.
+    REQUIRE(waitFor([&] { return sends.frames > 10; }, 3s));
+    CHECK(sends.notBlack == 0);
+
+    // The writer comes back with grains that fit: the essence reads them and is running again.
+    source.reset(); // a cleanly stopped writer deletes its flow
+    pc.video.height = 1080;
+    mxlbridge::PatternWriter fitting(h.main.instance, pc);
+    fitting.start();
+    REQUIRE(waitFor([&] { return h.essence(531).state.state == group::EssenceState::Running; }, 10s));
+    CHECK(h.essence(531).state.reason.empty());
+    REQUIRE(waitFor([&] { return h.essence(531).grainsRead > 10; }, 3s));
+    CHECK(sends.notBlack > 0);
+    fitting.stop();
+}
+
+TEST_CASE("pipeline: ingest never writes into an existing flow whose grains are smaller than the format")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back(
+        {{"uid", testutil::uid(540)}, {"label", "SRC"}, {"direction", "egress"}, {"domain", "main"}, {"video", {videoJson(541, "SRC V", "239.30.0.7")}}});
+    groups.push_back(
+        {{"uid", testutil::uid(550)}, {"label", "SINK"}, {"direction", "ingest"}, {"domain", "main"}, {"video", {videoJson(551, "SINK V", "239.30.0.7")}}});
+    Harness h(groups);
+    auto const sinkFlow = h.essence(551).flowId;
+    REQUIRE_FALSE(sinkFlow.isNil());
+
+    // The ingest flow already exists, written by someone else with 540-line grains, and its definition says 1080
+    // lines, so the gateway re-uses it (§8.4). A second MXL instance keeps that writer apart from the gateway's.
+    auto other = std::make_shared<mxlbridge::Instance>(h.main.path);
+    config::VideoFormat small;
+    small.rate = {25, 1};
+    small.height = 540;
+    mxlbridge::FlowIdentity id;
+    id.flowId = sinkFlow;
+    id.sourceId = util::uuidV4();
+    id.deviceId = util::uuidV4();
+    id.label = "other writer";
+    id.description = "other writer";
+    id.groupHint = "OTHER:Video 1";
+    id.version = mxlbridge::nmosVersion(media::hostTaiNs());
+    mxlbridge::GrainWriter holder(other, mxlbridge::videoFlowDef(id, small), mxlbridge::writerOptions(540, 540));
+    claimHeight(h.main.path, sinkFlow, 1080);
+
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = util::uuidV4();
+    pc.video.rate = {25, 1};
+    mxlbridge::PatternWriter source(h.main.instance, pc);
+    source.start();
+    h.groups->setMxlReceiver(uuidOf(541), {true, h.main.id, pc.videoFlow});
+    h.groups->setRtpSender(uuidOf(541), Harness::rtp("239.30.0.7"));
+    h.groups->setRtpReceiver(uuidOf(551), Harness::rtp("239.30.0.7"));
+    h.groups->setMxlSender(uuidOf(551), {true});
+
+    REQUIRE(waitFor([&] { return h.essence(551).grainsShort > 10; }, 5s));
+    auto const e = h.essence(551);
+    CHECK(e.grainsWritten == 0);
+    CHECK(e.rx.framesComplete > 0);
+    source.stop();
 }
 
 TEST_CASE("pipeline: a video sender that cannot be created is error/egress_sender_failed, not running, and is retried")
