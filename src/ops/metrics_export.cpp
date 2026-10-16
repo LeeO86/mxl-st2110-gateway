@@ -122,7 +122,7 @@ namespace mxlgw::ops
                                 d(e.rx.legs[leg].lost));
                 }
                 out.counter("mxl_st2110_gateway_rx_packets_total", "Packets after the ST 2022-7 merge", l, d(e.rx.packets));
-                out.counter("mxl_st2110_gateway_rtp_wrong_payload_type_dropped_total",
+                out.counter("mxl_st2110_gateway_rx_wrong_payload_type_dropped_total",
                             "RTP packets MTL dropped because their payload type is not the receiver's (the SDP's, else the configured one)", l,
                             d(e.rx.wrongPayloadType));
                 if (e.originAgeNs)
@@ -134,7 +134,7 @@ namespace mxlgw::ops
                 out.counter("mxl_st2110_gateway_mxl_write_errors_total", "MXL writes rejected", l, d(e.writeErrors));
                 out.counter("mxl_st2110_gateway_mxl_grains_short_total",
                             "Video grains smaller than the essence format needs (egress: replaced, never read; ingest: not written)", l, d(e.grainsShort));
-                out.counter("mxl_st2110_gateway_field_parity_corrected_total",
+                out.counter("mxl_st2110_gateway_rx_field_parity_corrected_total",
                             "Interlaced fields written one grain index later so that the first field is on an even index", l, d(e.fieldParityCorrected));
                 std::array<double, group::workerLoopBoundsNs.size()> bounds{};
                 for (std::size_t i = 0; i < bounds.size(); ++i)

@@ -2131,7 +2131,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxl_st2110_gateway_rtp_wrong_payload_type_dropped_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_rx_wrong_payload_type_dropped_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} wrong payload type",
           "range": true,
           "refId": "C"
@@ -2293,7 +2293,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "rate(mxl_st2110_gateway_field_parity_corrected_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
+          "expr": "rate(mxl_st2110_gateway_rx_field_parity_corrected_total{instance=~\"$instance\", group=~\"$group\", essence=~\"$essence\", direction=\"ingest\"}[$__rate_interval])",
           "legendFormat": "{{group}} / {{essence}} field parity corrected",
           "range": true,
           "refId": "D"
