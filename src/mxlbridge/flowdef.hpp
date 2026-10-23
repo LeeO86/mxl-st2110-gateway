@@ -31,6 +31,8 @@ namespace mxlgw::mxlbridge
 
     /// Compares an existing flow_def.json with the essence format (§6.4 / §8.4). Empty = match.
     std::vector<std::string> compareVideo(nlohmann::json const& flowDef, config::VideoFormat const& format);
+    /// A flow whose interlace_mode is interlaced_bff: refused (owner decision 2026-10-22, docs/decisions.md).
+    bool isBffFlow(nlohmann::json const& flowDef);
     std::vector<std::string> compareAudio(nlohmann::json const& flowDef, config::AudioFormat const& format);
     std::vector<std::string> compareAnc(nlohmann::json const& flowDef, config::AncFormat const& format);
 

@@ -158,6 +158,26 @@ TEST_CASE("semantic rules")
         j["groups"][0]["video"][0]["height"] = 2160;
         CHECK(hasError(parse(j), "/groups/0/video/0/interlace"));
     }
+    SUBCASE("interlaced_bff is refused on ingest and egress, video and ANC (owner decision 2026-10-22)")
+    {
+        for (int gi : {0, 1})
+        {
+            auto j = testutil::sampleConfig();
+            j["groups"][gi]["video"][0]["rate"] = "25/1";
+            j["groups"][gi]["video"][0]["interlace"] = "interlaced_bff";
+            auto const r = parse(j);
+            CHECK(hasError(r, "/groups/" + std::to_string(gi) + "/video/0/interlace"));
+            CHECK(config::formatErrors(r.errors).find("interlaced_bff (bottom field first) is not supported") != std::string::npos);
+            j["groups"][gi]["video"][0]["interlace"] = "interlaced_tff";
+            INFO(config::formatErrors(parse(j).errors));
+            CHECK(parse(j).ok());
+        }
+        auto j = testutil::sampleConfig();
+        j["groups"][0]["video"][0]["rate"] = "25/1";
+        j["groups"][0]["video"][0]["interlace"] = "interlaced_tff";
+        j["groups"][0]["anc"][0]["interlace"] = "interlaced_bff";
+        CHECK(hasError(parse(j), "/groups/0/anc/0/interlace"));
+    }
     SUBCASE("size combination")
     {
         auto j = testutil::sampleConfig();
