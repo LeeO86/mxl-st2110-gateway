@@ -22,6 +22,18 @@ namespace mxlgw::mxlbridge
 
     mxlStatus FlowReader::init()
     {
+        if (auto* registry = _instance->registry(); registry != nullptr)
+        {
+            // Not the domain's shared instance as such: MXL hands back a reader cached per flow id, which
+            // maps the deleted files when the writer re-created the flow (InstanceRegistry::claimFlow).
+            auto const file = flowFileId(_instance->path(), _flowId);
+            if (!file)
+            {
+                return MXL_ERR_FLOW_NOT_FOUND;
+            }
+            _claim = registry->claimFlow(_instance->path(), _flowId, *file);
+            _instance = _claim->instance();
+        }
         auto status = ::mxlCreateFlowReader(_instance->get(), _flowId.c_str(), nullptr, &_reader);
         if (status != MXL_STATUS_OK)
         {

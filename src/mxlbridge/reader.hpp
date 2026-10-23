@@ -36,6 +36,8 @@ namespace mxlgw::mxlbridge
         mxlStatus init();
 
         std::shared_ptr<Instance> _instance;
+        /// Set for an instance of an InstanceRegistry: the instance this reader was opened in.
+        std::unique_ptr<FlowClaim> _claim;
         std::string _flowId;
         mxlFlowReader _reader = nullptr;
         mxlFlowConfigInfo _config{};

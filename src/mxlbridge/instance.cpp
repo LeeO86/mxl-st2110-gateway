@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 #include "mxlbridge/instance.hpp"
 
+#include <algorithm>
+
+#include <sys/stat.h>
+
 #include <mxl/flow.h>
 
 #include "util/logging.hpp"
@@ -74,6 +78,36 @@ namespace mxlgw::mxlbridge
         return buffer;
     }
 
+    std::optional<FlowFileId> flowFileId(std::string const& domainPath, std::string const& flowId)
+    {
+        struct stat st
+        {};
+        auto const file = domainPath + "/" + flowId + ".mxl-flow/data";
+        if (::stat(file.c_str(), &st) != 0)
+        {
+            return std::nullopt;
+        }
+        return FlowFileId{static_cast<std::uint64_t>(st.st_dev), static_cast<std::uint64_t>(st.st_ino)};
+    }
+
+    FlowClaim::FlowClaim(InstanceRegistry& registry, std::shared_ptr<Instance> instance, std::string flowId)
+        : _registry(registry)
+        , _instance(std::move(instance))
+        , _flowId(std::move(flowId))
+    {}
+
+    FlowClaim::~FlowClaim()
+    {
+        _registry.release(_instance.get(), _flowId);
+    }
+
+    std::shared_ptr<Instance> InstanceRegistry::create(std::string const& path)
+    {
+        auto instance = std::make_shared<Instance>(path);
+        instance->_registry = this;
+        return instance;
+    }
+
     std::shared_ptr<Instance> InstanceRegistry::pin(std::string const& path)
     {
         auto lock = std::lock_guard{_mutex};
@@ -81,9 +115,10 @@ namespace mxlgw::mxlbridge
         {
             return it->second;
         }
-        auto instance = std::make_shared<Instance>(path);
+        auto instance = create(path);
         _pinned.emplace(path, instance);
-        _cache[path] = instance;
+        auto& list = _cache[path];
+        list.insert(list.begin(), instance);
         return instance;
     }
 
@@ -94,30 +129,104 @@ namespace mxlgw::mxlbridge
         {
             return it->second;
         }
-        if (auto const it = _cache.find(path); it != _cache.end())
+        auto& list = _cache[path];
+        for (auto const& weak : list)
         {
-            if (auto existing = it->second.lock())
+            if (auto existing = weak.lock())
             {
                 return existing;
             }
         }
-        auto instance = std::make_shared<Instance>(path);
-        _cache[path] = instance;
+        auto instance = create(path);
+        list.push_back(instance);
         return instance;
+    }
+
+    std::unique_ptr<FlowClaim> InstanceRegistry::claimFlow(std::string const& path, std::string const& flowId, FlowFileId const& file)
+    {
+        auto lock = std::lock_guard{_mutex};
+        auto& list = _cache[path];
+        std::erase_if(list, [](auto const& weak) { return weak.expired(); });
+        std::shared_ptr<Instance> same;
+        std::shared_ptr<Instance> free;
+        for (auto const& weak : list)
+        {
+            auto instance = weak.lock();
+            if (!instance)
+            {
+                continue; // released since the erase above
+            }
+            Claim const* claim = nullptr;
+            if (auto const claims = _claims.find(instance.get()); claims != _claims.end())
+            {
+                if (auto const it = claims->second.find(flowId); it != claims->second.end())
+                {
+                    claim = &it->second;
+                }
+            }
+            if (claim == nullptr)
+            {
+                free = free ? free : instance;
+            }
+            else if (claim->file == file)
+            {
+                same = instance;
+                break;
+            }
+        }
+        auto instance = same ? same : free;
+        if (!instance)
+        {
+            // Every instance of the path still reads an older file of this flow (the writer re-created it).
+            instance = create(path);
+            list.push_back(instance);
+            log::debug("mxl_instance_for_recreated_flow", {{"path", path}, {"mxl_flow_id", flowId}, {"instances", list.size()}});
+        }
+        auto& claim = _claims[instance.get()][flowId];
+        claim.file = file;
+        ++claim.refs;
+        return std::make_unique<FlowClaim>(*this, std::move(instance), flowId);
+    }
+
+    void InstanceRegistry::release(Instance const* instance, std::string const& flowId)
+    {
+        auto lock = std::lock_guard{_mutex};
+        auto const claims = _claims.find(instance);
+        if (claims == _claims.end())
+        {
+            return;
+        }
+        if (auto const it = claims->second.find(flowId); it != claims->second.end() && --it->second.refs == 0)
+        {
+            claims->second.erase(it);
+        }
+        if (claims->second.empty())
+        {
+            _claims.erase(claims);
+        }
     }
 
     std::vector<std::string> InstanceRegistry::openPaths() const
     {
         auto lock = std::lock_guard{_mutex};
         std::vector<std::string> paths;
-        for (auto const& [path, weak] : _cache)
+        for (auto const& [path, list] : _cache)
         {
-            if (!weak.expired())
+            if (std::any_of(list.begin(), list.end(), [](auto const& weak) { return !weak.expired(); }))
             {
                 paths.push_back(path);
             }
         }
         return paths;
+    }
+
+    std::size_t InstanceRegistry::instanceCount(std::string const& path) const
+    {
+        auto lock = std::lock_guard{_mutex};
+        auto const it = _cache.find(path);
+        return it == _cache.end()
+                   ? 0
+                   : static_cast<std::size_t>(std::count_if(it->second.begin(), it->second.end(), [](auto const& weak) { return !weak.expired(); }));
     }
 
     void InstanceRegistry::clear()
