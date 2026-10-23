@@ -130,6 +130,7 @@ namespace mxlgw::mxlbridge
             return it->second;
         }
         auto& list = _cache[path];
+        std::erase_if(list, [](auto const& weak) { return weak.expired(); });
         for (auto const& weak : list)
         {
             if (auto existing = weak.lock())

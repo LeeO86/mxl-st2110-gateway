@@ -13,7 +13,9 @@
 namespace mxlgw::mxlbridge
 {
     /// MXL FlowReader. Creation failures (notably MXL_ERR_FLOW_NOT_FOUND) are normal operating
-    /// states for egress (§5.8), so open() reports a status instead of throwing.
+    /// states for egress (§5.8), so open() reports a status instead of throwing. When no MXL instance
+    /// could be created for the reader (mxlCreateInstance failed, e.g. no inotify instance left), open()
+    /// returns nullptr with MXL_ERR_UNKNOWN and sets `*instanceUnavailable`; the caller retries.
     class FlowReader
     {
     public:
@@ -34,6 +36,8 @@ namespace mxlgw::mxlbridge
     protected:
         FlowReader(std::shared_ptr<Instance> instance, std::string flowId);
         mxlStatus init();
+        /// init() failed because no MXL instance could be created.
+        bool _instanceUnavailable = false;
 
         std::shared_ptr<Instance> _instance;
         /// Set for an instance of an InstanceRegistry: the instance this reader was opened in.
@@ -47,7 +51,8 @@ namespace mxlgw::mxlbridge
     class GrainReader : public FlowReader
     {
     public:
-        static std::unique_ptr<GrainReader> open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status);
+        static std::unique_ptr<GrainReader> open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status,
+                                                 bool* instanceUnavailable = nullptr);
 
         mxlStatus get(std::uint64_t index, std::uint64_t timeoutNs, mxlGrainInfo& info, std::uint8_t const*& payload) const noexcept;
         mxlStatus getNonBlocking(std::uint64_t index, mxlGrainInfo& info, std::uint8_t const*& payload) const noexcept;
@@ -60,7 +65,8 @@ namespace mxlgw::mxlbridge
     class SampleReader : public FlowReader
     {
     public:
-        static std::unique_ptr<SampleReader> open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status);
+        static std::unique_ptr<SampleReader> open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status,
+                                                  bool* instanceUnavailable = nullptr);
 
         /// Reads the `count` samples ending at `endIndex`.
         mxlStatus get(std::uint64_t endIndex, std::size_t count, std::uint64_t timeoutNs, mxlWrappedMultiBufferSlice& slices) const noexcept;
@@ -74,5 +80,6 @@ namespace mxlgw::mxlbridge
     };
 
     /// Opens a GrainReader or SampleReader depending on the flow's format.
-    std::unique_ptr<FlowReader> openReader(std::shared_ptr<Instance> instance, std::string const& flowId, bool continuous, mxlStatus& status);
+    std::unique_ptr<FlowReader> openReader(std::shared_ptr<Instance> instance, std::string const& flowId, bool continuous, mxlStatus& status,
+                                           bool* instanceUnavailable = nullptr);
 }

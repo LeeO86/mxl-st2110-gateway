@@ -306,6 +306,39 @@ TEST_CASE("mxl: a reader opened after its writer re-created the flow never gets 
     CHECK(b->getNonBlocking(idx, info, payload) == MXL_STATUS_OK);
     CHECK(deletedMappings(id) == 0);
 
+    // No MXL instance can be created (e.g. no inotify instance left): open() reports it, never throws.
+    // Re-create twice while readers hold each file, so both instances read an older file of the flow.
+    auto const recreate = [&]
+    {
+        writer.reset();
+        writer = std::make_unique<mxlbridge::GrainWriter>(dom.instance, def, std::string{});
+        REQUIRE(writer->created());
+    };
+    recreate();
+    auto c = mxlbridge::GrainReader::open(shared, id.toString(), status); // the instance a and b left
+    REQUIRE(c);
+    CHECK(registry.instanceCount(dom.path()) == 2);
+    recreate();
+    {
+        testutil::NoMoreFileDescriptors noFds;
+        bool noInstance = false;
+        std::unique_ptr<mxlbridge::GrainReader> failed;
+        CHECK_NOTHROW(failed = mxlbridge::GrainReader::open(shared, id.toString(), status, &noInstance));
+        CHECK_FALSE(failed);
+        CHECK(noInstance);
+        CHECK(status == MXL_ERR_UNKNOWN);
+        std::unique_ptr<mxlbridge::SampleReader> failedAudio;
+        CHECK_NOTHROW(failedAudio = mxlbridge::SampleReader::open(shared, id.toString(), status, &noInstance));
+        CHECK(noInstance);
+    }
+    bool noInstance = true;
+    auto d = mxlbridge::GrainReader::open(shared, id.toString(), status, &noInstance);
+    CHECK(d);
+    CHECK_FALSE(noInstance);
+    CHECK(registry.instanceCount(dom.path()) == 3);
+    c.reset();
+    d.reset();
+
     // A flow that is gone is not found, without an instance.
     writer.reset();
     a.reset();

@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
+
+#include <fcntl.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #include <nlohmann/json.hpp>
 
@@ -108,4 +114,42 @@ namespace testutil
         j["mxl"]["domains"][0]["path"] = domainPath;
         return j;
     }
+
+    /// While alive, every new file descriptor of the process fails with EMFILE (so does mxlCreateInstance, whose
+    /// inotify_init1 needs one): RLIMIT_NOFILE is lowered to the highest open descriptor + 1 and the free
+    /// numbers below it are taken. Restored on destruction.
+    class NoMoreFileDescriptors
+    {
+    public:
+        NoMoreFileDescriptors()
+        {
+            ::getrlimit(RLIMIT_NOFILE, &_old);
+            int highest = 0;
+            for (auto const& entry : std::filesystem::directory_iterator("/proc/self/fd"))
+            {
+                highest = std::max(highest, std::stoi(entry.path().filename().string()));
+            }
+            auto low = _old;
+            low.rlim_cur = static_cast<rlim_t>(highest) + 1;
+            ::setrlimit(RLIMIT_NOFILE, &low);
+            for (int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC); fd >= 0; fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC))
+            {
+                _fillers.push_back(fd);
+            }
+        }
+        ~NoMoreFileDescriptors()
+        {
+            for (int fd : _fillers)
+            {
+                ::close(fd);
+            }
+            ::setrlimit(RLIMIT_NOFILE, &_old);
+        }
+        NoMoreFileDescriptors(NoMoreFileDescriptors const&) = delete;
+        NoMoreFileDescriptors& operator=(NoMoreFileDescriptors const&) = delete;
+
+    private:
+        rlimit _old{};
+        std::vector<int> _fillers;
+    };
 }

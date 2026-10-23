@@ -697,6 +697,53 @@ TEST_CASE("pipeline: two egress groups on one flow both resume after its writer 
     writer->stop();
 }
 
+TEST_CASE("pipeline: an MXL instance that cannot be created is error/instance_unavailable and retried, not a crash")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back(
+        {{"uid", testutil::uid(440)}, {"label", "NOINST"}, {"direction", "egress"}, {"domain", "main"}, {"video", {videoJson(441, "NOINST V", "239.20.3.1")}}});
+    Harness h(groups);
+    auto const videoFlow = util::uuidV4();
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = videoFlow;
+    pc.video.rate = {25, 1};
+    auto other = std::make_shared<mxlbridge::Instance>(h.main.path);
+    auto writer = std::make_unique<mxlbridge::PatternWriter>(other, pc);
+    writer->start();
+    h.groups->setRtpSender(uuidOf(441), Harness::rtp("239.20.3.1"));
+    h.groups->setMxlReceiver(uuidOf(441), {true, h.main.id, videoFlow});
+    REQUIRE(waitFor([&] { return h.essence(441).state.state == group::EssenceState::Running; }, 8s));
+
+    // Another reader keeps the old flow, so the group's re-open after the re-creation needs a new instance,
+    // and none can be created (as with fs.inotify.max_user_instances reached).
+    mxlStatus status = MXL_ERR_UNKNOWN;
+    auto hold = mxlbridge::GrainReader::open(h.main.instance, videoFlow.toString(), status);
+    REQUIRE(hold);
+    // The receiver is off while the writer re-creates the flow (which needs descriptors), and re-opens it once
+    // no descriptor is left.
+    h.groups->setMxlReceiver(uuidOf(441), {false, h.main.id, videoFlow});
+    REQUIRE(waitFor([&] { return h.essence(441).state.state == group::EssenceState::Idle; }, 3s));
+    writer->stop();
+    writer = std::make_unique<mxlbridge::PatternWriter>(other, pc);
+    writer->start();
+    REQUIRE(waitFor([&] { return writer->grainsWritten() > 2; }, 3s)); // the new flow exists
+    auto const notFound = h.essence(441).flowNotFound;
+    {
+        testutil::NoMoreFileDescriptors noFds;
+        h.groups->setMxlReceiver(uuidOf(441), {true, h.main.id, videoFlow});
+        REQUIRE(waitFor([&] { return h.essence(441).state.reason == "instance_unavailable"; }, 5s));
+        CHECK(h.essence(441).state.state == group::EssenceState::Error);
+        auto const sent = h.essence(441).tx.packets;
+        CHECK(waitFor([&] { return h.essence(441).tx.packets > sent; }, 2s)); // replacement data keeps going
+    }
+    CHECK(h.essence(441).flowNotFound == notFound); // not counted as a missing flow
+    // Retried: reading resumes once an instance can be created.
+    auto const read = h.essence(441).grainsRead;
+    REQUIRE(waitFor([&] { return h.essence(441).state.state == group::EssenceState::Running && h.essence(441).grainsRead > read + 10; }, 10s));
+    hold.reset();
+    writer->stop();
+}
+
 TEST_CASE("pipeline: unknown domain is accepted and waited for; format mismatch is an error but keeps retrying")
 {
     nlohmann::json groups = nlohmann::json::array();
