@@ -198,7 +198,7 @@ async function submitEdit() {
               </select><div class="err-text">{{ err(`/${type}/${i}/width`) || err(`/${type}/${i}/height`) }}</div>
             </div>
             <div><label>Rate</label><select v-model="e.rate"><option v-for="r in RATES" :key="r" :value="rateValue(r)">{{ r }}</option></select><div class="err-text">{{ err(`/${type}/${i}/rate`) }}</div></div>
-            <div><label>Scan</label><select v-model="e.interlace"><option>progressive</option><option>interlaced_tff</option><option>interlaced_bff</option></select><div class="err-text">{{ err(`/${type}/${i}/interlace`) }}</div></div>
+            <div><label>Scan</label><select v-model="e.interlace"><option>progressive</option><option>interlaced_tff</option></select><div class="err-text">{{ err(`/${type}/${i}/interlace`) }}</div></div>
             <div><label>Colorimetry</label><select v-model="e.colorimetry"><option>BT709</option><option>BT2020</option></select></div>
             <div><label>TCS</label><select v-model="e.tcs"><option>SDR</option><option>PQ</option><option>HLG</option></select></div>
             <div><label>Packing</label><select v-model="e.packing"><option>BPM</option><option>GPM</option><option>GPM_SL</option></select></div>

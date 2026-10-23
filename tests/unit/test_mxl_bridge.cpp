@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <fstream>
 #include <thread>
 
 #include <mxl/flow.h>
@@ -214,6 +215,137 @@ TEST_CASE("mxl: reader status codes used by the egress state machine (§5.8)")
     CHECK(reader->get(idx + 1000, 0, info, payload) == MXL_ERR_FLOW_INVALID);
     auto fresh = mxlbridge::GrainReader::open(dom.instance, id.toString(), status);
     CHECK(fresh);
+}
+
+namespace
+{
+    /// Lines of /proc/self/maps that map a deleted file of `flowId`.
+    int deletedMappings(util::Uuid const& flowId)
+    {
+        std::ifstream maps("/proc/self/maps");
+        int n = 0;
+        for (std::string line; std::getline(maps, line);)
+        {
+            n += line.find(flowId.toString()) != std::string::npos && line.find("(deleted)") != std::string::npos ? 1 : 0;
+        }
+        return n;
+    }
+}
+
+TEST_CASE("mxl: a reader opened after its writer re-created the flow never gets the deleted one (shared instance)")
+{
+    Domain dom;
+    auto const id = util::uuidV4();
+    auto const def = mxlbridge::ancFlowDef(ident(id), config::AncFormat{});
+    std::vector<std::uint8_t> body(8, 0);
+    auto const writeOne = [&](mxlbridge::GrainWriter& w)
+    {
+        auto const rate = w.grainRate();
+        auto const idx = mxlGetCurrentIndex(&rate);
+        REQUIRE(w.write(idx, body) == MXL_STATUS_OK);
+        return idx;
+    };
+    mxlStatus status = MXL_ERR_UNKNOWN;
+    mxlGrainInfo info{};
+    std::uint8_t const* payload = nullptr;
+
+    // The cause, in MXL itself: one reader per flow id and instance, so a second open of a re-created flow
+    // in an instance that still reads the deleted one gets the deleted one back.
+    // VERIFIED: dmf-mxl/mxl@218ddaa lib/internal/src/Instance.cpp:121-143.
+    {
+        auto plain = std::make_shared<mxlbridge::Instance>(dom.path()); // no registry: as before 1.0.20
+        auto writer = std::make_unique<mxlbridge::GrainWriter>(dom.instance, def, std::string{});
+        auto stale = mxlbridge::GrainReader::open(plain, id.toString(), status);
+        REQUIRE(stale);
+        writer.reset(); // deletes the flow
+        writer = std::make_unique<mxlbridge::GrainWriter>(dom.instance, def, std::string{});
+        REQUIRE(writer->created());
+        auto const idx = writeOne(*writer);
+        auto again = mxlbridge::GrainReader::open(plain, id.toString(), status);
+        REQUIRE(again);
+        CHECK(again->handle() == stale->handle());
+        CHECK(again->getNonBlocking(idx + 1000, info, payload) == MXL_ERR_FLOW_INVALID);
+    }
+
+    // Through the registry (all gateway readers): the new open gets an instance of its own.
+    mxlbridge::InstanceRegistry registry;
+    auto const shared = registry.acquire(dom.path());
+    auto writer = std::make_unique<mxlbridge::GrainWriter>(dom.instance, def, std::string{});
+    auto const before = writeOne(*writer);
+    auto a = mxlbridge::GrainReader::open(shared, id.toString(), status); // egress group A
+    auto b = mxlbridge::GrainReader::open(shared, id.toString(), status); // egress group B, same flow
+    REQUIRE(a);
+    REQUIRE(b);
+    CHECK(a->instance() == b->instance()); // same file: one instance, one MXL reader
+    CHECK(b->getNonBlocking(before, info, payload) == MXL_STATUS_OK);
+    CHECK(registry.instanceCount(dom.path()) == 1);
+
+    writer.reset();
+    writer = std::make_unique<mxlbridge::GrainWriter>(dom.instance, def, std::string{});
+    REQUIRE(writer->created());
+    // A grain only the new file has: a reader of the old file finds it too early, then the flow invalid.
+    auto const idx = before + 10;
+    REQUIRE(writer->write(idx, body) == MXL_STATUS_OK);
+    CHECK(a->getNonBlocking(idx, info, payload) == MXL_ERR_FLOW_INVALID);
+
+    // A re-attaches while B still holds the old reader.
+    a.reset();
+    a = mxlbridge::GrainReader::open(shared, id.toString(), status);
+    REQUIRE(a);
+    CHECK(a->instance() != b->instance());
+    CHECK(a->getNonBlocking(idx, info, payload) == MXL_STATUS_OK);
+    CHECK(registry.instanceCount(dom.path()) == 2);
+    CHECK(deletedMappings(id) > 0); // B's reader
+
+    // B re-attaches: it shares the open flow again, and no reader of the deleted files is left.
+    CHECK(b->getNonBlocking(idx, info, payload) == MXL_ERR_FLOW_INVALID);
+    b.reset();
+    CHECK(deletedMappings(id) == 0);
+    b = mxlbridge::GrainReader::open(shared, id.toString(), status);
+    REQUIRE(b);
+    CHECK(b->getNonBlocking(idx, info, payload) == MXL_STATUS_OK);
+    CHECK(deletedMappings(id) == 0);
+
+    // No MXL instance can be created (e.g. no inotify instance left): open() reports it, never throws.
+    // Re-create twice while readers hold each file, so both instances read an older file of the flow.
+    auto const recreate = [&]
+    {
+        writer.reset();
+        writer = std::make_unique<mxlbridge::GrainWriter>(dom.instance, def, std::string{});
+        REQUIRE(writer->created());
+    };
+    recreate();
+    auto c = mxlbridge::GrainReader::open(shared, id.toString(), status); // the instance a and b left
+    REQUIRE(c);
+    CHECK(registry.instanceCount(dom.path()) == 2);
+    recreate();
+    {
+        testutil::NoMoreFileDescriptors noFds;
+        bool noInstance = false;
+        std::unique_ptr<mxlbridge::GrainReader> failed;
+        CHECK_NOTHROW(failed = mxlbridge::GrainReader::open(shared, id.toString(), status, &noInstance));
+        CHECK_FALSE(failed);
+        CHECK(noInstance);
+        CHECK(status == MXL_ERR_UNKNOWN);
+        std::unique_ptr<mxlbridge::SampleReader> failedAudio;
+        CHECK_NOTHROW(failedAudio = mxlbridge::SampleReader::open(shared, id.toString(), status, &noInstance));
+        CHECK(noInstance);
+    }
+    bool noInstance = true;
+    auto d = mxlbridge::GrainReader::open(shared, id.toString(), status, &noInstance);
+    CHECK(d);
+    CHECK_FALSE(noInstance);
+    CHECK(registry.instanceCount(dom.path()) == 3);
+    c.reset();
+    d.reset();
+
+    // A flow that is gone is not found, without an instance.
+    writer.reset();
+    a.reset();
+    b.reset();
+    CHECK_FALSE(mxlbridge::GrainReader::open(shared, id.toString(), status));
+    CHECK(status == MXL_ERR_FLOW_NOT_FOUND);
+    CHECK(registry.instanceCount(dom.path()) == 1); // the extra instance went with its readers
 }
 
 TEST_CASE("mxl: one sync group spans readers of different domains (R3)")

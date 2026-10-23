@@ -121,11 +121,21 @@ namespace mxlgw::mxlbridge
         }
         // The field order counts too: a tff flow read as bff (or the other way round) is one line off.
         auto const il = text(d, "interlace_mode").empty() ? std::string("progressive") : text(d, "interlace_mode");
-        if (il != config::toName(f.interlace))
+        if (isBffFlow(d))
+        {
+            // First, so that a single-message caller (the IS-05 staging check) names it.
+            out.insert(out.begin(), "interlace_mode interlaced_bff (bottom field first) is not supported");
+        }
+        else if (il != config::toName(f.interlace))
         {
             out.push_back("interlace_mode " + il + " does not match " + config::toName(f.interlace));
         }
         return out;
+    }
+
+    bool isBffFlow(nlohmann::json const& d)
+    {
+        return text(d, "interlace_mode") == "interlaced_bff";
     }
 
     std::vector<std::string> compareAudio(nlohmann::json const& d, config::AudioFormat const& f)

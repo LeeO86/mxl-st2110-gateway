@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.20] - 2026-10-23
+
+Two egress groups on one MXL flow both resume after its writer re-creates the flow; bottom-field-first is refused.
+
+### Fixed
+
+- An egress essence no longer gets the reader of a deleted flow back. MXL shares one reader per flow id within an `mxlInstance`, and all readers of a domain shared one instance. When a writer re-created a flow (a restart: same id, new files), each essence that read it released its reader on `MXL_ERR_FLOW_INVALID` and opened it again at once; with two egress groups on the same flow, the first to re-open got the reader the other still held, mapped on the deleted files (`(deleted)` in `/proc/<pid>/maps`), failed again and sent replacement data, and the two could keep handing that reader to each other. Now each reader notes the device and inode of the flow's `data` file when it opens, and one instance serves one file per flow: a reader of the new file opens in another instance of the domain (created when needed, closed with its last reader). Normally there is still one instance per domain, usually at most two after such a re-creation (each costs an inotify instance, `fs.inotify.max_user_instances`); readers are released before their instance. The flow listing of the UI (`/api/flows`) reads through the same rule. If no further instance can be created (`mxlCreateInstance` fails, e.g. `fs.inotify.max_user_instances` reached), the reader reports it instead of throwing: the egress essence goes to `error` / `instance_unavailable` (new reason; log `mxl_instance_failed`, at most every 30 s per flow), keeps sending replacement data and retries with the usual backoff; `/api/flows` shows no head for that flow.
+
+### Changed
+
+- **Breaking for this case only:** `interlace: interlaced_bff` (bottom field first) is refused on video and ANC essences of ingest and egress groups: a configuration error at start (exit 78) and a field error in the UI and `/api` ("interlaced_bff (bottom field first) is not supported; use interlaced_tff"). ST 2110-20 has no bff signalling for 1080i: egress sent the first field (the bottom lines) with F = 0, which a 1080i receiver takes as the top field, so the picture was one line off. The UI no longer offers bff, and no NMOS caps, flow or SDP of the gateway carries it. The schema is unchanged (no schema version bump); tff and progressive essences are not affected.
+- An MXL flow with `interlace_mode` `interlaced_bff` is refused on egress with its own reason: essence `error` / `bff_unsupported` (was `format_mismatch`), log `flow_bff_unsupported` (was `flow_def_mismatch`); it is retried as before, so a tff flow under the same id is picked up. The IS-05 staging check and a re-used ingest flow name it: "interlace_mode interlaced_bff (bottom field first) is not supported".
+- The Compose and Kubernetes examples use the `1.0.20` image.
+
 ## [1.0.19] - 2026-10-16
 
 Interlaced field parity, following the shared convention of the MXL media functions (MXL `218ddaa`): an interlaced flow holds one field per grain, grain `2k` is the first field in time of TAI frame `k` and `2k + 1` the second; ANC of an interlaced video runs at the field rate with the same index. Progressive essences and groups are unchanged. Also: restored receivers keep the SDP's payload type.

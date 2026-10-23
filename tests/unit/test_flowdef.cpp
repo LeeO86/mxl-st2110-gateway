@@ -57,7 +57,15 @@ TEST_CASE("video flow definition (BCP-007-03 example shape)")
     CHECK(jt["interlace_mode"] == "interlaced_tff");
     CHECK(jb["interlace_mode"] == "interlaced_bff");
     CHECK(compareVideo(jt, tff).empty());
-    CHECK(compareVideo(jb, bff).empty());
+    // A bff flow is refused whatever the essence, and says so first (owner decision 2026-10-22).
+    CHECK(isBffFlow(jb));
+    CHECK_FALSE(isBffFlow(jt));
+    REQUIRE(compareVideo(jb, bff).size() == 1);
+    CHECK(compareVideo(jb, bff).front() == "interlace_mode interlaced_bff (bottom field first) is not supported");
+    auto jbWrongSize = jb;
+    jbWrongSize["frame_width"] = 3840;
+    REQUIRE(compareVideo(jbWrongSize, tff).size() == 2);
+    CHECK(compareVideo(jbWrongSize, tff).front() == "interlace_mode interlaced_bff (bottom field first) is not supported");
     CHECK(compareVideo(jb, tff).size() == 1);
     CHECK(compareVideo(jt, bff).size() == 1);
     auto noMode = j;

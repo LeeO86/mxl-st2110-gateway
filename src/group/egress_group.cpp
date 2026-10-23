@@ -322,10 +322,18 @@ namespace mxlgw::group
 
     void EgressGroup::scheduleRetry(Essence& e, std::int64_t steadyNow, char const* reason)
     {
-        e.flowNotFound.fetch_add(1, std::memory_order_relaxed);
+        bool const noInstance = std::string(reason) == "instance_unavailable";
+        if (!noInstance)
+        {
+            e.flowNotFound.fetch_add(1, std::memory_order_relaxed);
+        }
         if (e.formatError)
         {
             // keep error/format_mismatch while retrying
+        }
+        else if (noInstance)
+        {
+            e.setState(EssenceState::Error, reason);
         }
         else if (e.wasAttached && std::string(reason) == "flow_not_found")
         {
@@ -341,7 +349,7 @@ namespace mxlgw::group
         auto const delay = e.backoff.next();
         e.nextAttempt = steadyNow + std::chrono::duration_cast<std::chrono::nanoseconds>(delay).count();
         auto const key = e.uid.toString();
-        if (_notFoundLog.allow(key))
+        if (!noInstance && _notFoundLog.allow(key)) // the reader logged mxl_instance_failed
         {
             bool const domainMissing = std::string(reason) == "domain_not_found" || std::string(reason) == "domain_conflict";
             log::warn(domainMissing ? "mxl_domain_unknown" : "mxl_flow_not_found",
@@ -357,14 +365,23 @@ namespace mxlgw::group
     void EgressGroup::attach(Essence& e, Resolution const& r, std::int64_t steadyNow)
     {
         mxlStatus status = MXL_ERR_UNKNOWN;
+        bool noInstance = false;
         auto const flowId = e.haveRx.flowId->toString();
         if (e.type == config::EssenceType::Audio)
         {
-            e.samples = mxlbridge::SampleReader::open(r.instance, flowId, status);
+            e.samples = mxlbridge::SampleReader::open(r.instance, flowId, status, &noInstance);
         }
         else
         {
-            e.grains = mxlbridge::GrainReader::open(r.instance, flowId, status);
+            e.grains = mxlbridge::GrainReader::open(r.instance, flowId, status, &noInstance);
+        }
+        if (noInstance)
+        {
+            // No MXL instance for the reader (mxl_instance_failed in the log): retried, not a format problem.
+            detach(e);
+            e.formatError = false;
+            scheduleRetry(e, steadyNow, "instance_unavailable");
+            return;
         }
         if (status == MXL_ERR_FLOW_NOT_FOUND || !e.hasReader())
         {
@@ -391,11 +408,15 @@ namespace mxlgw::group
         }
         if (!mismatch.empty())
         {
+            // A bff flow gets its own reason: it is refused whatever the essence (docs/decisions.md 2026-10-22).
+            bool const bff = e.type == config::EssenceType::Video && mxlbridge::isBffFlow(def);
+            char const* const reason = bff ? "bff_unsupported" : "format_mismatch";
             detach(e);
             e.formatError = true;
-            e.setState(EssenceState::Error, "format_mismatch");
-            log::warn("flow_def_mismatch", {{"group", _spec.group.label}, {"essence", e.label}, {"mxl_flow_id", flowId}, {"differences", mismatch}});
-            scheduleRetry(e, steadyNow, "format_mismatch");
+            e.setState(EssenceState::Error, reason);
+            log::warn(bff ? "flow_bff_unsupported" : "flow_def_mismatch",
+                      {{"group", _spec.group.label}, {"essence", e.label}, {"mxl_flow_id", flowId}, {"differences", mismatch}});
+            scheduleRetry(e, steadyNow, reason);
             return;
         }
         e.formatError = false;

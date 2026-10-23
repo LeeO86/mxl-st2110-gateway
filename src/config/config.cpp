@@ -193,6 +193,10 @@ namespace mxlgw::config
             errors.push_back({std::move(pointer), std::move(message)});
         }
 
+        // Owner decision 2026-10-22 (docs/decisions.md): ST 2110-20 has no bff signalling for 1080i, so a bff
+        // essence would reach a 1080i receiver one line off.
+        constexpr char const* bffRefused = "interlaced_bff (bottom field first) is not supported; use interlaced_tff";
+
         Registry readRegistry(json const& r)
         {
             Registry reg;
@@ -1262,7 +1266,11 @@ namespace mxlgw::config
                 {
                     add(errors, ptr + "/rate", "unsupported rate " + v.format.rate.toString());
                 }
-                if (v.format.interlaced() && (!interlaceAllowed(v.format.rate) || v.format.height != 1080))
+                if (v.format.interlace == Interlace::InterlacedBff)
+                {
+                    add(errors, ptr + "/interlace", bffRefused);
+                }
+                else if (v.format.interlaced() && (!interlaceAllowed(v.format.rate) || v.format.height != 1080))
                 {
                     add(errors, ptr + "/interlace", "interlace is only allowed for 1080-line formats at 25/1 or 30000/1001");
                 }
@@ -1302,6 +1310,10 @@ namespace mxlgw::config
                 else if (!isSupportedVideoRate(n.format.rate))
                 {
                     add(errors, ptr + "/rate", "unsupported rate " + n.format.rate.toString());
+                }
+                else if (n.format.interlace == Interlace::InterlacedBff)
+                {
+                    add(errors, ptr + "/interlace", bffRefused);
                 }
                 else if (n.format.interlace != Interlace::Progressive && !interlaceAllowed(n.format.rate))
                 {

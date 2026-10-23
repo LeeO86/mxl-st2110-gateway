@@ -22,6 +22,33 @@ namespace mxlgw::mxlbridge
 
     mxlStatus FlowReader::init()
     {
+        if (auto* registry = _instance->registry(); registry != nullptr)
+        {
+            // Not the domain's shared instance as such: MXL hands back a reader cached per flow id, which
+            // maps the deleted files when the writer re-created the flow (InstanceRegistry::claimFlow).
+            auto const file = flowFileId(_instance->path(), _flowId);
+            if (!file)
+            {
+                return MXL_ERR_FLOW_NOT_FOUND;
+            }
+            try
+            {
+                _claim = registry->claimFlow(_instance->path(), _flowId, *file);
+            }
+            catch (std::exception const& ex)
+            {
+                // mxlCreateInstance failed (e.g. fs.inotify.max_user_instances reached): never let it reach
+                // a worker or HTTP thread (std::terminate); the caller retries.
+                static log::RateLimiter limiter{std::chrono::seconds(30)};
+                if (limiter.allow(_instance->path() + "/" + _flowId))
+                {
+                    log::warn("mxl_instance_failed", {{"path", _instance->path()}, {"mxl_flow_id", _flowId}, {"error", ex.what()}});
+                }
+                _instanceUnavailable = true;
+                return MXL_ERR_UNKNOWN;
+            }
+            _instance = _claim->instance();
+        }
         auto status = ::mxlCreateFlowReader(_instance->get(), _flowId.c_str(), nullptr, &_reader);
         if (status != MXL_STATUS_OK)
         {
@@ -60,10 +87,14 @@ namespace mxlgw::mxlbridge
         return info;
     }
 
-    std::unique_ptr<GrainReader> GrainReader::open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status)
+    std::unique_ptr<GrainReader> GrainReader::open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status, bool* instanceUnavailable)
     {
         std::unique_ptr<GrainReader> reader(new GrainReader(std::move(instance), flowId));
         status = reader->init();
+        if (instanceUnavailable != nullptr)
+        {
+            *instanceUnavailable = reader->_instanceUnavailable;
+        }
         if (status != MXL_STATUS_OK)
         {
             return nullptr;
@@ -92,10 +123,15 @@ namespace mxlgw::mxlbridge
         return status;
     }
 
-    std::unique_ptr<SampleReader> SampleReader::open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status)
+    std::unique_ptr<SampleReader> SampleReader::open(std::shared_ptr<Instance> instance, std::string const& flowId, mxlStatus& status,
+                                                     bool* instanceUnavailable)
     {
         std::unique_ptr<SampleReader> reader(new SampleReader(std::move(instance), flowId));
         status = reader->init();
+        if (instanceUnavailable != nullptr)
+        {
+            *instanceUnavailable = reader->_instanceUnavailable;
+        }
         if (status != MXL_STATUS_OK)
         {
             return nullptr;
@@ -127,12 +163,13 @@ namespace mxlgw::mxlbridge
         return ::mxlFlowReaderGetSamplesNonBlocking(_reader, endIndex, count, &slices);
     }
 
-    std::unique_ptr<FlowReader> openReader(std::shared_ptr<Instance> instance, std::string const& flowId, bool continuous, mxlStatus& status)
+    std::unique_ptr<FlowReader> openReader(std::shared_ptr<Instance> instance, std::string const& flowId, bool continuous, mxlStatus& status,
+                                           bool* instanceUnavailable)
     {
         if (continuous)
         {
-            return SampleReader::open(std::move(instance), flowId, status);
+            return SampleReader::open(std::move(instance), flowId, status, instanceUnavailable);
         }
-        return GrainReader::open(std::move(instance), flowId, status);
+        return GrainReader::open(std::move(instance), flowId, status, instanceUnavailable);
     }
 }

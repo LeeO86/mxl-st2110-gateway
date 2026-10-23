@@ -605,6 +605,145 @@ TEST_CASE("pipeline: late flow in a mirror domain — waiting_for_flow, running,
     REQUIRE(waitFor([&] { return h.essence(401).state.state == group::EssenceState::Idle; }, 2s));
 }
 
+TEST_CASE("pipeline: two egress groups on one flow both resume after its writer re-creates it, no deleted mapping kept")
+{
+    // MXL shares one reader per flow id within an instance: a group that re-attached while the other still held
+    // the reader of the deleted flow got that reader back (MXL_ERR_FLOW_INVALID on every read, for ever).
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back({{"uid", testutil::uid(420)},
+                      {"label", "TWIN A"},
+                      {"direction", "egress"},
+                      {"domain", "main"},
+                      {"video", {videoJson(421, "TWIN A V", "239.20.1.1")}},
+                      {"audio", {audioJson(422, "TWIN A A", "239.20.1.2")}}});
+    groups.push_back({{"uid", testutil::uid(430)},
+                      {"label", "TWIN B"},
+                      {"direction", "egress"},
+                      {"domain", "main"},
+                      {"video", {videoJson(431, "TWIN B V", "239.20.2.1")}},
+                      {"audio", {audioJson(432, "TWIN B A", "239.20.2.2")}}});
+    Harness h(groups);
+
+    auto const videoFlow = util::uuidV4();
+    auto const audioFlow = util::uuidV4();
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = videoFlow;
+    pc.video.rate = {25, 1};
+    pc.audioFlow = audioFlow;
+    pc.audio.channels = 2;
+    // The writer is another process: an instance of its own.
+    auto other = std::make_shared<mxlbridge::Instance>(h.main.path);
+    auto writer = std::make_unique<mxlbridge::PatternWriter>(other, pc);
+    writer->start();
+    for (int uid : {421, 422, 431, 432})
+    {
+        h.groups->setRtpSender(uuidOf(uid), Harness::rtp(uid == 421 ? "239.20.1.1" : uid == 422 ? "239.20.1.2" : uid == 431 ? "239.20.2.1" : "239.20.2.2"));
+        h.groups->setMxlReceiver(uuidOf(uid), {true, h.main.id, uid % 10 == 1 ? videoFlow : audioFlow});
+    }
+    auto const allReading = [&]
+    {
+        std::map<int, std::uint64_t> read;
+        for (int uid : {421, 422, 431, 432})
+        {
+            read[uid] = h.essence(uid).grainsRead;
+        }
+        return waitFor(
+            [&]
+            {
+                for (int uid : {421, 422, 431, 432})
+                {
+                    auto const e = h.essence(uid);
+                    if (e.state.state != group::EssenceState::Running || e.grainsRead < read[uid] + 10)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            },
+            8s);
+    };
+    REQUIRE(allReading());
+
+    auto const deletedMappings = []
+    {
+        std::ifstream maps("/proc/self/maps");
+        int n = 0;
+        for (std::string line; std::getline(maps, line);)
+        {
+            n += line.find(".mxl-flow") != std::string::npos && line.find("(deleted)") != std::string::npos ? 1 : 0;
+        }
+        return n;
+    };
+    for (int round = 0; round < 3; ++round)
+    {
+        INFO("round " << round);
+        // Another essence that has not let go of the old flows yet (in the real race: the other group, which
+        // notices the re-created flow a moment later). Opened like every gateway reader.
+        mxlStatus status = MXL_ERR_UNKNOWN;
+        auto holdVideo = mxlbridge::GrainReader::open(h.main.instance, videoFlow.toString(), status);
+        auto holdAudio = mxlbridge::SampleReader::open(h.main.instance, audioFlow.toString(), status);
+        REQUIRE(holdVideo);
+        REQUIRE(holdAudio);
+        // The writer restarts: MXL deletes the flows and creates them again under the same ids.
+        writer->stop();
+        writer = std::make_unique<mxlbridge::PatternWriter>(other, pc);
+        writer->start();
+        REQUIRE(allReading());
+        holdVideo.reset();
+        holdAudio.reset();
+        CHECK(waitFor([&] { return deletedMappings() == 0; }, 2s));
+        CHECK(h.instances.instanceCount(h.main.path) <= 2); // the pinned one and at most one more here
+    }
+    writer->stop();
+}
+
+TEST_CASE("pipeline: an MXL instance that cannot be created is error/instance_unavailable and retried, not a crash")
+{
+    nlohmann::json groups = nlohmann::json::array();
+    groups.push_back(
+        {{"uid", testutil::uid(440)}, {"label", "NOINST"}, {"direction", "egress"}, {"domain", "main"}, {"video", {videoJson(441, "NOINST V", "239.20.3.1")}}});
+    Harness h(groups);
+    auto const videoFlow = util::uuidV4();
+    mxlbridge::PatternConfig pc;
+    pc.videoFlow = videoFlow;
+    pc.video.rate = {25, 1};
+    auto other = std::make_shared<mxlbridge::Instance>(h.main.path);
+    auto writer = std::make_unique<mxlbridge::PatternWriter>(other, pc);
+    writer->start();
+    h.groups->setRtpSender(uuidOf(441), Harness::rtp("239.20.3.1"));
+    h.groups->setMxlReceiver(uuidOf(441), {true, h.main.id, videoFlow});
+    REQUIRE(waitFor([&] { return h.essence(441).state.state == group::EssenceState::Running; }, 8s));
+
+    // Another reader keeps the old flow, so the group's re-open after the re-creation needs a new instance,
+    // and none can be created (as with fs.inotify.max_user_instances reached).
+    mxlStatus status = MXL_ERR_UNKNOWN;
+    auto hold = mxlbridge::GrainReader::open(h.main.instance, videoFlow.toString(), status);
+    REQUIRE(hold);
+    // The receiver is off while the writer re-creates the flow (which needs descriptors), and re-opens it once
+    // no descriptor is left.
+    h.groups->setMxlReceiver(uuidOf(441), {false, h.main.id, videoFlow});
+    REQUIRE(waitFor([&] { return h.essence(441).state.state == group::EssenceState::Idle; }, 3s));
+    writer->stop();
+    writer = std::make_unique<mxlbridge::PatternWriter>(other, pc);
+    writer->start();
+    REQUIRE(waitFor([&] { return writer->grainsWritten() > 2; }, 3s)); // the new flow exists
+    auto const notFound = h.essence(441).flowNotFound;
+    {
+        testutil::NoMoreFileDescriptors noFds;
+        h.groups->setMxlReceiver(uuidOf(441), {true, h.main.id, videoFlow});
+        REQUIRE(waitFor([&] { return h.essence(441).state.reason == "instance_unavailable"; }, 5s));
+        CHECK(h.essence(441).state.state == group::EssenceState::Error);
+        auto const sent = h.essence(441).tx.packets;
+        CHECK(waitFor([&] { return h.essence(441).tx.packets > sent; }, 2s)); // replacement data keeps going
+    }
+    CHECK(h.essence(441).flowNotFound == notFound); // not counted as a missing flow
+    // Retried: reading resumes once an instance can be created.
+    auto const read = h.essence(441).grainsRead;
+    REQUIRE(waitFor([&] { return h.essence(441).state.state == group::EssenceState::Running && h.essence(441).grainsRead > read + 10; }, 10s));
+    hold.reset();
+    writer->stop();
+}
+
 TEST_CASE("pipeline: unknown domain is accepted and waited for; format mismatch is an error but keeps retrying")
 {
     nlohmann::json groups = nlohmann::json::array();
@@ -629,6 +768,22 @@ TEST_CASE("pipeline: unknown domain is accepted and waited for; format mismatch 
     auto const attempts = h.essence(501).flowNotFound;
     REQUIRE(waitFor([&] { return h.essence(501).flowNotFound > attempts; }, 3s));
     wrong.stop();
+
+    // A bottom-field-first flow is refused with its own reason (owner decision 2026-10-22), and retried.
+    mxlbridge::PatternConfig bc;
+    bc.videoFlow = util::uuidV4();
+    bc.video.rate = {25, 1};
+    bc.video.interlace = config::Interlace::InterlacedBff;
+    mxlbridge::PatternWriter bff(h.main.instance, bc);
+    bff.start();
+    std::this_thread::sleep_for(100ms);
+    h.groups->setMxlReceiver(uuidOf(501), {true, h.main.id, bc.videoFlow});
+    REQUIRE(waitFor([&] { return h.essence(501).state.reason == "bff_unsupported"; }, 3s));
+    CHECK(h.essence(501).state.state == group::EssenceState::Error);
+    auto const bffAttempts = h.essence(501).flowNotFound;
+    REQUIRE(waitFor([&] { return h.essence(501).flowNotFound > bffAttempts; }, 3s));
+    CHECK(h.essence(501).state.reason == "bff_unsupported");
+    bff.stop();
 }
 
 namespace

@@ -148,7 +148,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].video[].width` | `1920` \| `3840` | `1920` |  | Frame width: 1920×1080 or 3840×2160. |
 | `groups[].video[].height` | `1080` \| `2160` | `1080` |  | Frame height. |
 | `groups[].video[].rate` | `"24000/1001"` \| `"24/1"` \| `"25/1"` \| `"30000/1001"` \| `"30/1"` \| `"50/1"` \| `"60000/1001"` \| `"60/1"` | `"50/1"` |  | Frame rate. |
-| `groups[].video[].interlace` | `"progressive"` \| `"interlaced_tff"` \| `"interlaced_bff"` | `"progressive"` |  | Scan; interlaced only for 1080 lines at 25/1 or 30000/1001. |
+| `groups[].video[].interlace` | `"progressive"` \| `"interlaced_tff"` \| `"interlaced_bff"` | `"progressive"` |  | Scan; interlaced only for 1080 lines at 25/1 or 30000/1001. `interlaced_bff` is refused by the validation (not supported, docs/decisions.md 2026-10-22). |
 | `groups[].video[].colorimetry` | `"BT709"` \| `"BT2020"` \| `"BT2100"` | `"BT709"` |  | Colorimetry (SDP and Flow). |
 | `groups[].video[].tcs` | `"SDR"` \| `"PQ"` \| `"HLG"` | `"SDR"` |  | Transfer characteristic system. |
 | `groups[].video[].packing` | `"BPM"` \| `"GPM"` \| `"GPM_SL"` | `"BPM"` |  | ST 2110-20 packing mode (SDP PM). |
@@ -179,7 +179,7 @@ Groups (user-facing units, one BCP-002-01 group hint each).
 | `groups[].anc[].defaults.legs[].source` | IPv4 address or null |  |  | Ingest: SSM source filter; egress: unused (port IP). |
 | `groups[].anc[].defaults.legs[].port` | integer 1–65535 |  |  | UDP destination port. |
 | `groups[].anc[].rate` | `"24000/1001"` \| `"24/1"` \| `"25/1"` \| `"30000/1001"` \| `"30/1"` \| `"50/1"` \| `"60000/1001"` \| `"60/1"` |  |  | Defaults to the group's first video rate. |
-| `groups[].anc[].interlace` | `"progressive"` \| `"interlaced_tff"` \| `"interlaced_bff"` |  |  | Scan of the ANC stream; interlaced = one grain per field. Defaults to the group's first video. |
+| `groups[].anc[].interlace` | `"progressive"` \| `"interlaced_tff"` \| `"interlaced_bff"` |  |  | Scan of the ANC stream; interlaced = one grain per field. Defaults to the group's first video. `interlaced_bff` is refused by the validation. |
 
 ## Bootstrap variables
 

@@ -190,6 +190,28 @@ TEST_CASE("validation errors carry JSON pointers; restart-relevant sections are 
     CHECK(Api::body(api.call("GET", "/api/config"))["restart_required"] == true);
 }
 
+TEST_CASE("an interlaced_bff essence is refused through the API with its field pointer")
+{
+    Api api;
+    for (int gi : {0, 1}) // ingest, egress
+    {
+        auto group = api.file()["groups"][gi];
+        group["video"][0]["rate"] = "25/1";
+        group["video"][0]["interlace"] = "interlaced_bff";
+        auto const r = api.call("PUT", "/api/groups/" + group["uid"].get<std::string>(), group.dump());
+        CHECK(r.status == 400);
+        auto const details = Api::body(r)["details"];
+        bool found = false;
+        for (auto const& d : details)
+        {
+            found = found || (d["pointer"] == "/groups/" + std::to_string(gi) + "/video/0/interlace" &&
+                              d["message"].get<std::string>().find("interlaced_bff (bottom field first) is not supported") != std::string::npos);
+        }
+        CHECK(found);
+    }
+    CHECK(api.services->applied == 0);
+}
+
 TEST_CASE("environment-set keys are rejected through the API (§9.1)")
 {
     Api api({{"MXLGW_NODE_LABEL", "FROM-ENV"}});
