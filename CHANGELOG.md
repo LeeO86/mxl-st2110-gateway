@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Tests
+- CI sets the kernel TAI offset (37 s) on the runner before the integration tests (`tests/integration/set_tai_offset.py`). The runner image of 2026-11-01 no longer sets it, so CLOCK_TAI equalled UTC and the loopback test saw every flow 37 s late (colour bars, counters and timecode failed). No change to the gateway.
+
 ## [1.0.20] - 2026-10-23
 
 Two egress groups on one MXL flow both resume after its writer re-creates the flow; bottom-field-first is refused.
