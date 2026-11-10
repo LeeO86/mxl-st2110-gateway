@@ -24,7 +24,7 @@ Instructions for coding agents (Claude Code) working on `mxl-st2110-gateway`.
 
 - GitHub API may rate-limit; download sources via `https://codeload.github.com/<owner>/<repo>/tar.gz/<ref>` or `git clone --depth 1 --branch <tag>`.
 - Building DPDK + MTL + MXL is slow: build the `deps` Docker stage once and reuse it (`docker build --target deps -t mxlgw-deps .`), then iterate on the `build` stage.
-- Without an E810 use `nic.backend = "kernel"` with a veth pair (needs hugepages: `sudo sysctl vm.nr_hugepages=1024`). This backend has no pacing or HW PTP and is test-only.
+- Without an E810 use `nic.backend = "kernel"` with a veth pair (needs hugepages: `sudo sysctl vm.nr_hugepages=1024`). The host needs the kernel TAI offset (chrony or ptp4l set it; else `sudo tests/integration/set_tai_offset.py 37`), or every flow is 37 s off. This backend has no pacing or HW PTP and is test-only.
 - MXL domains for local tests: `sudo mount -t tmpfs -o size=2g tmpfs /tmp/mxl-test` (a plain directory must fail the bootstrap — that is a feature).
 - The Dockerfile lives in `docker/`: always pass `-f docker/Dockerfile` with the repository root as context.
 - Kernel backend: put the second veth end into another network namespace (a `sleep` container, see `tests/integration/lib.sh`), otherwise the kernel drops the multicast as martian. Simulate leg loss with `nft … numgen random` (not every kernel has `xt_statistic`).

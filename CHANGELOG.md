@@ -4,10 +4,21 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.0.21] - 2026-11-10
+
+The NMOS API versions of the ST 2110 node are configurable (for controllers that speak only IS-05 v1.0).
+
 ### Added
 
 - New settings `node.is04_versions` / `MXLGW_NODE_IS04_VERSIONS` and `node.is05_versions` / `MXLGW_NODE_IS05_VERSIONS`: the IS-04 and IS-05 API versions the ST 2110 node offers, a list (environment: comma list, e.g. `MXLGW_NODE_IS05_VERSIONS=v1.0,v1.1`). Allowed: IS-04 `v1.0`–`v1.3`, IS-05 `v1.0`–`v1.2`. The defaults are as before (IS-04 `v1.3`; IS-05 `v1.1`, `v1.2`), so nothing changes unless you set them. Use it for a controller that speaks only an older version, e.g. VideoIPath with IS-05 v1.0 only. The ST 2110 device's controls (`urn:x-nmos:control:sr-ctrl/<version>`) follow the IS-05 list. With a static registry the ST 2110 node now registers at the highest IS-04 version in its list (was always v1.3); with DNS-SD the highest one it shares with the registry. An unknown version or an empty list is a configuration error at start (exit 78). The MXL node keeps IS-04 v1.3 and IS-05 v1.1, v1.2: MXL Senders and Receivers exist only from IS-04 v1.3 and IS-05 v1.2 on. An activation over IS-05 v1.0 works as over v1.1 (also with an SDP in `transport_file`, so the receiver takes the SDP's payload type, e.g. audio 98) and is restored after a restart. IS-05 v1.0 has no `/transporttype` endpoint.
 - `/api/nmos` lists `is04_versions` and `is05_versions` of each node; the NMOS tab links to the highest of them.
+
+### Changed
+
+- The Compose and Kubernetes examples use the `1.0.21` image.
+
+### Tests
+- CI sets the kernel TAI offset (37 s) on the runner before the integration tests (`tests/integration/set_tai_offset.py`). The runner image of 2026-11-01 no longer sets it, so CLOCK_TAI equalled UTC and the loopback test saw every flow 37 s late (colour bars, counters and timecode failed). No change to the gateway.
 
 ## [1.0.20] - 2026-10-23
 

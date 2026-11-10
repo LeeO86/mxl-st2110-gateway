@@ -186,6 +186,9 @@ jobs:
         run: |
           sudo sysctl -w vm.nr_hugepages=1024
           sudo sysctl -w net.core.rmem_max=4194304 net.core.wmem_max=4194304
+      # MXL grain indices are on CLOCK_TAI; the runner image no longer sets the kernel TAI offset.
+      - name: Host preparation (kernel TAI offset)
+        run: sudo python3 tests/integration/set_tai_offset.py 37
       - name: tests/integration/${{ matrix.test }}.sh
         run: tests/integration/${{ matrix.test }}.sh mxlgw:ci
         env:
