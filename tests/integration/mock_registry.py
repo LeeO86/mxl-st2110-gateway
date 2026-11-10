@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Minimal IS-04 v1.3 registry for the integration tests (Registration API, Query API, request log).
+"""Minimal IS-04 registry for the integration tests (Registration API, Query API, request log).
 
     python3 tests/integration/mock_registry.py --port 18210
 
-Registration: POST /x-nmos/registration/v1.3/resource, DELETE .../resource/{type}s/{id},
-POST .../health/nodes/{id}. Query: GET /x-nmos/query/v1.3/{type}s[/{id}] on the same port.
-GET /_log returns every request seen (method, path, resource type and id) for assertions.
+Registration: POST /x-nmos/registration/{v1.0-v1.3}/resource, DELETE .../resource/{type}s/{id},
+POST .../health/nodes/{id}. Query: GET /x-nmos/query/{v1.0-v1.3}/{type}s[/{id}] on the same port
+(one store for all versions, no downgrade). GET /_log returns every request seen (method, path,
+API version, resource type and id) for assertions.
 Only the standard library; no validation beyond what the tests need.
 """
 
 import argparse
 import json
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-REG = "/x-nmos/registration/v1.3"
-QUERY = "/x-nmos/query/v1.3"
+VERSIONED = re.compile(r"^/x-nmos/(registration|query)/(v1\.[0-3])(?=/|$)")
 TYPES = ("node", "device", "source", "flow", "sender", "receiver")
 
 lock = threading.Lock()
@@ -44,11 +45,19 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def record(self, **extra):
+        m = VERSIONED.match(self.path)
         with lock:
-            requests.append({"t": time.time(), "method": self.command, "path": self.path, **extra})
+            requests.append({"t": time.time(), "method": self.command, "path": self.path, "version": m.group(2) if m else None, **extra})
+
+    def api(self, path):
+        """(Registration API base, Query API base) of the version in the path; v1.3 when it names none."""
+        m = VERSIONED.match(path)
+        version = m.group(2) if m else "v1.3"
+        return f"/x-nmos/registration/{version}", f"/x-nmos/query/{version}"
 
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/")
+        REG, QUERY = self.api(path)
         self.record()
         if path == "/_log":
             with lock:
@@ -71,6 +80,7 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
         path = self.path.rstrip("/")
+        REG, _ = self.api(path)
         if path == REG + "/resource":
             kind, data = body.get("type"), body.get("data", {})
             self.record(type=kind, id=data.get("id"))
@@ -94,6 +104,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path = self.path.rstrip("/")
+        REG, _ = self.api(path)
         if path.startswith(REG + "/resource/"):
             parts = path[len(REG) + len("/resource/"):].split("/")
             kind = parts[0][:-1]

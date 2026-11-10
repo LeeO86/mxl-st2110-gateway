@@ -70,6 +70,8 @@ namespace mxlgw::config
                     {"NMOS_HOST_ADDRESS", {"MXLGW_NODE_HOST_ADDRESS", "MXLGW_NODE_PUBLIC_ADDRESS"}, "/node/host_address", Kind::NullableString},
                     {"MXLGW_NODE_PUBLIC_PORT", {}, "/node/public_port", Kind::NullableInteger},
                     {"MXLGW_NODE_MANAGEMENT_ADDRESSES", {}, "/node/management_addresses", Kind::List},
+                    {"MXLGW_NODE_IS04_VERSIONS", {}, "/node/is04_versions", Kind::List},
+                    {"MXLGW_NODE_IS05_VERSIONS", {}, "/node/is05_versions", Kind::List},
                     {"MXLGW_NODE_RESUME_CONNECTIONS", {}, "/node/resume_connections", Kind::Boolean},
                     {"MXLGW_NODE_LOG_LEVEL", {"MXLGW_LOG_LEVEL"}, "/node/log_level", Kind::String},
                     {"SHUTDOWN_TIMEOUT_S", {"MXLGW_NODE_SHUTDOWN_TIMEOUT_S"}, "/node/shutdown_timeout_s", Kind::Integer},

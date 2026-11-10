@@ -199,6 +199,38 @@
           "description": "Deprecated: additional IPv4 addresses announced in api.endpoints; empty = only node.host_address.",
           "default": []
         },
+        "is04_versions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "v1.0",
+              "v1.1",
+              "v1.2",
+              "v1.3"
+            ]
+          },
+          "minItems": 1,
+          "description": "IS-04 Node API versions of the ST 2110 node (at least one); it registers with a static registry at the highest. The MXL node always offers v1.3.",
+          "default": [
+            "v1.3"
+          ]
+        },
+        "is05_versions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "v1.0",
+              "v1.1",
+              "v1.2"
+            ]
+          },
+          "minItems": 1,
+          "description": "IS-05 Connection API versions of the ST 2110 node (at least one), also its device controls (one urn:x-nmos:control:sr-ctrl/v1.x per version). The MXL node always offers v1.1 and v1.2.",
+          "default": [
+            "v1.1",
+            "v1.2"
+          ]
+        },
         "registry": {
           "$ref": "#/$defs/registry",
           "description": "Registry of the MXL node (the platform's MXL registry)."

@@ -582,6 +582,13 @@ namespace mxlgw::config
                     c.node.managementAddresses.push_back(a.get<std::string>());
                 }
             }
+            for (auto [key, list] : {std::pair{"is04_versions", &c.node.is04Versions}, std::pair{"is05_versions", &c.node.is05Versions}})
+            {
+                if (n.contains(key))
+                {
+                    *list = n.at(key).get<std::vector<std::string>>();
+                }
+            }
             if (n.contains("registry"))
             {
                 c.node.registry = readRegistry(n.at("registry"));
@@ -923,6 +930,8 @@ namespace mxlgw::config
         n["host_address"] = optText(c.node.hostAddress);
         n["public_port"] = optInt(c.node.publicPort);
         n["management_addresses"] = c.node.managementAddresses;
+        n["is04_versions"] = c.node.is04Versions;
+        n["is05_versions"] = c.node.is05Versions;
         n["registry"] = registryJson(c.node.registry);
         n["st2110"]["enabled"] = c.node.st2110.enabled;
         n["st2110"]["label"] = optText(c.node.st2110.label);
