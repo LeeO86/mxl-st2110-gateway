@@ -9,7 +9,8 @@
 # MTL kernel-socket backend on a local veth pair (§7.7) and node.registry.dns_sd /
 # node.st2110.registry.dns_sd = true through the host's avahi-daemon (D-Bus socket mounted into the
 # container); DNS-SD stays supported although the platform default is off. The suites run in two
-# phases, each with only the node under test registering (the tool's mock registry must see one node).
+# phases, each with only the node under test registering (the tool's mock registry must see one node),
+# and a third one with the ST 2110 node on IS-04 v1.2 / IS-05 v1.0 only (node.is04_versions / is05_versions).
 # Any "Fail" fails the run; JSON results go to $IT_ARTIFACTS.
 source "$(dirname "$0")/lib.sh"
 
@@ -76,11 +77,11 @@ EOF
 # ---- the gateway: kernel backend, real MXL domain, one ingest and one egress group
 HOST_IP="${NMOS_TEST_HOST_IP:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}"
 # Only the node under test registers (DNS-SD): nmos-testing's mock registry must not see the other node.
-gateway_config() { # <MXL node dns_sd> <ST 2110 node dns_sd>
+gateway_config() { # <MXL node dns_sd> <ST 2110 node dns_sd> [extra node fields, e.g. "is05_versions": [...],]
     cat <<EOF
 {
   "schema_version": 1,
-  "node": {"label": "IT-NMOS", "http_port": $PORT, "host_address": "$HOST_IP", "registry": {"dns_sd": $1},
+  "node": {"label": "IT-NMOS", "http_port": $PORT, "host_address": "$HOST_IP", "registry": {"dns_sd": $1}, ${4:-}
            "st2110": {"registry": {"dns_sd": $2}}},
   "nic": {"backend": "kernel", "lcores": "1", "port_pairs": [{"name": "media",
           "primary":   {"name": "media-p", "ifname": "mxlit6", "ip": "192.168.82.1", "netmask": "255.255.255.0"},
@@ -108,16 +109,16 @@ aa_opts=()
 if [[ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" == "Y" ]]; then
     aa_opts=(--security-opt apparmor=unconfined)
 fi
-run_gateway() { # <MXL node dns_sd> <ST 2110 node dns_sd>
+run_gateway() { # <MXL node dns_sd> <ST 2110 node dns_sd> <log tag> [extra node fields] [ST 2110 IS-04 version]
     if docker inspect "$IT_PREFIX-nmos" >/dev/null 2>&1; then
         docker stop -t 15 "$IT_PREFIX-nmos" >/dev/null
         docker logs "$IT_PREFIX-nmos" >"$IT_ARTIFACTS/$IT_PREFIX-nmos-$3.log" 2>&1 || true
     fi
     # the gateway runs as root and rewrites the file (generated uids)
-    gateway_config "$1" "$2" | as_root tee "$WORK/config/gateway.json" >/dev/null
+    gateway_config "$1" "$2" "$3" "${4:-}" | as_root tee "$WORK/config/gateway.json" >/dev/null
     start_gateway "$IT_PREFIX-nmos" "$IMAGE" "$WORK/config" "$WORK/mxl" host -v /run/dbus:/run/dbus -v /run/avahi-daemon:/run/avahi-daemon "${aa_opts[@]}"
     wait_until 90 "gateway /livez" http_ok "http://127.0.0.1:$PORT/livez"
-    wait_until 30 "ST 2110 node" http_ok "http://127.0.0.1:$PORT2/x-nmos/node/v1.3/self"
+    wait_until 30 "ST 2110 node" http_ok "http://127.0.0.1:$PORT2/x-nmos/node/${5:-v1.3}/self"
 }
 
 run_suite() { # <tag> <suite> <args...>
@@ -163,6 +164,11 @@ run_suite IS-05-01-v1.1-st2110 IS-05-01 --host "$HOST_IP" --port "$PORT2" --vers
 run_suite IS-05-01-v1.2-st2110 IS-05-01 --host "$HOST_IP" --port "$PORT2" --version v1.2
 run_suite IS-05-02-st2110 IS-05-02 --host "$HOST_IP" "$HOST_IP" --port "$PORT2" "$PORT2" --version v1.3 v1.2
 
+# ST 2110 node with only IS-04 v1.2 and IS-05 v1.0 (a controller that speaks only IS-05 v1.0, e.g. VideoIPath).
+run_gateway false true st2110-v1.0 '"is04_versions": ["v1.2"], "is05_versions": ["v1.0"],' v1.2
+run_suite IS-04-01-v1.2-st2110 IS-04-01 --host "$HOST_IP" --port "$PORT2" --version v1.2
+run_suite IS-05-01-v1.0-st2110 IS-05-01 --host "$HOST_IP" --port "$PORT2" --version v1.0
+run_suite IS-05-02-v1.0-st2110 IS-05-02 --host "$HOST_IP" "$HOST_IP" --port "$PORT2" "$PORT2" --version v1.2 v1.0
 if ((${#FAILED_SUITES[@]})); then
     fail "suites with failures: ${FAILED_SUITES[*]}"
 fi

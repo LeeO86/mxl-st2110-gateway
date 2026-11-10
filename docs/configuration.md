@@ -37,6 +37,8 @@ NMOS node identity, HTTP port, registry, TLS and logging.
 | `node.public_address` | IPv4 address or null | `null` |  | Deprecated alias of node.host_address. |
 | `node.public_port` | integer 1–65535 or null | `null` | `MXLGW_NODE_PUBLIC_PORT` | Port advertised in NMOS hrefs (reverse proxy / port mapping). |
 | `node.management_addresses` | array of IPv4 address | `[]` | `MXLGW_NODE_MANAGEMENT_ADDRESSES` | Deprecated: additional IPv4 addresses announced in api.endpoints; empty = only node.host_address. |
+| `node.is04_versions` | array of `"v1.0"` \| `"v1.1"` \| `"v1.2"` \| `"v1.3"` | `["v1.3"]` | `MXLGW_NODE_IS04_VERSIONS` | IS-04 Node API versions of the ST 2110 node (at least one); it registers with a static registry at the highest. The MXL node always offers v1.3. |
+| `node.is05_versions` | array of `"v1.0"` \| `"v1.1"` \| `"v1.2"` | `["v1.1", "v1.2"]` | `MXLGW_NODE_IS05_VERSIONS` | IS-05 Connection API versions of the ST 2110 node (at least one), also its device controls (one urn:x-nmos:control:sr-ctrl/v1.x per version). The MXL node always offers v1.1 and v1.2. |
 | `node.registry.dns_sd` | boolean or null | `null` | `NMOS_DNS_SD`<br>alias `MXLGW_NODE_REGISTRY_DNS_SD` | Discover the registry with DNS-SD and advertise the node with mDNS (needs Avahi). null = true only if the deprecated mode is "dns-sd". |
 | `node.registry.mode` | `"dns-sd"` \| `"static"` |  | `MXLGW_NODE_REGISTRY_MODE` | Deprecated: "dns-sd" = dns_sd true, "static" = dns_sd false with address and port. |
 | `node.registry.address` | string or null | `null` | `NMOS_REGISTRY_ADDRESS`<br>alias `MXLGW_NODE_REGISTRY_ADDRESS` | Registration API host (IPv4 or DNS name); null = no static registry. |

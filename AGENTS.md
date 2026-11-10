@@ -41,6 +41,7 @@ docker build --target build -f docker/Dockerfile -t mxlgw-build .   # compile + 
 docker build -f docker/Dockerfile -t mxlgw:dev .                    # runtime image
 tests/integration/smoke.sh mxlgw:dev                                # container smoke test (uid 1000)
 tests/integration/lifecycle.sh mxlgw:dev                            # platform lifecycle: mock registry, SIGTERM, cleanup
+tests/integration/nmos-versions.sh mxlgw:dev                        # ST 2110 node with IS-04 v1.2 / IS-05 v1.0+v1.1
 tests/integration/loopback.sh mxlgw:dev                             # kernel-backend media loopback
 tests/integration/late-flow.sh mxlgw:dev                            # receiver before its flow, mirror domain
 tests/integration/nmos-testing.sh mxlgw:dev                         # AMWA suites (both NMOS nodes)

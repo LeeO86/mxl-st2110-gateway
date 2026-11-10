@@ -32,6 +32,8 @@ function params(e) {
     .join("\n");
 }
 const hint = (e) => (e.tags?.["urn:x-nmos:tag:grouphint/v1.0"] || []).join(", ");
+// Raw-resource links use the highest API version the node offers ("v1.<digit>" strings sort as versions).
+const highest = (versions, fallback) => (versions?.length ? [...versions].sort().at(-1) : fallback);
 const nodeTitle = (n) => (n.node === "st2110" ? "ST 2110 node" : "MXL node");
 const registryText = (n) => {
   const r = n.registry || {};
@@ -64,10 +66,10 @@ const nodes = () => nmos.value?.nodes || (nmos.value ? [nmos.value] : []);
           </dd>
         </dl>
         <div class="note">
-          Raw resources: <a :href="`${n.href}x-nmos/node/v1.3/self`" target="_blank">self</a> ·
-          <a :href="`${n.href}x-nmos/node/v1.3/senders`" target="_blank">senders</a> ·
-          <a :href="`${n.href}x-nmos/node/v1.3/receivers`" target="_blank">receivers</a> ·
-          <a :href="`${n.href}x-nmos/connection/v1.2/single/`" target="_blank">connection</a>
+          Raw resources: <a :href="`${n.href}x-nmos/node/${highest(n.is04_versions, 'v1.3')}/self`" target="_blank">self</a> ·
+          <a :href="`${n.href}x-nmos/node/${highest(n.is04_versions, 'v1.3')}/senders`" target="_blank">senders</a> ·
+          <a :href="`${n.href}x-nmos/node/${highest(n.is04_versions, 'v1.3')}/receivers`" target="_blank">receivers</a> ·
+          <a :href="`${n.href}x-nmos/connection/${highest(n.is05_versions, 'v1.2')}/single/`" target="_blank">connection</a>
         </div>
       </div>
     </div>

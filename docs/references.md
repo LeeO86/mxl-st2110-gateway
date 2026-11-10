@@ -20,8 +20,8 @@ Pinned versions of the documents and sources the implementation was checked agai
 | Document | Version |
 |---|---|
 | AMWA BCP-007-03 NMOS With MXL | v1.0.0 (tag `v1.0.0`, commit `76763d56`): `NMOS-With-MXL.md`, `mxl_domain_definition.json`, `sender_transport_params_mxl.json`, `receiver_transport_params_mxl.json`, `constraints-schema-mxl.json` |
-| AMWA IS-04 Discovery and Registration | v1.3 |
-| AMWA IS-05 Device Connection Management | v1.1 and v1.2 (MXL transport only under v1.2) |
+| AMWA IS-04 Discovery and Registration | v1.3 (ST 2110 node: v1.0–v1.3 selectable, `node.is04_versions`) |
+| AMWA IS-05 Device Connection Management | v1.1 and v1.2 (MXL transport only under v1.2; ST 2110 node: v1.0–v1.2 selectable, `node.is05_versions`) |
 | AMWA BCP-002-01 Natural Grouping | v1.0 |
 | AMWA BCP-004-01 Receiver Capabilities | v1.0 |
 | SMPTE ST 2110-10 / -20 / -21 / -30 / -40 | 2022 / 2022 / 2022 / 2017 / 2023 |

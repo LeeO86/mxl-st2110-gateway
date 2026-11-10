@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // nmos-cpp node (IS-04 v1.3, IS-05 v1.1/v1.2, BCP-007-03) with the gateway routes on the same port (§7).
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <map>
@@ -446,6 +447,8 @@ namespace mxlgw::nmosnode
             j["host_address"] = _setup.hostAddress;
             j["href"] = std::string(_setup.config.node.tls.enabled ? "https://" : "http://") + _setup.hostAddress + ":" +
                         std::to_string(mxl() && _setup.config.node.publicPort ? *_setup.config.node.publicPort : httpPort()) + "/";
+            j["is04_versions"] = is04Versions();
+            j["is05_versions"] = is05Versions();
             j["registered"] = _registered.load();
             {
                 std::lock_guard const lock{_statusMutex};
@@ -506,6 +509,10 @@ namespace mxlgw::nmosnode
         int httpPort() const { return mxl() ? _setup.config.node.httpPort : _setup.config.node.st2110HttpPort(); }
         std::string nodeLabel() const { return mxl() ? _setup.config.node.label : _setup.config.node.st2110Label(); }
         config::Registry const& registry() const { return mxl() ? _setup.config.node.registry : _setup.config.node.st2110.registry; }
+        std::vector<std::string> is04Versions() const { return mxl() ? std::vector<std::string>{"v1.3"} : _setup.config.node.is04Versions; }
+        std::vector<std::string> is05Versions() const { return mxl() ? std::vector<std::string>{"v1.1", "v1.2"} : _setup.config.node.is05Versions; }
+        /// The lists hold only validated "v1.<digit>" strings, so the string order is the version order.
+        static std::string highestVersion(std::vector<std::string> const& versions) { return *std::max_element(versions.begin(), versions.end()); }
 
         void buildSettings()
         {
@@ -516,8 +523,23 @@ namespace mxlgw::nmosnode
             s[U("description")] = value::string(us(n.description));
             s[U("seed_id")] = value::string(_nodeId);
             s[U("logging_level")] = log::enabled(log::Level::Trace) ? slog::severities::more_info : log::enabled(log::Level::Debug) ? 0 : 10;
-            s[U("is04_versions")] = value_of({U("v1.3")});
-            s[U("is05_versions")] = value_of({U("v1.1"), U("v1.2")});
+            // node.is04_versions / node.is05_versions apply to the ST 2110 node only: MXL Senders/Receivers need
+            // IS-04 v1.3 and IS-05 v1.2, so the MXL node keeps its fixed versions.
+            // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/node_resources.cpp:552-557 (non-RTP Senders/Receivers
+            // have downgrade_version v1.3), connection_api.cpp:84-92 (urn:x-nmos:transport:mxl only from IS-05 v1.2).
+            // nmos-cpp derives the Node API and Connection API routes and the device's sr-ctrl controls from these.
+            // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/node_resources.cpp:48-66 (one control per IS-05 version).
+            auto const toArray = [](std::vector<std::string> const& versions)
+            {
+                value arr = value::array();
+                for (auto const& v : versions)
+                {
+                    web::json::push_back(arr, value::string(us(v)));
+                }
+                return arr;
+            };
+            s[U("is04_versions")] = toArray(is04Versions());
+            s[U("is05_versions")] = toArray(is05Versions());
             // §7.1: only node.http_port is opened; everything optional is disabled with a negative port.
             // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/server.cpp open_listeners skips ports < 0.
             for (auto const* key : {"events_port", "events_ws_port", "channelmapping_port", "configuration_port", "control_protocol_ws_port", "annotation_port",
@@ -571,7 +593,10 @@ namespace mxlgw::nmosnode
             {
                 s[U("registry_address")] = value::string(us(reg.address));
                 s[U("registration_port")] = reg.port;
-                s[U("registry_version")] = value::string(U("v1.3"));
+                // The highest offered IS-04 version (with DNS-SD nmos-cpp picks the highest common one itself).
+                // VERIFIED: sony/nmos-cpp@fe30384 Development/nmos/node_behaviour.cpp:245-255 (static registry URL from
+                // registry_version), mdns.cpp:588-589 (DNS-SD: highest api_ver shared with is04_versions).
+                s[U("registry_version")] = value::string(us(highestVersion(is04Versions())));
             }
             if (n.tls.enabled)
             {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include <doctest/doctest.h>
 
+#include <algorithm>
+
 #include "config/config.hpp"
 #include "config/env.hpp"
 #include "helpers.hpp"
@@ -273,4 +275,56 @@ TEST_CASE("configuration reference lists every environment variable")
             CHECK_MESSAGE(doc->find("`" + alias + "`") != std::string::npos, alias);
         }
     }
+}
+
+TEST_CASE("NMOS API versions of the ST 2110 node: default, file, environment, invalid values")
+{
+    auto const versionsOf = [](json const& file, std::map<std::string, std::string> const& vars = {})
+    {
+        auto const overlay = config::applyEnvironment(file, testutil::envFrom(vars));
+        REQUIRE(overlay.errors.empty());
+        return config::parseAndValidate(overlay.effective);
+    };
+    using List = std::vector<std::string>;
+
+    auto r = versionsOf(testutil::sampleConfig());
+    REQUIRE(r.ok());
+    CHECK(r.config->node.is04Versions == List{"v1.3"});
+    CHECK(r.config->node.is05Versions == List{"v1.1", "v1.2"});
+    auto const exported = config::toJson(*r.config);
+    CHECK(exported["node"]["is04_versions"] == json::array({"v1.3"}));
+    CHECK(exported["node"]["is05_versions"] == json::array({"v1.1", "v1.2"}));
+
+    auto file = testutil::sampleConfig();
+    file["node"]["is04_versions"] = {"v1.2", "v1.3"};
+    file["node"]["is05_versions"] = {"v1.0", "v1.1"};
+    r = versionsOf(file);
+    INFO(config::formatErrors(r.errors));
+    REQUIRE(r.ok());
+    CHECK(r.config->node.is04Versions == List{"v1.2", "v1.3"});
+    CHECK(r.config->node.is05Versions == List{"v1.0", "v1.1"});
+
+    // The environment wins over the file, as for every other setting.
+    r = versionsOf(file, {{"MXLGW_NODE_IS04_VERSIONS", "v1.0, v1.1,v1.2,v1.3"}, {"MXLGW_NODE_IS05_VERSIONS", "v1.0"}});
+    REQUIRE(r.ok());
+    CHECK(r.config->node.is04Versions == List{"v1.0", "v1.1", "v1.2", "v1.3"});
+    CHECK(r.config->node.is05Versions == List{"v1.0"});
+
+    // Unknown or empty lists are configuration errors (exit 78 at start).
+    auto const hasError = [](config::ParseResult const& bad, std::string const& pointer)
+    { return std::any_of(bad.errors.begin(), bad.errors.end(), [&](auto const& e) { return e.pointer == pointer; }); };
+    auto const rejected = [&](std::string const& variable, std::string const& value, std::string const& pointer)
+    {
+        auto const bad = versionsOf(testutil::sampleConfig(), {{variable, value}});
+        CHECK_FALSE(bad.ok());
+        CHECK_MESSAGE(hasError(bad, pointer), variable << "=" << value << ": " << config::formatErrors(bad.errors));
+    };
+    rejected("MXLGW_NODE_IS04_VERSIONS", "", "/node/is04_versions");
+    rejected("MXLGW_NODE_IS05_VERSIONS", " , ", "/node/is05_versions");
+    rejected("MXLGW_NODE_IS04_VERSIONS", "v1.4", "/node/is04_versions/0");
+    rejected("MXLGW_NODE_IS05_VERSIONS", "v1.1,v1.3", "/node/is05_versions/1"); // IS-05 has no v1.3
+    rejected("MXLGW_NODE_IS05_VERSIONS", "1.0", "/node/is05_versions/0");
+    file = testutil::sampleConfig();
+    file["node"]["is05_versions"] = json::array();
+    CHECK(hasError(config::parseAndValidate(file), "/node/is05_versions"));
 }

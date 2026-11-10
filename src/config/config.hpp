@@ -256,6 +256,9 @@ namespace mxlgw::config
         std::optional<std::string> hostAddress; // node.host_address or the deprecated node.public_address
         std::optional<int> publicPort;
         std::vector<std::string> managementAddresses;
+        // IS-04 / IS-05 API versions of the ST 2110 node (the MXL node always offers v1.3 / v1.1, v1.2).
+        std::vector<std::string> is04Versions{"v1.3"};
+        std::vector<std::string> is05Versions{"v1.1", "v1.2"};
         Registry registry;
         St2110Node st2110;
         Tls tls;
