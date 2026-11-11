@@ -8,7 +8,7 @@ Record of SPECIFICATION.md §19 (v1.0 acceptance) and the hardware items of the 
 |---|---|---|---|---|---|
 | _A_ | | E810 2×25G | | | |
 | _B_ | | E810 2×100G | | | |
-| lab-1 (iptv-web-lab-1) | 2× Xeon Gold 6136, 187 GB | none (BCM57412 2×10G without link, no E810); kernel backend on veth only | Ubuntu 24.04, 6.8.0-137, Docker 29.6.1 | none (chrony TAI offset 37 s) | nmos-cpp registry for other tests |
+| lab-1 | 2× Xeon Gold 6136, 187 GB | none (BCM57412 2×10G without link, no E810); kernel backend on veth only | Ubuntu 24.04, 6.8.0-137, Docker 29.6.1 | none (chrony TAI offset 37 s) | nmos-cpp registry for other tests |
 
 ## Automated in CI (no hardware)
 

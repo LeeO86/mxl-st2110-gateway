@@ -4,6 +4,8 @@ A containerised gateway between **SMPTE ST 2110** networks and **[MXL](https://g
 
 Part of [mxl-stack](https://github.com/LeeO86/mxl-stack), a collection of open-source MXL media functions with Docker Compose and Kubernetes examples.
 
+![mxl-st2110-gateway dashboard with an ingest and an egress group (mock NIC)](docs/images/web-ui.png)
+
 - **Ingest** (ST 2110 → MXL): ST 2110-20 video becomes real `video/v210` grains, ST 2110-30 audio `audio/float32`, ST 2110-40 ANC `video/smpte291` — with ST 2022-7 seamless protection on the input.
 - **Egress** (MXL → ST 2110): MXL flows are sent as paced ST 2110 streams on both 2022-7 legs, lip-synced per group.
 - Media I/O on an **Intel E810** through the [Media Transport Library](https://github.com/OpenVisualCloud/Media-Transport-Library) (DPDK); PTP runs inside MTL on both media ports with a BMCA across them.
