@@ -2,6 +2,10 @@
 
 A containerised gateway between **SMPTE ST 2110** networks and **[MXL](https://github.com/dmf-mxl/mxl)** shared-memory media exchange, controlled through **AMWA NMOS IS-04 / IS-05** and **BCP-007-03 (NMOS With MXL)**.
 
+Part of [mxl-stack](https://github.com/LeeO86/mxl-stack), a collection of open-source MXL media functions with Docker Compose and Kubernetes examples.
+
+![mxl-st2110-gateway dashboard with an ingest and an egress group (mock NIC)](docs/images/web-ui.png)
+
 - **Ingest** (ST 2110 → MXL): ST 2110-20 video becomes real `video/v210` grains, ST 2110-30 audio `audio/float32`, ST 2110-40 ANC `video/smpte291` — with ST 2022-7 seamless protection on the input.
 - **Egress** (MXL → ST 2110): MXL flows are sent as paced ST 2110 streams on both 2022-7 legs, lip-synced per group.
 - Media I/O on an **Intel E810** through the [Media Transport Library](https://github.com/OpenVisualCloud/Media-Transport-Library) (DPDK); PTP runs inside MTL on both media ports with a BMCA across them.
@@ -76,7 +80,7 @@ services:
     environment:
       NMOS_SEED: gw-studio1                    # every NMOS id and the output domain id derive from it
       NMOS_LABEL: GW-STUDIO1
-      NMOS_REGISTRY_ADDRESS: "10.10.0.5"       # static registry of the MXL node; unset = no registry
+      NMOS_REGISTRY_ADDRESS: "192.0.2.5"       # static registry of the MXL node; unset = no registry
       NMOS_REGISTRY_PORT: "3210"
       NMOS_PORT: "8080"                        # MXL node + UI/API/metrics/health; ST 2110 node on 8081
       MXL_DOMAIN_SCAN_PATH: /Volumes/mxl
